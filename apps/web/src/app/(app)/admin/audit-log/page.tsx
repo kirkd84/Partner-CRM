@@ -1,5 +1,5 @@
 import { Prisma, prisma } from '@partnerradar/db';
-import { Table, THead, TBody, TR, TH, TD } from '@partnerradar/ui';
+import { Table, THead, TBody, TR, TH } from '@partnerradar/ui';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { AuditFilters, AuditRow } from './AuditClient';
