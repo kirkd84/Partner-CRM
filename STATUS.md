@@ -43,6 +43,21 @@ Phase 2+3 baseline. Four Phase 4 scaffolds landed as atomic commits:
 6. Apollo enrichment on Partner promotion (blocked on `APOLLO_API_KEY`).
 7. Routing deep-links + per-stop driving order.
 
+**⚠️ DB migration note:**
+Auto-migrate was reverted in `7b46bc6` because the Dockerfile change
+was unstable. Commit `d803180` added new `ScrapeSource` enum values
+(NMLS, STATE_REALTY, STATE_INSURANCE, OVERTURE, CHAMBER,
+STORM_CLOUD). Run once against the Railway Postgres to pick them up:
+
+```
+pnpm --filter @partnerradar/db exec prisma db push
+```
+
+The existing /admin/scraped-leads page won't crash without this
+migration — it only filters on status (no new values there). But the
+NMLS ingestion CLI (`scripts/ingest-nmls.ts`) _will_ fail until the
+enum is synced, because it writes `source: 'NMLS'` to ScrapeJob.
+
 ---
 
 ## 2026-04-23 — ✅ Phase 2 + Phase 3 SHIPPED
