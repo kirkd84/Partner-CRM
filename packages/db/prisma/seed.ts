@@ -143,7 +143,12 @@ async function main() {
       lng: -105.0811,
       website: 'https://summitrealty.example.com',
       assigned: 'rep',
-      contact: { name: 'Jenna Callahan', title: 'Broker', phone: '+17203330001', email: 'jenna@summitrealty.example.com' },
+      contact: {
+        name: 'Jenna Callahan',
+        title: 'Broker',
+        phone: '+17203330001',
+        email: 'jenna@summitrealty.example.com',
+      },
     },
     {
       publicId: 'PR-1002',
@@ -158,7 +163,12 @@ async function main() {
       lng: -105.0835,
       notes: 'Big book of claims business — worth the drive.',
       assigned: 'rep',
-      contact: { name: 'Rob Mathes', title: 'Agent', phone: '+17203330002', email: 'rob@robmathes.example.com' },
+      contact: {
+        name: 'Rob Mathes',
+        title: 'Agent',
+        phone: '+17203330002',
+        email: 'rob@robmathes.example.com',
+      },
     },
     {
       publicId: 'PR-1003',
@@ -172,7 +182,12 @@ async function main() {
       lat: 39.7918,
       lng: -105.1061,
       assigned: 'rep',
-      contact: { name: 'Priya Santos', title: 'Portfolio Manager', phone: '+17203330003', email: 'priya@frpm.example.com' },
+      contact: {
+        name: 'Priya Santos',
+        title: 'Portfolio Manager',
+        phone: '+17203330003',
+        email: 'priya@frpm.example.com',
+      },
     },
     {
       publicId: 'PR-1004',
@@ -186,7 +201,12 @@ async function main() {
       lat: 39.67,
       lng: -105.0801,
       assigned: 'rep',
-      contact: { name: 'Kyle Styer', title: 'Owner', phone: '+17203330004', email: 'kyle@denverinspect.example.com' },
+      contact: {
+        name: 'Kyle Styer',
+        title: 'Owner',
+        phone: '+17203330004',
+        email: 'kyle@denverinspect.example.com',
+      },
     },
     {
       publicId: 'PR-1005',
@@ -201,7 +221,12 @@ async function main() {
       lng: -105.0854,
       notes: 'Promising — owner grew up in Wheat Ridge.',
       assigned: 'rep',
-      contact: { name: 'Maya Pham', title: 'Senior Broker', phone: '+17203330005', email: 'maya@evergreen-mtg.example.com' },
+      contact: {
+        name: 'Maya Pham',
+        title: 'Senior Broker',
+        phone: '+17203330005',
+        email: 'maya@evergreen-mtg.example.com',
+      },
     },
     {
       publicId: 'PR-1006',
@@ -215,7 +240,12 @@ async function main() {
       lat: 39.7405,
       lng: -105.0071,
       assigned: 'manager',
-      contact: { name: 'Daniel Oduya', title: 'Principal Adjuster', phone: '+17203330006', email: 'daniel@copubadjust.example.com' },
+      contact: {
+        name: 'Daniel Oduya',
+        title: 'Principal Adjuster',
+        phone: '+17203330006',
+        email: 'daniel@copubadjust.example.com',
+      },
     },
     {
       publicId: 'PR-1007',
@@ -230,7 +260,12 @@ async function main() {
       lng: -104.9705,
       notes: 'Referred 3 storm claims last month.',
       assigned: 'rep',
-      contact: { name: 'Harper Lin', title: 'Ops Manager', phone: '+17203330007', email: 'harper@milehighhvac.example.com' },
+      contact: {
+        name: 'Harper Lin',
+        title: 'Ops Manager',
+        phone: '+17203330007',
+        email: 'harper@milehighhvac.example.com',
+      },
     },
     {
       publicId: 'PR-1008',
@@ -244,7 +279,12 @@ async function main() {
       lat: 38.8423,
       lng: -104.8194,
       assigned: 'unassigned',
-      contact: { name: 'Sam Wentz', title: 'Team Lead', phone: '+17193330008', email: 'sam@peakviewre.example.com' },
+      contact: {
+        name: 'Sam Wentz',
+        title: 'Team Lead',
+        phone: '+17193330008',
+        email: 'sam@peakviewre.example.com',
+      },
     },
     {
       publicId: 'PR-1009',
@@ -258,7 +298,12 @@ async function main() {
       lat: 38.789,
       lng: -104.8462,
       assigned: 'unassigned',
-      contact: { name: 'Alex Carver', title: 'Director of Operations', phone: '+17193330009', email: 'alex@broadmoorpg.example.com' },
+      contact: {
+        name: 'Alex Carver',
+        title: 'Director of Operations',
+        phone: '+17193330009',
+        email: 'alex@broadmoorpg.example.com',
+      },
     },
     {
       publicId: 'PR-1010',
@@ -273,7 +318,12 @@ async function main() {
       lng: -104.9779,
       notes: 'Paused — they started an in-house roofing crew.',
       assigned: 'manager',
-      contact: { name: 'Jordan Reeves', title: 'GM', phone: '+17203330010', email: 'jordan@rmrp.example.com' },
+      contact: {
+        name: 'Jordan Reeves',
+        title: 'GM',
+        phone: '+17203330010',
+        email: 'jordan@rmrp.example.com',
+      },
     },
   ];
 
@@ -360,9 +410,41 @@ async function main() {
   // ── Feature flags ─────────────────────────────────────────
   await prisma.featureFlag.createMany({
     data: [
-      { key: 'ai_autonomous_sending', description: 'Gate for Phase 7 autonomous AI sends', enabled: false },
+      {
+        key: 'ai_autonomous_sending',
+        description: 'Gate for Phase 7 autonomous AI sends',
+        enabled: false,
+      },
       { key: 'scrape_jobs_enabled', description: 'Gate for Phase 8 scraping', enabled: false },
-      { key: 'hit_list_enabled', description: 'Gate for Phase 9 route optimization', enabled: true },
+      {
+        key: 'hit_list_enabled',
+        description: 'Gate for Phase 9 route optimization',
+        enabled: true,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  // ─── Appointment types (Storm-parity catalog) ───────────────────
+  // Pulled from Kirk's Storm screenshot; these are the 14 types his
+  // reps already know. Reminder timings are sensible defaults; Phase 7
+  // honors them via Resend/push. Admins can tweak per-type in the UI.
+  await prisma.appointmentType.createMany({
+    data: [
+      { name: 'Initial Inspection', durationMinutes: 60, reminderMinutesBefore: 60 },
+      { name: 'Adjuster meeting', durationMinutes: 60, reminderMinutesBefore: 60 },
+      { name: 'Reinspection meeting', durationMinutes: 60, reminderMinutesBefore: 60 },
+      { name: 'Measurements', durationMinutes: 45, reminderMinutesBefore: 30 },
+      { name: 'Photo Appointment', durationMinutes: 30, reminderMinutesBefore: 30 },
+      { name: 'Loss Sheet Review', durationMinutes: 30, reminderMinutesBefore: 60 },
+      { name: 'Manager meeting', durationMinutes: 30, reminderMinutesBefore: 30 },
+      { name: 'Material Pickup', durationMinutes: 30, reminderMinutesBefore: 30 },
+      { name: 'Roofing Material Delivery', durationMinutes: 60, reminderMinutesBefore: 120 },
+      { name: 'Permit Inspection', durationMinutes: 30, reminderMinutesBefore: 60 },
+      { name: 'Work Order Repair', durationMinutes: 120, reminderMinutesBefore: 60 },
+      { name: 'First Insurance Check Pickup', durationMinutes: 30, reminderMinutesBefore: 60 },
+      { name: 'Deductible check pickup', durationMinutes: 30, reminderMinutesBefore: 60 },
+      { name: 'Final check pickup', durationMinutes: 30, reminderMinutesBefore: 60 },
     ],
     skipDuplicates: true,
   });

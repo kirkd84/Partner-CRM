@@ -1,12 +1,26 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, MapPinned, ScrollText, Settings2, Sparkles, Inbox } from 'lucide-react';
+import {
+  Users,
+  MapPinned,
+  ScrollText,
+  Settings2,
+  Sparkles,
+  Inbox,
+  CalendarClock,
+} from 'lucide-react';
 
 const ITEMS = [
   { href: '/admin', label: 'Overview', icon: Settings2, adminOnly: false },
   { href: '/admin/users', label: 'Users', icon: Users, adminOnly: false },
   { href: '/admin/markets', label: 'Markets', icon: MapPinned, adminOnly: false },
+  {
+    href: '/admin/appointment-types',
+    label: 'Appointment types',
+    icon: CalendarClock,
+    adminOnly: false,
+  },
   { href: '/admin/scraped-leads', label: 'Prospect queue', icon: Inbox, adminOnly: false },
   { href: '/admin/audit-log', label: 'Audit log', icon: ScrollText, adminOnly: true },
 ];

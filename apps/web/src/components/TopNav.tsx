@@ -2,12 +2,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
+import { BrandLogo } from '@/components/BrandLogo';
 import {
   Bell,
   Calendar,
   ChevronDown,
   Clock,
-  Handshake,
   Map as MapIcon,
   Plus,
   Radar as RadarIcon,
@@ -52,11 +52,9 @@ export function TopNav() {
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-black/30 bg-nav-bg px-4">
-      {/* Logo — red handshake on grey chip, Storm-style brand block */}
+      {/* Logo — 2-tone handshake glyph, no background chip, larger */}
       <Link href="/radar" className="flex items-center gap-2 font-semibold text-white">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-200 text-red-600 ring-1 ring-inset ring-gray-300">
-          <Handshake className="h-4 w-4" strokeWidth={2.5} />
-        </div>
+        <BrandLogo className="h-8 w-auto" />
         <span className="hidden text-[14px] sm:inline">{t.brandName}</span>
       </Link>
 

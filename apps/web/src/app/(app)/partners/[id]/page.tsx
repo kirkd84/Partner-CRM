@@ -92,6 +92,23 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
     );
   }
 
+  // Admin-managed appointment type catalog — gracefully degrades to an
+  // empty list (which the NewAppointmentButton falls back to a text input
+  // for) if the AppointmentType table hasn't been pushed yet.
+  let appointmentTypes: Array<{ id: string; name: string; durationMinutes: number }> = [];
+  try {
+    appointmentTypes = await prisma.appointmentType.findMany({
+      where: { archivedAt: null },
+      select: { id: true, name: true, durationMinutes: true },
+      orderBy: { name: 'asc' },
+    });
+  } catch (err) {
+    console.warn(
+      '[partner-detail] AppointmentType table not available yet — run prisma:push.',
+      err,
+    );
+  }
+
   // Permission gate
   const inMarket = session.user.markets.includes(partner.marketId);
   const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
@@ -191,7 +208,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
       {/* ── Body ───────────────────────────────────────────────────── */}
       <div className="flex-1 space-y-4 overflow-y-auto p-5">
         {/* Outer 2-col grid: LEFT = all data cards, RIGHT = full-height Comments rail */}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(440px,560px)]">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(540px,680px)]">
           <div className="space-y-4">
             {/* Top row — Contacts | Info */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
@@ -405,7 +422,12 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                     ))}
                   </ul>
                 )}
-                {canEdit && <NewAppointmentButton partnerId={partner.id} />}
+                {canEdit && (
+                  <NewAppointmentButton
+                    partnerId={partner.id}
+                    appointmentTypes={appointmentTypes}
+                  />
+                )}
               </Card>
 
               <Card

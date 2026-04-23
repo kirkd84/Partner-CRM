@@ -171,7 +171,7 @@ function CommentComposer({ partnerId }: { partnerId: string }) {
           <ChannelButton
             active={channel === 'email'}
             onClick={() => setChannel('email')}
-            title="Email (send from PartnerRadar — Phase 7 sends for real)"
+            title="Email (drafts save now — Phase 7 sends via Resend)"
             icon={Mail}
           />
           <ChannelButton

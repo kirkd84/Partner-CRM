@@ -275,11 +275,23 @@ export function NewTaskButton({ partnerId }: { partnerId: string }) {
   );
 }
 
-/** "+ New appointment" dashed button + drawer — matches Storm's drawer */
-export function NewAppointmentButton({ partnerId }: { partnerId: string }) {
+interface AppointmentTypeOption {
+  id: string;
+  name: string;
+  durationMinutes: number;
+}
+
+/** "+ New appointment" dashed button + drawer — admin-managed types. */
+export function NewAppointmentButton({
+  partnerId,
+  appointmentTypes = [],
+}: {
+  partnerId: string;
+  appointmentTypes?: AppointmentTypeOption[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState('Meet & Greet');
+  const [typeName, setTypeName] = useState(appointmentTypes[0]?.name ?? 'Meeting');
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
   const [startsAt, setStartsAt] = useState('');
@@ -287,12 +299,29 @@ export function NewAppointmentButton({ partnerId }: { partnerId: string }) {
   const [notes, setNotes] = useState('');
   const [isPending, startTransition] = useTransition();
 
+  /**
+   * When the user picks a start time, auto-fill the end time using the
+   * selected type's durationMinutes. Only if endsAt is currently empty
+   * or still matches an earlier auto-fill.
+   */
+  function autoFillEndFrom(start: string) {
+    const selectedType = appointmentTypes.find((t) => t.name === typeName);
+    if (!selectedType || !start) return;
+    const startDate = new Date(start);
+    if (isNaN(startDate.getTime())) return;
+    const end = new Date(startDate.getTime() + selectedType.durationMinutes * 60_000);
+    // datetime-local format: YYYY-MM-DDThh:mm
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const local = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
+    setEndsAt(local);
+  }
+
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !startsAt || !endsAt) return;
     startTransition(async () => {
       await createAppointment(partnerId, {
-        type,
+        type: typeName,
         title,
         location,
         startsAt: new Date(startsAt).toISOString(),
@@ -339,17 +368,36 @@ export function NewAppointmentButton({ partnerId }: { partnerId: string }) {
       >
         <form onSubmit={onSubmit} className="space-y-3">
           <Field label="Type">
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-            >
-              <option>Meet &amp; Greet</option>
-              <option>Pitch</option>
-              <option>Follow-up</option>
-              <option>Coffee</option>
-              <option>Other</option>
-            </select>
+            {appointmentTypes.length > 0 ? (
+              <select
+                value={typeName}
+                onChange={(e) => setTypeName(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                {appointmentTypes.map((t) => (
+                  <option key={t.id} value={t.name}>
+                    {t.name} ·{' '}
+                    {t.durationMinutes < 60
+                      ? `${t.durationMinutes}m`
+                      : `${Math.round(t.durationMinutes / 60)}h`}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={typeName}
+                onChange={(e) => setTypeName(e.target.value)}
+                placeholder="e.g. Pitch, Follow-up, Coffee"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            )}
+            {appointmentTypes.length === 0 && (
+              <p className="mt-1 text-[11px] text-gray-400">
+                No admin-managed types configured. An admin can set these up at Admin → Appointment
+                types.
+              </p>
+            )}
           </Field>
           <Field label="Title" required>
             <input
@@ -375,7 +423,11 @@ export function NewAppointmentButton({ partnerId }: { partnerId: string }) {
               <input
                 type="datetime-local"
                 value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
+                onChange={(e) => {
+                  setStartsAt(e.target.value);
+                  // auto-fill end if it's empty using the type's duration
+                  if (!endsAt) autoFillEndFrom(e.target.value);
+                }}
                 required
                 className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
               />

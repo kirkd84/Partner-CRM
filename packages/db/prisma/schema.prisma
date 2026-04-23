@@ -65,6 +65,7 @@ model User {
   appointments           Appointment[]
   events                 Event[]
   expenses               Expense[]
+  appointmentTypeAlerts  AppointmentType[]    @relation("AppointmentTypeAlertUser")
   hitLists               HitList[]
   notifications          Notification[]
   calendarConnections    CalendarConnection[]
@@ -299,7 +300,11 @@ model Appointment {
   partner            Partner?          @relation(fields: [partnerId], references: [id], onDelete: Cascade)
   userId             String
   user               User              @relation(fields: [userId], references: [id])
-  type               String // "Meet & Greet" / "Pitch" / "Follow-up" / "Coffee" / "Other"
+  // `type` stays as free-text for legacy + custom-one-off appointments.
+  // `appointmentTypeId` is the preferred path now — admin-managed catalog.
+  type               String
+  appointmentTypeId  String?
+  appointmentType    AppointmentType?  @relation(fields: [appointmentTypeId], references: [id])
   title              String
   location           String?
   startsAt           DateTime
@@ -314,6 +319,7 @@ model Appointment {
 
   @@index([userId, startsAt])
   @@index([partnerId])
+  @@index([appointmentTypeId])
 }
 
 enum AppointmentSource {
@@ -321,6 +327,30 @@ enum AppointmentSource {
   GOOGLE
   APPLE
   STORM
+}
+
+/// Admin-managed catalog of appointment types (Storm-parity).
+/// Reps pick from this list when creating an appointment; each type
+/// carries defaults for duration, reminder timing, and a fallback
+/// alert user if the appointment is left unassigned.
+model AppointmentType {
+  id                    String        @id @default(cuid())
+  name                  String        @unique
+  durationMinutes       Int           @default(30)
+  /// null = no automatic reminder; otherwise minutes before startsAt.
+  reminderMinutesBefore Int?
+  /// When true and the appointment has no assignee, notify `alertUser`.
+  alertIfUnassigned     Boolean       @default(false)
+  alertUserId           String?
+  alertUser             User?         @relation("AppointmentTypeAlertUser", fields: [alertUserId], references: [id])
+  /// Soft-delete — archived types don't show in the new-appointment picker
+  /// but existing Appointments keep their reference.
+  archivedAt            DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  appointments          Appointment[]
+
+  @@index([archivedAt])
 }
 
 // Partner-level networking events — Chamber mixers, broker opens,
