@@ -1,10 +1,10 @@
 # ────────────────────────────────────────────────
 # PartnerRadar web — Railway production image
 # Multi-stage build: deps → build → runtime
-# Standalone Next.js output keeps the final image lean.
+# Next standalone output handles node_modules tracing; we just copy the
+# finished bundle + the Prisma engine into runtime.
 # ────────────────────────────────────────────────
 FROM node:22-alpine AS base
-# Prisma 5 on Alpine needs libssl + libc. Also handy: tini for signal handling.
 RUN apk add --no-cache libc6-compat openssl openssl-dev && \
     corepack enable && \
     corepack prepare pnpm@9.15.0 --activate
@@ -28,14 +28,10 @@ FROM base AS build
 COPY --from=deps /app ./
 COPY . .
 RUN pnpm --filter @partnerradar/db prisma:generate
-# During prerender, Next collects data from server components — those
-# touch Prisma. Skip prerender of DB-backed pages by forcing dynamic.
-# (Our Radar/Partners pages already `export const dynamic = 'force-dynamic'`.)
 RUN pnpm --filter web build
 
 # ── runtime: minimal image with standalone output ──
 FROM node:22-alpine AS runtime
-# libssl + libc compat are needed at runtime too so the Prisma engine loads.
 RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 ENV NODE_ENV=production
@@ -44,14 +40,15 @@ ENV PORT=3000
 # Non-root user
 RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
 
+# Next.js standalone output already traces node_modules (we configured
+# outputFileTracingIncludes in next.config.ts to catch the Prisma engine
+# binary which the static tracer can't see via its dynamic require).
+# In a monorepo the standalone tree preserves the apps/web path.
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
-# Prisma client + schema for runtime migrations
-COPY --from=build --chown=nextjs:nodejs /app/packages/db ./packages/db
-COPY --from=build --chown=nextjs:nodejs /app/node_modules/.pnpm/@prisma ./node_modules/.pnpm/@prisma
-COPY --from=build --chown=nextjs:nodejs /app/node_modules/.pnpm/prisma ./node_modules/.pnpm/prisma
 
 USER nextjs
 EXPOSE 3000
+# Server entrypoint lives at apps/web/server.js inside the standalone tree.
 CMD ["node", "apps/web/server.js"]
