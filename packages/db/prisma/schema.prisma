@@ -63,6 +63,7 @@ model User {
   activities             Activity[]
   tasks                  Task[]
   appointments           Appointment[]
+  events                 Event[]
   expenses               Expense[]
   hitLists               HitList[]
   notifications          Notification[]
@@ -148,6 +149,7 @@ model Partner {
   activities          Activity[]
   tasks               Task[]
   appointments        Appointment[]
+  events              Event[]
   expenses            Expense[]
   files               File[]
   revenueAttributions RevenueAttribution[]
@@ -319,6 +321,27 @@ enum AppointmentSource {
   GOOGLE
   APPLE
   STORM
+}
+
+// Partner-level networking events — Chamber mixers, broker opens,
+// lunch-and-learns, conferences. Distinct from 1:1 Appointments: these
+// are the "third places" where we meet partners in groups.
+model Event {
+  id        String    @id @default(cuid())
+  partnerId String
+  partner   Partner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  type      String    // "Chamber" / "Broker open" / "Lunch-and-learn" / "Mixer" / "Conference" / "Other"
+  title     String
+  location  String?
+  startsAt  DateTime
+  endsAt    DateTime?
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now())
+
+  @@index([partnerId, startsAt])
+  @@index([userId])
 }
 
 model Expense {

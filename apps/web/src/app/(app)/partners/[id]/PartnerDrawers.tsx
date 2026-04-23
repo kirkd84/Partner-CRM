@@ -10,6 +10,7 @@ import {
   createTask,
   completeTask,
   createAppointment,
+  createEvent,
 } from './actions';
 
 /**
@@ -400,6 +401,133 @@ export function NewAppointmentButton({ partnerId }: { partnerId: string }) {
           <p className="text-[11px] text-gray-400">
             Google / Apple / Storm calendar sync arrives in Phase 4.
           </p>
+        </form>
+      </DrawerModal>
+    </>
+  );
+}
+
+/** "+ New event" dashed button + drawer — group networking events */
+export function NewEventButton({ partnerId }: { partnerId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [type, setType] = useState('Chamber');
+  const [title, setTitle] = useState('');
+  const [location, setLocation] = useState('');
+  const [startsAt, setStartsAt] = useState('');
+  const [endsAt, setEndsAt] = useState('');
+  const [notes, setNotes] = useState('');
+  const [isPending, startTransition] = useTransition();
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !startsAt) return;
+    startTransition(async () => {
+      await createEvent(partnerId, {
+        type,
+        title,
+        location,
+        startsAt: new Date(startsAt).toISOString(),
+        endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
+        notes,
+      });
+      setTitle('');
+      setLocation('');
+      setStartsAt('');
+      setEndsAt('');
+      setNotes('');
+      setOpen(false);
+      router.refresh();
+    });
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-blue-500 bg-transparent px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+      >
+        <Plus className="h-3.5 w-3.5" /> New event
+      </button>
+      <DrawerModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="New event"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={onSubmit} loading={isPending} disabled={!title.trim() || !startsAt}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={onSubmit} className="space-y-3">
+          <Field label="Type">
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option>Chamber</option>
+              <option>Broker open</option>
+              <option>Lunch-and-learn</option>
+              <option>Mixer</option>
+              <option>Conference</option>
+              <option>Other</option>
+            </select>
+          </Field>
+          <Field label="Title" required>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus
+              required
+              placeholder="Wheat Ridge Chamber mixer"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </Field>
+          <Field label="Location">
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Rocky Mountain Tap & Grill"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Starts" required>
+              <input
+                type="datetime-local"
+                value={startsAt}
+                onChange={(e) => setStartsAt(e.target.value)}
+                required
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+            <Field label="Ends">
+              <input
+                type="datetime-local"
+                value={endsAt}
+                onChange={(e) => setEndsAt(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+          </div>
+          <Field label="Notes">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Who should attend, talking points, follow-ups…"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </Field>
         </form>
       </DrawerModal>
     </>

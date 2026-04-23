@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@partnerradar/db';
-import { Card, Pill, Avatar, ActivityItem, EmptyState, cn } from '@partnerradar/ui';
+import { Card, Pill, Avatar, EmptyState, cn } from '@partnerradar/ui';
 import { PARTNER_TYPE_LABELS, STAGE_COLORS, STAGE_LABELS } from '@partnerradar/types';
+import { stormClient, type StormProject, type PartnerStats } from '@partnerradar/integrations';
 import { auth } from '@/auth';
 import {
   ArrowLeft,
@@ -14,15 +15,20 @@ import {
   Calendar,
   ListTodo,
   Paperclip,
+  PartyPopper,
 } from 'lucide-react';
-import { PartnerActionBar, CommentComposer } from './PartnerDetailClient';
+import { PartnerActionBar } from './PartnerDetailClient';
 import {
   NewContactButton,
   NewTaskButton,
   NewAppointmentButton,
+  NewEventButton,
   ContactRowActions,
   TaskCheckbox,
 } from './PartnerDrawers';
+import { ActivityRail } from './ActivityRail';
+import { PartnerStatsRow } from './PartnerStatsRow';
+import { LinkedProjectsTable } from './LinkedProjectsTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,11 +49,13 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
         },
       },
       tasks: {
-        where: { completedAt: null },
-        orderBy: { dueAt: 'asc' },
+        orderBy: [{ completedAt: 'asc' }, { dueAt: 'asc' }],
       },
       appointments: {
-        orderBy: { startsAt: 'asc' },
+        orderBy: { startsAt: 'desc' },
+      },
+      events: {
+        orderBy: { startsAt: 'desc' },
       },
       assignedRep: { select: { id: true, name: true, avatarColor: true } },
       market: true,
@@ -64,6 +72,20 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
   const canEdit = inMarket && (isManagerPlus || isOwner);
   const canActivate = isManagerPlus && !partner.archivedAt;
 
+  // Storm Cloud — only load when the partner has been activated. Run in
+  // parallel, tolerate failures silently so the rest of the page renders.
+  let stormProjects: StormProject[] = [];
+  let stormStats: PartnerStats | null = null;
+  if (partner.stormCloudId) {
+    const client = stormClient();
+    const [projectsRes, statsRes] = await Promise.allSettled([
+      client.listProjects(partner.stormCloudId),
+      client.getPartnerStats(partner.stormCloudId),
+    ]);
+    if (projectsRes.status === 'fulfilled') stormProjects = projectsRes.value;
+    if (statsRes.status === 'fulfilled') stormStats = statsRes.value;
+  }
+
   const primaryContact = partner.contacts.find((c) => c.isPrimary) ?? partner.contacts[0];
   const primaryEmail =
     (primaryContact?.emails as Array<{ address: string; primary?: boolean }> | null)?.find(
@@ -77,6 +99,38 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
   const addressLine = [partner.address, partner.city, partner.state, partner.zip]
     .filter(Boolean)
     .join(', ');
+
+  const openTaskCount = partner.tasks.filter((t) => !t.completedAt).length;
+  const now = Date.now();
+  const upcomingAppointmentCount = partner.appointments.filter(
+    (a) => new Date(a.startsAt).getTime() >= now,
+  ).length;
+
+  // Serialize Date → ISO strings for the client rail
+  const activitiesSer = partner.activities.map((a) => ({
+    id: a.id,
+    type: a.type,
+    body: a.body,
+    createdAt: a.createdAt.toISOString(),
+    user: { id: a.user.id, name: a.user.name, avatarColor: a.user.avatarColor },
+  }));
+  const appointmentsSer = partner.appointments.map((a) => ({
+    id: a.id,
+    type: a.type,
+    title: a.title,
+    location: a.location,
+    startsAt: a.startsAt.toISOString(),
+    endsAt: a.endsAt.toISOString(),
+    notes: a.notes,
+  }));
+  const tasksSer = partner.tasks.map((t) => ({
+    id: t.id,
+    title: t.title,
+    description: t.description,
+    dueAt: t.dueAt ? t.dueAt.toISOString() : null,
+    priority: t.priority,
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+  }));
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -121,9 +175,10 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      {/* ── Body: 3-column top, then bottom split ────────────────────── */}
-      <div className="flex-1 overflow-y-auto p-5">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr_360px]">
+      {/* ── Body ───────────────────────────────────────────────────── */}
+      <div className="flex-1 space-y-4 overflow-y-auto p-5">
+        {/* Top row — Contacts | Info | Activity (much bigger rail, Storm parity) */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(420px,560px)]">
           {/* Contacts */}
           <Card
             title={
@@ -251,74 +306,65 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             </dl>
           </Card>
 
-          {/* Activity */}
-          <Card
-            title={
-              <span className="flex items-center gap-2">
-                Activity
-                <span className="text-[10.5px] uppercase tracking-label text-gray-400">
-                  {partner.activities.length}
-                </span>
-              </span>
-            }
-          >
-            {canEdit && <CommentComposer partnerId={partner.id} canComment={canEdit} />}
-            <div className="mt-3">
-              {partner.activities.length === 0 ? (
-                <EmptyState title="No activity yet" description="Post the first comment above." />
-              ) : (
-                partner.activities.map((a) => (
-                  <ActivityItem
-                    key={a.id}
-                    userName={a.user.name}
-                    userColor={a.user.avatarColor}
-                    verb={verbFor(a.type)}
-                    body={a.body ?? undefined}
-                    timestamp={timeago(a.createdAt)}
-                  />
-                ))
-              )}
-            </div>
-          </Card>
+          {/* Activity — tabbed, bigger rail */}
+          <ActivityRail
+            partnerId={partner.id}
+            canEdit={canEdit}
+            activities={activitiesSer}
+            appointments={appointmentsSer}
+            tasks={tasksSer}
+            openTaskCount={openTaskCount}
+            upcomingAppointmentCount={upcomingAppointmentCount}
+          />
         </div>
 
-        {/* ── Bottom split: tasks + appointments + files ────────────── */}
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Partner performance — MTD / YTD / Last year / Lifetime */}
+        <PartnerStatsRow stats={stormStats} />
+
+        {/* 2×2 grid — Tasks / Appointments / Events / Files */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Card
             title={
               <span className="flex items-center gap-2">
                 <ListTodo className="h-4 w-4 text-gray-500" />
                 Tasks
+                {openTaskCount > 0 && (
+                  <span className="text-[10.5px] uppercase tracking-label text-gray-400">
+                    {openTaskCount} open
+                  </span>
+                )}
               </span>
             }
           >
-            {partner.tasks.length === 0 ? (
+            {partner.tasks.filter((t) => !t.completedAt).length === 0 ? (
               <EmptyState title="Nothing due" description="Tasks you create land here." />
             ) : (
               <ul className="divide-y divide-gray-100">
-                {partner.tasks.map((task) => (
-                  <li key={task.id} className="flex items-start gap-2 py-2">
-                    {canEdit && <TaskCheckbox taskId={task.id} />}
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-gray-900">{task.title}</div>
-                      {task.dueAt && (
-                        <div className="text-xs text-gray-500">
-                          Due {new Date(task.dueAt).toLocaleDateString()}
-                        </div>
+                {partner.tasks
+                  .filter((t) => !t.completedAt)
+                  .map((task) => (
+                    <li key={task.id} className="flex items-start gap-2 py-2">
+                      {canEdit && <TaskCheckbox taskId={task.id} />}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-gray-900">{task.title}</div>
+                        {task.dueAt && (
+                          <div className="text-xs text-gray-500">
+                            Due {new Date(task.dueAt).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                      {task.priority === 'HIGH' && (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-amber-700">
+                          High
+                        </span>
                       )}
-                    </div>
-                    {task.priority === 'HIGH' && (
-                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-amber-700">
-                        High
-                      </span>
-                    )}
-                    {task.priority === 'URGENT' && (
-                      <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-red-700">
-                        Urgent
-                      </span>
-                    )}
-                  </li>
-                ))}
+                      {task.priority === 'URGENT' && (
+                        <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-red-700">
+                          Urgent
+                        </span>
+                      )}
+                    </li>
+                  ))}
               </ul>
             )}
             {canEdit && <NewTaskButton partnerId={partner.id} />}
@@ -333,10 +379,10 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             }
           >
             {partner.appointments.length === 0 ? (
-              <EmptyState title="No appointments" description="Calendar sync lands in Phase 4." />
+              <EmptyState title="No appointments" description="1:1 meetings land here." />
             ) : (
               <ul className="divide-y divide-gray-100">
-                {partner.appointments.map((a) => (
+                {partner.appointments.slice(0, 5).map((a) => (
                   <li key={a.id} className="py-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm font-medium text-gray-900">{a.title}</span>
@@ -358,6 +404,43 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
           <Card
             title={
               <span className="flex items-center gap-2">
+                <PartyPopper className="h-4 w-4 text-gray-500" />
+                Events
+                <span className="text-[10.5px] uppercase tracking-label text-gray-400">
+                  Chamber · Broker opens · Mixers
+                </span>
+              </span>
+            }
+          >
+            {partner.events.length === 0 ? (
+              <EmptyState
+                title="No events yet"
+                description="Chamber mixers, broker opens, lunch-and-learns."
+              />
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {partner.events.slice(0, 5).map((e) => (
+                  <li key={e.id} className="py-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-900">{e.title}</span>
+                      <span className="rounded bg-pink-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-pink-700">
+                        {e.type}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {new Date(e.startsAt).toLocaleString()}
+                      {e.location && ` · ${e.location}`}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && <NewEventButton partnerId={partner.id} />}
+          </Card>
+
+          <Card
+            title={
+              <span className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-gray-500" />
                 Files
               </span>
@@ -369,6 +452,9 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             />
           </Card>
         </div>
+
+        {/* Linked projects — Storm-style roster at the bottom */}
+        <LinkedProjectsTable projects={stormProjects} activated={Boolean(partner.stormCloudId)} />
       </div>
     </div>
   );
@@ -389,39 +475,4 @@ function InfoRow({
       <dd className="py-1 text-gray-900">{children ?? value}</dd>
     </>
   );
-}
-
-function verbFor(type: string): string {
-  switch (type) {
-    case 'COMMENT':
-      return 'commented';
-    case 'CALL':
-      return 'logged a call';
-    case 'SMS_OUT':
-      return 'sent SMS';
-    case 'EMAIL_OUT':
-      return 'emailed';
-    case 'VISIT':
-      return 'visited';
-    case 'MEETING_HELD':
-      return 'met';
-    case 'STAGE_CHANGE':
-      return 'moved stage';
-    case 'ACTIVATION':
-      return 'activated';
-    case 'CLAIM':
-      return 'claimed';
-    case 'ASSIGNMENT':
-      return 'assigned';
-    default:
-      return 'updated';
-  }
-}
-
-function timeago(date: Date): string {
-  const s = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
 }

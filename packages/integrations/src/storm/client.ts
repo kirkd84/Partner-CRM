@@ -6,7 +6,10 @@ class RealStormCloudClient implements StormCloudClient {
   // TODO(phase5): endpoint URLs, auth header shape, idempotency keys,
   // retry w/ exponential backoff (3 attempts), circuit breaker (opens after
   // 5 consecutive failures for 60s), rate limit 10 req/sec.
-  constructor(private readonly baseUrl: string, private readonly apiKey: string) {}
+  constructor(
+    private readonly baseUrl: string,
+    private readonly apiKey: string,
+  ) {}
 
   createReferralPartner(): never {
     throw new Error(
@@ -17,6 +20,12 @@ class RealStormCloudClient implements StormCloudClient {
     throw new Error('not implemented');
   }
   getAppointments(): never {
+    throw new Error('not implemented');
+  }
+  listProjects(): never {
+    throw new Error('not implemented');
+  }
+  getPartnerStats(): never {
     throw new Error('not implemented');
   }
   getUser(): never {

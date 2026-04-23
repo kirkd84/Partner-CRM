@@ -223,6 +223,37 @@ export async function createAppointment(
   revalidatePath(`/partners/${partnerId}`);
 }
 
+// ─── Events (Chamber mixers, lunch-and-learns, broker opens) ─────────
+
+export async function createEvent(
+  partnerId: string,
+  input: {
+    type: string;
+    title: string;
+    location?: string;
+    startsAt: string; // ISO
+    endsAt?: string; // ISO
+    notes?: string;
+  },
+) {
+  const { session } = await assertCanEdit(partnerId);
+  if (!input.title.trim()) throw new Error('Title required');
+
+  await prisma.event.create({
+    data: {
+      partnerId,
+      userId: session.user.id,
+      type: input.type,
+      title: input.title.trim(),
+      location: input.location?.trim() || null,
+      startsAt: new Date(input.startsAt),
+      endsAt: input.endsAt ? new Date(input.endsAt) : null,
+      notes: input.notes?.trim() || null,
+    },
+  });
+  revalidatePath(`/partners/${partnerId}`);
+}
+
 // ─── Comments (existing) ─────────────────────────────────────────────
 
 export async function addComment(partnerId: string, body: string) {
