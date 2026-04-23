@@ -3,7 +3,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Pill, cn } from '@partnerradar/ui';
 import { STAGE_COLORS, STAGE_LABELS, ORDERED_STAGES, type PartnerStage } from '@partnerradar/types';
-import { ChevronDown, Sparkles, Loader2 } from 'lucide-react';
+import { ChevronDown, Sparkles } from 'lucide-react';
 import { BalloonCelebration } from '@/components/BalloonCelebration';
 import { changeStage, activatePartner, addComment } from './actions';
 

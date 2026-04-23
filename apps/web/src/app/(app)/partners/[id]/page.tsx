@@ -16,6 +16,13 @@ import {
   Paperclip,
 } from 'lucide-react';
 import { PartnerActionBar, CommentComposer } from './PartnerDetailClient';
+import {
+  NewContactButton,
+  NewTaskButton,
+  NewAppointmentButton,
+  ContactRowActions,
+  TaskCheckbox,
+} from './PartnerDrawers';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,7 +136,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             {partner.contacts.length === 0 ? (
               <EmptyState
                 title="No contacts yet"
-                description="+ New contact coming next iteration."
+                description="Add a broker, owner, or decision maker."
               />
             ) : (
               <ul className="space-y-3">
@@ -139,7 +146,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                   const phones =
                     (c.phones as Array<{ number: string; label?: string }> | null) ?? [];
                   return (
-                    <li key={c.id} className="flex items-start gap-2">
+                    <li key={c.id} className="group flex items-start gap-2">
                       <Avatar name={c.name} size="md" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
@@ -172,14 +179,21 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                           </a>
                         )}
                       </div>
+                      {canEdit && (
+                        <div className="opacity-0 transition group-hover:opacity-100">
+                          <ContactRowActions
+                            partnerId={partner.id}
+                            contactId={c.id}
+                            isPrimary={c.isPrimary}
+                          />
+                        </div>
+                      )}
                     </li>
                   );
                 })}
               </ul>
             )}
-            <p className="mt-3 border-t border-gray-100 pt-3 text-[10.5px] uppercase tracking-label text-gray-400">
-              Contacts CRUD arrives in the Phase 2 follow-up
-            </p>
+            {canEdit && <NewContactButton partnerId={partner.id} />}
           </Card>
 
           {/* Info */}
@@ -283,17 +297,31 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             ) : (
               <ul className="divide-y divide-gray-100">
                 {partner.tasks.map((task) => (
-                  <li key={task.id} className="py-2">
-                    <div className="text-sm font-medium text-gray-900">{task.title}</div>
-                    {task.dueAt && (
-                      <div className="text-xs text-gray-500">
-                        Due {new Date(task.dueAt).toLocaleDateString()}
-                      </div>
+                  <li key={task.id} className="flex items-start gap-2 py-2">
+                    {canEdit && <TaskCheckbox taskId={task.id} />}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-900">{task.title}</div>
+                      {task.dueAt && (
+                        <div className="text-xs text-gray-500">
+                          Due {new Date(task.dueAt).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                    {task.priority === 'HIGH' && (
+                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-amber-700">
+                        High
+                      </span>
+                    )}
+                    {task.priority === 'URGENT' && (
+                      <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-red-700">
+                        Urgent
+                      </span>
                     )}
                   </li>
                 ))}
               </ul>
             )}
+            {canEdit && <NewTaskButton partnerId={partner.id} />}
           </Card>
 
           <Card
@@ -310,7 +338,12 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
               <ul className="divide-y divide-gray-100">
                 {partner.appointments.map((a) => (
                   <li key={a.id} className="py-2">
-                    <div className="text-sm font-medium text-gray-900">{a.title}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-900">{a.title}</span>
+                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-blue-700">
+                        {a.type}
+                      </span>
+                    </div>
                     <div className="text-xs text-gray-500">
                       {new Date(a.startsAt).toLocaleString()}
                       {a.location && ` · ${a.location}`}
@@ -319,6 +352,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                 ))}
               </ul>
             )}
+            {canEdit && <NewAppointmentButton partnerId={partner.id} />}
           </Card>
 
           <Card

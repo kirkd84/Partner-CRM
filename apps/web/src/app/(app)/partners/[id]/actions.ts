@@ -74,6 +74,157 @@ export async function changeStage(partnerId: string, stage: PartnerStage, note?:
   revalidatePath('/partners');
 }
 
+// ─── Contacts ────────────────────────────────────────────────────────
+
+export async function createContact(
+  partnerId: string,
+  input: {
+    name: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    isPrimary?: boolean;
+  },
+) {
+  const { session } = await assertCanEdit(partnerId);
+  if (!input.name.trim()) throw new Error('Name required');
+
+  const phones = input.phone ? [{ number: input.phone, label: 'work', primary: true }] : [];
+  const emails = input.email ? [{ address: input.email, label: 'work', primary: true }] : [];
+
+  await prisma.$transaction(async (tx) => {
+    // If marking as primary, unset other primaries
+    if (input.isPrimary) {
+      await tx.contact.updateMany({
+        where: { partnerId },
+        data: { isPrimary: false },
+      });
+    }
+    await tx.contact.create({
+      data: {
+        partnerId,
+        name: input.name.trim(),
+        title: input.title?.trim() || null,
+        phones,
+        emails,
+        isPrimary: input.isPrimary ?? false,
+      },
+    });
+    await tx.activity.create({
+      data: {
+        partnerId,
+        userId: session.user.id,
+        type: 'COMMENT',
+        body: `Added contact: ${input.name.trim()}${input.title ? ` · ${input.title.trim()}` : ''}`,
+      },
+    });
+  });
+
+  revalidatePath(`/partners/${partnerId}`);
+}
+
+export async function setPrimaryContact(partnerId: string, contactId: string) {
+  await assertCanEdit(partnerId);
+  await prisma.$transaction([
+    prisma.contact.updateMany({
+      where: { partnerId, NOT: { id: contactId } },
+      data: { isPrimary: false },
+    }),
+    prisma.contact.update({
+      where: { id: contactId },
+      data: { isPrimary: true },
+    }),
+  ]);
+  revalidatePath(`/partners/${partnerId}`);
+}
+
+export async function deleteContact(partnerId: string, contactId: string) {
+  await assertCanEdit(partnerId);
+  await prisma.contact.delete({ where: { id: contactId } });
+  revalidatePath(`/partners/${partnerId}`);
+}
+
+// ─── Tasks ───────────────────────────────────────────────────────────
+
+export async function createTask(
+  partnerId: string,
+  input: {
+    title: string;
+    description?: string;
+    dueAt?: string; // ISO
+    priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  },
+) {
+  const { session } = await assertCanEdit(partnerId);
+  if (!input.title.trim()) throw new Error('Title required');
+
+  await prisma.task.create({
+    data: {
+      partnerId,
+      assigneeId: session.user.id,
+      title: input.title.trim(),
+      description: input.description?.trim() || null,
+      dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      priority: input.priority ?? 'NORMAL',
+    },
+  });
+  revalidatePath(`/partners/${partnerId}`);
+  revalidatePath('/radar');
+}
+
+export async function completeTask(taskId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { partnerId: true, assigneeId: true },
+  });
+  if (!task) throw new Error('NOT_FOUND');
+  // Only the assignee or a manager+ can complete
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (task.assigneeId !== session.user.id && !isManagerPlus) throw new Error('FORBIDDEN');
+
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { completedAt: new Date() },
+  });
+  if (task.partnerId) revalidatePath(`/partners/${task.partnerId}`);
+  revalidatePath('/radar');
+}
+
+// ─── Appointments ────────────────────────────────────────────────────
+
+export async function createAppointment(
+  partnerId: string,
+  input: {
+    type: string;
+    title: string;
+    location?: string;
+    startsAt: string; // ISO
+    endsAt: string; // ISO
+    notes?: string;
+  },
+) {
+  const { session } = await assertCanEdit(partnerId);
+  if (!input.title.trim()) throw new Error('Title required');
+
+  await prisma.appointment.create({
+    data: {
+      partnerId,
+      userId: session.user.id,
+      type: input.type,
+      title: input.title.trim(),
+      location: input.location?.trim() || null,
+      startsAt: new Date(input.startsAt),
+      endsAt: new Date(input.endsAt),
+      notes: input.notes?.trim() || null,
+    },
+  });
+  revalidatePath(`/partners/${partnerId}`);
+}
+
+// ─── Comments (existing) ─────────────────────────────────────────────
+
 export async function addComment(partnerId: string, body: string) {
   if (!body.trim()) return;
   const { session } = await assertCanEdit(partnerId);
