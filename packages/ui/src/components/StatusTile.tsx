@@ -1,4 +1,4 @@
-import { type HTMLAttributes, forwardRef } from 'react';
+import { type HTMLAttributes, type ReactNode, forwardRef } from 'react';
 import { cn } from '../lib/cn';
 
 export interface StatusTileProps extends HTMLAttributes<HTMLAnchorElement> {
@@ -44,18 +44,21 @@ export const StatusTile = forwardRef<HTMLAnchorElement, StatusTileProps>(
 StatusTile.displayName = 'StatusTile';
 
 /**
- * Secondary stat card — used in the 30-day stats row beneath the pipeline
- * tiles. Smaller count, no colored accent by default.
+ * Secondary stat card — used in the 30-day stats row.
+ * Supports an optional icon (render a Lucide icon component via `icon`
+ * prop) and delta with up/down/flat trend coloring.
  */
 export interface StatCardProps extends HTMLAttributes<HTMLDivElement> {
   label: string;
   value: string | number;
+  icon?: ReactNode;
+  iconColor?: string;
   delta?: string;
   deltaTrend?: 'up' | 'down' | 'flat';
 }
 
 export const StatCard = forwardRef<HTMLDivElement, StatCardProps>(
-  ({ label, value, delta, deltaTrend, className, ...props }, ref) => (
+  ({ label, value, icon, iconColor, delta, deltaTrend, className, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
@@ -64,8 +67,22 @@ export const StatCard = forwardRef<HTMLDivElement, StatCardProps>(
       )}
       {...props}
     >
-      <div className="text-[10.5px] font-semibold uppercase tracking-label text-gray-500">
-        {label}
+      <div className="flex items-center justify-between">
+        <div className="text-[10.5px] font-semibold uppercase tracking-label text-gray-500">
+          {label}
+        </div>
+        {icon && (
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-md"
+            style={{
+              backgroundColor: iconColor ? `${iconColor}1f` : 'rgb(243 244 246)',
+              color: iconColor ?? '#6b7280',
+            }}
+            aria-hidden
+          >
+            {icon}
+          </div>
+        )}
       </div>
       <div className="mt-1 text-stat-sm tabular-nums leading-none text-gray-900">{value}</div>
       {delta ? (

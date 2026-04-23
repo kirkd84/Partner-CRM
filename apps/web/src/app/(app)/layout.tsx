@@ -2,9 +2,9 @@ import { TopNav } from '@/components/TopNav';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex flex-col bg-canvas">
+    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
       <TopNav />
-      <main className="flex-1">{children}</main>
+      <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }

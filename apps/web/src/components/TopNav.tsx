@@ -7,6 +7,7 @@ import {
   Calendar,
   ChevronDown,
   Clock,
+  Handshake,
   Plus,
   Radar as RadarIcon,
   Search,
@@ -49,10 +50,10 @@ export function TopNav() {
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-black/30 bg-nav-bg px-4">
-      {/* Logo */}
+      {/* Logo — Handshake icon captures "referral partners" concept */}
       <Link href="/radar" className="flex items-center gap-2 font-semibold text-white">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-[11px] font-bold tracking-tight text-white">
-          PR
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-white">
+          <Handshake className="h-4 w-4" strokeWidth={2.25} />
         </div>
         <span className="hidden text-[14px] sm:inline">{t.brandName}</span>
       </Link>
