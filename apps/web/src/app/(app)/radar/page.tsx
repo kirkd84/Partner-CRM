@@ -101,7 +101,7 @@ export default async function RadarPage() {
   const pipelineTotal = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="grid h-[calc(100vh-52px)] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid h-[calc(100vh-52px)] grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
       {/* ── Left column: full-width sections stacked ──────────────────── */}
       <div className="space-y-5 overflow-y-auto border-r border-card-border p-5">
         {/* Header */}
