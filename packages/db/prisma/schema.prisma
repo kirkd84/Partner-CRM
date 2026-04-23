@@ -1,0 +1,644 @@
+// PartnerRadar — Prisma schema
+// Source of truth: SPEC.md §4. Do NOT rename fields without updating SPEC.md.
+// Additions to indexes/fields for query performance are allowed and should
+// be commented inline.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Core ────────────────────────────────────────────────────────────
+
+model Market {
+  id              String        @id @default(cuid())
+  name            String
+  timezone        String        @default("America/Denver")
+  defaultCenter   Json // { lat: number, lng: number }
+  scrapeRadius    Int           @default(25) // miles
+  physicalAddress String? // for CAN-SPAM email footer
+  createdAt       DateTime      @default(now())
+  users           UserMarket[]
+  partners        Partner[]
+  hitLists        HitList[]
+  scrapeJobs      ScrapeJob[]
+  budgetRules     BudgetRule[]
+  scrapedLeads    ScrapedLead[]
+}
+
+model User {
+  id                     String               @id @default(cuid())
+  email                  String               @unique
+  passwordHash           String?
+  stormCloudUserId       String?              @unique // SSO future
+  name                   String
+  role                   Role                 @default(REP)
+  avatarColor            String
+  homeAddress            String?
+  officeAddress          String?
+  defaultStart           RouteStartMode       @default(OFFICE)
+  preferredMapApp        MapApp               @default(GOOGLE)
+  aiToneTrainingStatus   ToneTrainingStatus   @default(NOT_STARTED)
+  aiToneProfile          Json?
+  aiAutonomousApprovals  Int                  @default(0)
+  aiAutonomousMode       Boolean              @default(false)
+  aiAutonomousEnabledAt  DateTime?
+  monthlyRevenueCached   Decimal?             @db.Money
+  monthlyRevenueCachedAt DateTime?
+  soundEffects           Boolean              @default(true)
+  notificationPrefs      Json                 @default("{}")
+  active                 Boolean              @default(true)
+  tokenVersion           Int                  @default(0) // bump to invalidate JWTs
+  lastLoginAt            DateTime?
+  createdAt              DateTime             @default(now())
+  markets                UserMarket[]
+  assignedPartners       Partner[]            @relation("AssignedRep")
+  activities             Activity[]
+  tasks                  Task[]
+  appointments           Appointment[]
+  expenses               Expense[]
+  hitLists               HitList[]
+  notifications          Notification[]
+  calendarConnections    CalendarConnection[]
+  toneSamples            AIToneSample[]
+
+  @@index([email])
+}
+
+enum Role {
+  REP
+  MANAGER
+  ADMIN
+}
+
+enum RouteStartMode {
+  HOME
+  OFFICE
+  LAST_STOP
+  CUSTOM
+}
+
+enum MapApp {
+  GOOGLE
+  APPLE
+}
+
+enum ToneTrainingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  CALIBRATED
+  REP_APPROVED
+}
+
+model UserMarket {
+  userId    String
+  marketId  String
+  isPrimary Boolean @default(false)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  market    Market  @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  @@id([userId, marketId])
+  @@index([marketId])
+}
+
+// ─── Partners ────────────────────────────────────────────────────────
+
+model Partner {
+  id                  String               @id @default(cuid())
+  publicId            String               @unique // "PR-1234" for display
+  marketId            String
+  market              Market               @relation(fields: [marketId], references: [id])
+  companyName         String
+  partnerType         PartnerType
+  customType          String? // when partnerType = OTHER
+  address             String?
+  addressLine2        String?
+  city                String?
+  state               String?
+  zip                 String?
+  lat                 Float?
+  lng                 Float?
+  website             String?
+  notes               String?              @db.Text
+  stage               PartnerStage         @default(NEW_LEAD)
+  stageChangedAt      DateTime             @default(now())
+  source              LeadSource           @default(MANUAL)
+  sourceDetails       Json?
+  assignedRepId       String?
+  assignedRep         User?                @relation("AssignedRep", fields: [assignedRepId], references: [id])
+  smsConsent          Boolean              @default(false)
+  smsConsentAt        DateTime?
+  smsConsentBy        String?
+  smsConsentMethod    SmsConsentMethod?
+  emailUnsubscribedAt DateTime?
+  stormCloudId        String?              @unique
+  activatedAt         DateTime?
+  activatedBy         String?
+  archivedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  contacts            Contact[]
+  activities          Activity[]
+  tasks               Task[]
+  appointments        Appointment[]
+  expenses            Expense[]
+  files               File[]
+  revenueAttributions RevenueAttribution[]
+  hitListStops        HitListStop[]
+  tags                PartnerTag[]
+
+  @@index([marketId, stage])
+  @@index([assignedRepId])
+  @@index([archivedAt])
+  @@index([stormCloudId])
+  @@index([stageChangedAt])
+}
+
+enum PartnerType {
+  REALTOR
+  PROPERTY_MANAGER
+  INSURANCE_AGENT
+  MORTGAGE_BROKER
+  HOME_INSPECTOR
+  PUBLIC_ADJUSTER
+  REAL_ESTATE_ATTORNEY
+  HVAC
+  PLUMBING
+  ELECTRICAL
+  LANDSCAPER
+  GENERAL_CONTRACTOR
+  RESTORATION_MITIGATION
+  FACILITIES_MANAGER_COMMERCIAL
+  OTHER
+}
+
+enum PartnerStage {
+  NEW_LEAD
+  RESEARCHED
+  INITIAL_CONTACT
+  MEETING_SCHEDULED
+  IN_CONVERSATION
+  PROPOSAL_SENT
+  ACTIVATED
+  INACTIVE
+}
+
+enum LeadSource {
+  MANUAL
+  SCRAPED
+  REFERRAL
+  IMPORT
+}
+
+enum SmsConsentMethod {
+  VERBAL
+  WRITTEN
+  EMAIL
+  IN_PERSON
+}
+
+model PartnerTag {
+  id        String  @id @default(cuid())
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  tag       String
+
+  @@unique([partnerId, tag])
+  @@index([partnerId, tag])
+}
+
+model Contact {
+  id           String   @id @default(cuid())
+  partnerId    String
+  partner      Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  name         String
+  title        String?
+  phones       Json // [{ number, label, primary }]
+  emails       Json // [{ address, label, primary, unsubscribedAt }]
+  isPrimary    Boolean  @default(false)
+  smsConsent   Boolean  @default(false)
+  emailConsent Boolean  @default(true)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([partnerId])
+}
+
+// ─── Activities / Tasks / Appointments / Expenses ────────────────────
+
+model Activity {
+  id        String       @id @default(cuid())
+  partnerId String
+  partner   Partner      @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  type      ActivityType
+  body      String?      @db.Text
+  metadata  Json?
+  createdAt DateTime     @default(now())
+
+  @@index([partnerId, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+enum ActivityType {
+  COMMENT
+  CALL
+  SMS_OUT
+  SMS_IN
+  EMAIL_OUT
+  EMAIL_IN
+  VISIT
+  MEETING_HELD
+  STAGE_CHANGE
+  AI_DRAFT_REQUESTED
+  AI_MESSAGE_SENT_AUTO
+  AI_MESSAGE_APPROVED
+  ACTIVATION
+  ASSIGNMENT
+  CLAIM
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  partnerId   String?
+  partner     Partner?     @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  assigneeId  String
+  assignee    User         @relation(fields: [assigneeId], references: [id])
+  title       String
+  description String?      @db.Text
+  dueAt       DateTime?
+  completedAt DateTime?
+  priority    TaskPriority @default(NORMAL)
+  createdAt   DateTime     @default(now())
+
+  @@index([assigneeId, completedAt])
+  @@index([partnerId])
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model Appointment {
+  id                 String            @id @default(cuid())
+  partnerId          String?
+  partner            Partner?          @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User              @relation(fields: [userId], references: [id])
+  type               String // "Meet & Greet" / "Pitch" / "Follow-up" / "Coffee" / "Other"
+  title              String
+  location           String?
+  startsAt           DateTime
+  endsAt             DateTime
+  allDay             Boolean           @default(false)
+  notes              String?           @db.Text
+  externalCalendarId String?
+  externalProvider   String? // "google" / "apple" / "storm"
+  source             AppointmentSource @default(INTERNAL)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([userId, startsAt])
+  @@index([partnerId])
+}
+
+enum AppointmentSource {
+  INTERNAL
+  GOOGLE
+  APPLE
+  STORM
+}
+
+model Expense {
+  id             String          @id @default(cuid())
+  partnerId      String
+  partner        Partner         @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User            @relation(fields: [userId], references: [id])
+  amount         Decimal         @db.Money
+  description    String
+  category       String // "Meal" / "Gift" / "Event" / "Travel" / "Other"
+  occurredOn     DateTime
+  receiptFileId  String?
+  approvalStatus ExpenseApproval @default(PENDING)
+  approvedBy     String?
+  approvedAt     DateTime?
+  rejectedReason String?
+  createdAt      DateTime        @default(now())
+
+  @@index([partnerId])
+  @@index([userId, approvalStatus])
+  @@index([approvalStatus])
+}
+
+enum ExpenseApproval {
+  AUTO_APPROVED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model BudgetRule {
+  id                            String   @id @default(cuid())
+  marketId                      String?
+  market                        Market?  @relation(fields: [marketId], references: [id])
+  repId                         String? // null = default rule
+  autoApproveUnder              Decimal  @default(25) @db.Money
+  managerApproveUnder           Decimal  @default(100) @db.Money
+  monthlyBudgetPercentOfRevenue Decimal? // e.g., 0.05 = 5%
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+}
+
+// ─── Revenue (synced from Storm) ─────────────────────────────────────
+
+model RevenueAttribution {
+  id                  String   @id @default(cuid())
+  partnerId           String
+  partner             Partner  @relation(fields: [partnerId], references: [id])
+  stormCloudProjectId String   @unique
+  amount              Decimal  @db.Money
+  earnedOn            DateTime
+  syncedAt            DateTime @default(now())
+
+  @@index([partnerId])
+  @@index([earnedOn])
+}
+
+// ─── Hit List ────────────────────────────────────────────────────────
+
+model HitList {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id])
+  marketId      String
+  market        Market         @relation(fields: [marketId], references: [id])
+  date          DateTime // local midnight
+  startAddress  String
+  startLat      Float
+  startLng      Float
+  startMode     RouteStartMode
+  totalDistance Float? // miles
+  totalDuration Int? // minutes
+  generatedAt   DateTime       @default(now())
+  stops         HitListStop[]
+
+  @@unique([userId, date])
+}
+
+model HitListStop {
+  id                 String    @id @default(cuid())
+  hitListId          String
+  hitList            HitList   @relation(fields: [hitListId], references: [id], onDelete: Cascade)
+  partnerId          String
+  partner            Partner   @relation(fields: [partnerId], references: [id])
+  order              Int
+  plannedArrival     DateTime
+  plannedDurationMin Int       @default(20)
+  isAppointmentLock  Boolean   @default(false)
+  completedAt        DateTime?
+  skippedAt          DateTime?
+  skipReason         String?
+  notes              String?
+
+  @@index([hitListId, order])
+}
+
+// ─── Scraping ────────────────────────────────────────────────────────
+
+model ScrapeJob {
+  id        String        @id @default(cuid())
+  marketId  String
+  market    Market        @relation(fields: [marketId], references: [id])
+  source    ScrapeSource
+  name      String
+  filters   Json // { partnerTypes:[], radiusMi, keywords:[], selectorMap? }
+  cadence   String // cron expression
+  active    Boolean       @default(true)
+  lastRunAt DateTime?
+  nextRunAt DateTime?
+  createdBy String
+  createdAt DateTime      @default(now())
+  leads     ScrapedLead[]
+
+  @@index([marketId, active])
+}
+
+enum ScrapeSource {
+  GOOGLE_PLACES
+  YELP
+  LICENSING_BOARD
+  CUSTOM_URL
+}
+
+model ScrapedLead {
+  id                String            @id @default(cuid())
+  scrapeJobId       String
+  scrapeJob         ScrapeJob         @relation(fields: [scrapeJobId], references: [id], onDelete: Cascade)
+  marketId          String
+  market            Market            @relation(fields: [marketId], references: [id])
+  rawPayload        Json
+  normalized        Json // { companyName, partnerType, address, contacts[], ... }
+  dedupHash         String
+  status            ScrapedLeadStatus @default(PENDING)
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  approvedPartnerId String?           @unique
+  rejectedReason    String?
+  createdAt         DateTime          @default(now())
+
+  @@index([marketId, status])
+  @@index([dedupHash])
+}
+
+enum ScrapedLeadStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DUPLICATE
+}
+
+// ─── Files ───────────────────────────────────────────────────────────
+
+model File {
+  id         String      @id @default(cuid())
+  partnerId  String?
+  partner    Partner?    @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  folderId   String?
+  folder     FileFolder? @relation(fields: [folderId], references: [id])
+  uploaderId String
+  name       String
+  mimeType   String
+  sizeBytes  Int
+  storageKey String // R2 object key
+  transcript String?     @db.Text // for voice notes
+  virusScan  String      @default("pending") // pending / clean / infected
+  createdAt  DateTime    @default(now())
+
+  @@index([partnerId])
+  @@index([folderId])
+}
+
+model FileFolder {
+  id        String       @id @default(cuid())
+  partnerId String
+  name      String
+  parentId  String?
+  parent    FileFolder?  @relation("ChildFolders", fields: [parentId], references: [id])
+  children  FileFolder[] @relation("ChildFolders")
+  files     File[]
+  createdAt DateTime     @default(now())
+
+  @@index([partnerId])
+}
+
+// ─── Calendar ────────────────────────────────────────────────────────
+
+model CalendarConnection {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider              String // "google" / "apple" / "storm"
+  externalAccountId     String
+  accessTokenEncrypted  String?
+  refreshTokenEncrypted String?
+  calendarIds           String[]
+  lastSyncedAt          DateTime?
+  syncStatus            String    @default("ok") // "ok" / "error" / "disconnected"
+  syncError             String?
+
+  @@index([userId])
+}
+
+model CalendarEventCache {
+  id              String   @id @default(cuid())
+  userId          String
+  connectionId    String
+  externalEventId String
+  provider        String
+  title           String
+  location        String?
+  startsAt        DateTime
+  endsAt          DateTime
+  lastSeenAt      DateTime @default(now())
+
+  @@unique([userId, externalEventId, provider])
+  @@index([userId, startsAt])
+}
+
+// ─── Notifications ───────────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+// ─── Audit ───────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  entityType String
+  entityId   String
+  action     String
+  diff       Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// ─── Messaging templates & automation ────────────────────────────────
+
+model MessageTemplate {
+  id        String        @id @default(cuid())
+  kind      MessageKind
+  name      String
+  subject   String? // email only
+  body      String        @db.Text
+  stage     PartnerStage?
+  createdBy String
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([kind, active])
+}
+
+enum MessageKind {
+  EMAIL
+  SMS
+}
+
+model AutomationCadence {
+  id           String       @id @default(cuid())
+  name         String
+  triggerStage PartnerStage
+  steps        Json // [{ offsetHours, kind, templateId, requireApprovalBelowThreshold }]
+  active       Boolean      @default(true)
+  createdBy    String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([triggerStage, active])
+}
+
+model CadenceExecution {
+  id          String    @id @default(cuid())
+  cadenceId   String
+  partnerId   String
+  stepIndex   Int
+  scheduledAt DateTime
+  executedAt  DateTime?
+  outcome     String? // "sent" / "blocked_consent" / "blocked_quiet_hours" / "blocked_rate_limit" / "failed"
+
+  @@index([partnerId, cadenceId])
+  @@index([scheduledAt, executedAt])
+}
+
+model AIToneSample {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      MessageKind
+  sample    String      @db.Text
+  channel   String? // "email" / "sms" / "both"
+  createdAt DateTime    @default(now())
+
+  @@index([userId])
+}
+
+// ─── Feature flags (SPEC §7.10) ──────────────────────────────────────
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  description String?
+  enabled     Boolean  @default(false)
+  /// Per-user / per-market overrides stored as JSON: { users: string[], markets: string[] }
+  overrides   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
