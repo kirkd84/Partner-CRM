@@ -10,8 +10,9 @@ export interface StatusTileProps extends HTMLAttributes<HTMLAnchorElement> {
 }
 
 /**
- * Pipeline stage tile — matches Storm Cloud's "Projects Statuses" widget.
- * Dense layout; stat number colored per stage; subtle lift on hover.
+ * Pipeline stage tile — Storm "Projects Statuses" mirror.
+ * The big count number is the visual anchor; label sits small and
+ * uppercase above it, optional $ amount in small gray below.
  */
 export const StatusTile = forwardRef<HTMLAnchorElement, StatusTileProps>(
   ({ label, count, amount, color, href = '#', className, ...props }, ref) => (
@@ -19,18 +20,24 @@ export const StatusTile = forwardRef<HTMLAnchorElement, StatusTileProps>(
       ref={ref}
       href={href}
       className={cn(
-        'block rounded-md border border-card-border bg-card px-4 py-3.5 shadow-card',
-        'transition hover:-translate-y-0.5 hover:shadow-card-hover',
+        'group block rounded-md border border-card-border bg-card px-4 py-4 shadow-card',
+        'transition-all duration-150 hover:-translate-y-0.5 hover:shadow-card-hover',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         className,
       )}
       {...props}
     >
-      <div className="text-[11px] font-medium uppercase tracking-label text-gray-500">{label}</div>
-      <div className="mt-1.5 text-stat font-semibold leading-none" style={{ color }}>
+      <div className="text-[11px] font-semibold uppercase tracking-label text-gray-500 group-hover:text-gray-700">
+        {label}
+      </div>
+      <div className="mt-1 text-stat leading-none" style={{ color }}>
         {count}
       </div>
-      {amount && <div className="mt-1.5 text-xs text-gray-500">{amount}</div>}
+      {amount ? (
+        <div className="mt-1.5 text-[11px] tabular-nums text-gray-500">{amount}</div>
+      ) : (
+        <div className="mt-1.5 h-[11px]" aria-hidden />
+      )}
     </a>
   ),
 );
