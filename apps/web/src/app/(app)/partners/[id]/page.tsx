@@ -54,14 +54,43 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
       appointments: {
         orderBy: { startsAt: 'desc' },
       },
-      events: {
-        orderBy: { startsAt: 'desc' },
-      },
       assignedRep: { select: { id: true, name: true, avatarColor: true } },
       market: true,
     },
   });
   if (!partner) notFound();
+
+  // Events live in their own table that ships with the Storm-parity
+  // redesign. Fetch defensively so a pre-migration DB doesn't 500 the
+  // page — just shows the empty-state card instead.
+  type EventRow = {
+    id: string;
+    type: string;
+    title: string;
+    location: string | null;
+    startsAt: Date;
+    endsAt: Date | null;
+  };
+  let events: EventRow[] = [];
+  try {
+    events = await prisma.event.findMany({
+      where: { partnerId: partner.id },
+      orderBy: { startsAt: 'desc' },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        location: true,
+        startsAt: true,
+        endsAt: true,
+      },
+    });
+  } catch (err) {
+    console.warn(
+      '[partner-detail] Event table not available yet — run `pnpm --filter @partnerradar/db prisma:push` to enable. Falling back to empty list.',
+      err,
+    );
+  }
 
   // Permission gate
   const inMarket = session.user.markets.includes(partner.marketId);
@@ -412,14 +441,14 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
               </span>
             }
           >
-            {partner.events.length === 0 ? (
+            {events.length === 0 ? (
               <EmptyState
                 title="No events yet"
                 description="Chamber mixers, broker opens, lunch-and-learns."
               />
             ) : (
               <ul className="divide-y divide-gray-100">
-                {partner.events.slice(0, 5).map((e) => (
+                {events.slice(0, 5).map((e) => (
                   <li key={e.id} className="py-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm font-medium text-gray-900">{e.title}</span>
