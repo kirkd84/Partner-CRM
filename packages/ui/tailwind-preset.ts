@@ -30,9 +30,11 @@ const preset: Partial<Config> = {
         'card-hover': '0 2px 4px 0 rgb(17 24 39 / 0.06), 0 1px 2px 0 rgb(17 24 39 / 0.04)',
       },
       fontSize: {
-        // Stat/count numbers on Radar tiles — the visual anchor of the
-        // page. Storm uses ~38px. Full letter-spacing tight for impact.
-        stat: ['38px', { lineHeight: '1', fontWeight: '600', letterSpacing: '-0.02em' }],
+        // Stat/count numbers on Radar tiles — the visual anchor. Storm
+        // uses big confident numbers (~44px) — these carry the page.
+        stat: ['44px', { lineHeight: '1', fontWeight: '600', letterSpacing: '-0.025em' }],
+        // Smaller stat for secondary widgets (30-day stats, etc.)
+        'stat-sm': ['26px', { lineHeight: '1', fontWeight: '600', letterSpacing: '-0.015em' }],
       },
       letterSpacing: {
         // Uppercase labels (tile headers, table headers) get a touch of

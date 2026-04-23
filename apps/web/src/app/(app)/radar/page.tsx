@@ -1,6 +1,6 @@
 import { Prisma, prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
-import { Card, StatusTile, ActivityItem } from '@partnerradar/ui';
+import { Card, StatusTile, StatCard, ActivityItem } from '@partnerradar/ui';
 import { ORDERED_STAGES, STAGE_COLORS, STAGE_LABELS } from '@partnerradar/types';
 import { tenant } from '@partnerradar/config';
 
@@ -19,53 +19,95 @@ export default async function RadarPage() {
     partnerWhere.OR = [{ assignedRepId: session.user.id }, { assignedRepId: null }];
   }
 
-  const [byStage, activities, tasks] = await Promise.all([
-    prisma.partner.groupBy({
-      by: ['stage'],
-      where: partnerWhere,
-      _count: { stage: true },
-    }),
-    prisma.activity.findMany({
-      where: { partner: partnerWhere },
-      orderBy: { createdAt: 'desc' },
-      take: 15,
-      include: {
-        user: { select: { name: true, avatarColor: true } },
-        partner: { select: { id: true, publicId: true, companyName: true } },
-      },
-    }),
-    prisma.task.findMany({
-      where: { assigneeId: session.user.id, completedAt: null },
-      orderBy: { dueAt: 'asc' },
-      take: 6,
-    }),
-  ]);
+  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [byStage, activities, tasks, contactsMade, meetingsHeld, activated30d, stageChanges30d] =
+    await Promise.all([
+      prisma.partner.groupBy({
+        by: ['stage'],
+        where: partnerWhere,
+        _count: { stage: true },
+      }),
+      prisma.activity.findMany({
+        where: { partner: partnerWhere },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        include: {
+          user: { select: { name: true, avatarColor: true } },
+          partner: { select: { id: true, publicId: true, companyName: true } },
+        },
+      }),
+      prisma.task.findMany({
+        where: { assigneeId: session.user.id, completedAt: null },
+        orderBy: { dueAt: 'asc' },
+        take: 6,
+      }),
+      // 30-day stats
+      prisma.activity.count({
+        where: {
+          partner: partnerWhere,
+          createdAt: { gte: since30 },
+          type: { in: ['CALL', 'EMAIL_OUT', 'SMS_OUT', 'VISIT'] },
+        },
+      }),
+      prisma.activity.count({
+        where: { partner: partnerWhere, createdAt: { gte: since30 }, type: 'MEETING_HELD' },
+      }),
+      prisma.partner.count({
+        where: { ...partnerWhere, activatedAt: { gte: since30 } },
+      }),
+      prisma.activity.count({
+        where: { partner: partnerWhere, createdAt: { gte: since30 }, type: 'STAGE_CHANGE' },
+      }),
+    ]);
 
   const counts: Record<string, number> = {};
   for (const row of byStage) counts[row.stage] = row._count.stage;
+  const pipelineTotal = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6 p-6">
+    <div className="mx-auto max-w-[1400px] space-y-5 p-6">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">Radar</h1>
-        <p className="mt-0.5 text-sm text-gray-500">
-          {t.brandName} for {t.legalName} · roofing · solar · gutters
+        <h1 className="text-[20px] font-semibold tracking-tight text-gray-900">Radar</h1>
+        <p className="mt-0.5 text-xs text-gray-500">
+          {t.brandName} for {t.legalName} · {t.services.join(' · ').toLowerCase()}
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {ORDERED_STAGES.map((stage) => (
-          <StatusTile
-            key={stage}
-            label={STAGE_LABELS[stage]}
-            count={counts[stage] ?? 0}
-            color={STAGE_COLORS[stage]}
-            href={`/partners?stage=${stage}`}
-          />
-        ))}
-      </div>
+      {/* Pipeline status tiles */}
+      <section>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-label text-gray-600">
+          Pipeline Statuses
+        </div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+          {ORDERED_STAGES.map((stage) => (
+            <StatusTile
+              key={stage}
+              label={STAGE_LABELS[stage]}
+              count={counts[stage] ?? 0}
+              color={STAGE_COLORS[stage]}
+              href={`/partners?stage=${stage}`}
+            />
+          ))}
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_400px]">
+      {/* 30-day stats row */}
+      <section>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-label text-gray-600">
+          30-Day Stats
+        </div>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-5">
+          <StatCard label="Contacts Made" value={contactsMade} />
+          <StatCard label="Meetings Held" value={meetingsHeld} />
+          <StatCard label="Partners Activated" value={activated30d} />
+          <StatCard label="Stage Advancements" value={stageChanges30d} />
+          <StatCard label="Pipeline Size" value={pipelineTotal} delta="all stages" />
+        </div>
+      </section>
+
+      {/* Bottom split: tasks + live activity */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_400px]">
         <Card title="My open tasks">
           {tasks.length === 0 ? (
             <p className="text-sm text-gray-500">Nothing on your plate. Plan a hit list.</p>
@@ -81,7 +123,9 @@ export default async function RadarPage() {
                       </div>
                     )}
                   </div>
-                  <span className="text-xs uppercase text-gray-400">{task.priority}</span>
+                  <span className="text-xs uppercase tracking-label text-gray-400">
+                    {task.priority}
+                  </span>
                 </li>
               ))}
             </ul>

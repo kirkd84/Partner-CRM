@@ -3,7 +3,12 @@ export { Button, type ButtonProps } from './components/Button';
 export { Card, type CardProps } from './components/Card';
 export { Pill, type PillProps } from './components/Pill';
 export { Avatar, type AvatarProps } from './components/Avatar';
-export { StatusTile, type StatusTileProps } from './components/StatusTile';
+export {
+  StatusTile,
+  StatCard,
+  type StatusTileProps,
+  type StatCardProps,
+} from './components/StatusTile';
 export { EmptyState, type EmptyStateProps } from './components/EmptyState';
 export { ActivityItem, type ActivityItemProps } from './components/ActivityItem';
 export { DrawerModal, type DrawerModalProps } from './components/DrawerModal';
