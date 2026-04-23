@@ -30,8 +30,10 @@ export default async function RadarPage() {
     meetingsHeld,
     activated30d,
     stageChanges30d,
-    leaderboardRows,
-    repsMap,
+    activatedByRepRows,
+    meetingsByRepRows,
+    leadsTouchedRows,
+    reps,
   ] = await Promise.all([
     prisma.partner.groupBy({
       by: ['stage'],
@@ -52,6 +54,7 @@ export default async function RadarPage() {
       orderBy: { dueAt: 'asc' },
       take: 6,
     }),
+    // 30-day top-row stats
     prisma.activity.count({
       where: {
         partner: partnerWhere,
@@ -68,18 +71,34 @@ export default async function RadarPage() {
     prisma.activity.count({
       where: { partner: partnerWhere, createdAt: { gte: since30 }, type: 'STAGE_CHANGE' },
     }),
-    // Leaderboard — activity count per rep in last 30 days.
-    // When Phase 5 Storm revenue sync lands, swap this for revenue attributed
-    // per rep (sum of RevenueAttribution joined through Partner.assignedRepId).
+    // Leaderboard — three distinct per-rep metrics for last 30 days.
+    // (Swap to revenue attributed once Phase 5 Storm sync lands.)
+    //   1. Activated partners this rep personally activated
+    prisma.partner.groupBy({
+      by: ['activatedBy'],
+      where: {
+        marketId: { in: session.user.markets },
+        activatedAt: { gte: since30 },
+        activatedBy: { not: null },
+      },
+      _count: { activatedBy: true },
+    }),
+    //   2. Meetings held (MEETING_HELD activities)
     prisma.activity.groupBy({
       by: ['userId'],
       where: {
         partner: partnerWhere,
         createdAt: { gte: since30 },
+        type: 'MEETING_HELD',
       },
       _count: { userId: true },
-      orderBy: { _count: { userId: 'desc' } },
-      take: 10,
+    }),
+    //   3. Leads worked — distinct partners each rep has touched with any
+    //   activity in the window. Group by (userId, partnerId) then count
+    //   groups per user in JS (no raw SQL needed at this scale).
+    prisma.activity.groupBy({
+      by: ['userId', 'partnerId'],
+      where: { partner: partnerWhere, createdAt: { gte: since30 } },
     }),
     prisma.user.findMany({
       where: { markets: { some: { marketId: { in: session.user.markets } } } },
@@ -87,14 +106,38 @@ export default async function RadarPage() {
     }),
   ]);
 
-  const repsById = new Map(repsMap.map((r) => [r.id, r]));
-  const leaderboard = leaderboardRows
-    .map((row) => ({
-      userId: row.userId,
-      count: row._count.userId,
-      user: repsById.get(row.userId),
+  // Build per-rep metric maps
+  const activatedByRep = new Map<string, number>();
+  for (const row of activatedByRepRows) {
+    if (row.activatedBy) activatedByRep.set(row.activatedBy, row._count.activatedBy);
+  }
+  const meetingsByRep = new Map<string, number>();
+  for (const row of meetingsByRepRows) {
+    meetingsByRep.set(row.userId, row._count.userId);
+  }
+  const leadsWorkedByRep = new Map<string, number>();
+  for (const row of leadsTouchedRows) {
+    leadsWorkedByRep.set(row.userId, (leadsWorkedByRep.get(row.userId) ?? 0) + 1);
+  }
+
+  // Compose the leaderboard — only reps with ANY activity in the window.
+  // Sort: activated DESC → meetings DESC → leads-worked DESC → name ASC.
+  const leaderboard = reps
+    .map((rep) => ({
+      user: rep,
+      activated: activatedByRep.get(rep.id) ?? 0,
+      meetings: meetingsByRep.get(rep.id) ?? 0,
+      leadsWorked: leadsWorkedByRep.get(rep.id) ?? 0,
     }))
-    .filter((r) => r.user);
+    .filter((r) => r.activated + r.meetings + r.leadsWorked > 0)
+    .sort(
+      (a, b) =>
+        b.activated - a.activated ||
+        b.meetings - a.meetings ||
+        b.leadsWorked - a.leadsWorked ||
+        a.user.name.localeCompare(b.user.name),
+    )
+    .slice(0, 10);
 
   const counts: Record<string, number> = {};
   for (const row of byStage) counts[row.stage] = row._count.stage;
@@ -130,7 +173,7 @@ export default async function RadarPage() {
           </div>
         </section>
 
-        {/* My open tasks — moved above 30-day stats per Storm layout */}
+        {/* My open tasks */}
         <Card title="My open tasks">
           {tasks.length === 0 ? (
             <p className="text-sm text-gray-500">Nothing on your plate. Plan a hit list.</p>
@@ -155,7 +198,7 @@ export default async function RadarPage() {
           )}
         </Card>
 
-        {/* 30-Day Stats — now below tasks, each card has an icon */}
+        {/* 30-Day Stats */}
         <section>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-label text-gray-600">
             30-Day Stats
@@ -195,7 +238,7 @@ export default async function RadarPage() {
           </div>
         </section>
 
-        {/* Top Reps leaderboard */}
+        {/* Top Reps leaderboard — now with per-rep metrics */}
         <Card
           title={
             <span className="flex items-center gap-2">
@@ -207,30 +250,41 @@ export default async function RadarPage() {
           {leaderboard.length === 0 ? (
             <p className="text-sm text-gray-500">No rep activity in the last 30 days yet.</p>
           ) : (
-            <ol className="divide-y divide-gray-100">
-              {leaderboard.map((row, idx) => (
-                <li key={row.userId} className="flex items-center gap-3 py-2">
-                  <div className="w-5 text-[13px] font-semibold tabular-nums text-gray-400">
-                    {idx + 1}
-                  </div>
-                  <Avatar name={row.user!.name} color={row.user!.avatarColor} size="md" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-gray-900">
-                      {row.user!.name}
+            <>
+              {/* Column header row */}
+              <div className="hidden grid-cols-[24px_auto_1fr_repeat(3,80px)] items-center gap-3 border-b border-gray-100 pb-2 text-[10.5px] font-semibold uppercase tracking-label text-gray-500 md:grid">
+                <div />
+                <div />
+                <div>Rep</div>
+                <div className="text-right">Activated</div>
+                <div className="text-right">Meetings</div>
+                <div className="text-right">Leads worked</div>
+              </div>
+              <ol className="divide-y divide-gray-100">
+                {leaderboard.map((row, idx) => (
+                  <li
+                    key={row.user.id}
+                    className="grid grid-cols-[24px_28px_1fr_repeat(3,80px)] items-center gap-3 py-2.5"
+                  >
+                    <div className="text-[13px] font-semibold tabular-nums text-gray-400">
+                      {idx + 1}
                     </div>
-                    <div className="text-[11px] uppercase tracking-label text-gray-500">
-                      {row.user!.role.toLowerCase()}
+                    <Avatar name={row.user.name} color={row.user.avatarColor} size="md" />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-gray-900">
+                        {row.user.name}
+                      </div>
+                      <div className="text-[11px] uppercase tracking-label text-gray-500">
+                        {row.user.role.toLowerCase()}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[15px] font-semibold tabular-nums text-gray-900">
-                      {row.count}
-                    </div>
-                    <div className="text-[11px] text-gray-500">activities</div>
-                  </div>
-                </li>
-              ))}
-            </ol>
+                    <MetricCell value={row.activated} accent="#10b981" />
+                    <MetricCell value={row.meetings} accent="#f59e0b" />
+                    <MetricCell value={row.leadsWorked} accent="#6366f1" />
+                  </li>
+                ))}
+              </ol>
+            </>
           )}
           <p className="mt-3 text-[11px] text-gray-400">
             Swapping to <span className="font-medium">revenue attributed</span> once Storm Cloud
@@ -239,7 +293,7 @@ export default async function RadarPage() {
         </Card>
       </div>
 
-      {/* ── Right column: activity feed, full-height sticky ──────────── */}
+      {/* ── Right column: activity feed ─────────────────────────────── */}
       <aside className="hidden flex-col overflow-hidden bg-white lg:flex">
         <div className="flex items-center justify-between border-b border-card-border px-5 py-3">
           <h2 className="text-[13px] font-semibold text-gray-900">Live activity</h2>
@@ -266,6 +320,19 @@ export default async function RadarPage() {
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+function MetricCell({ value, accent }: { value: number; accent: string }) {
+  return (
+    <div className="text-right">
+      <div
+        className="text-[15px] font-semibold tabular-nums"
+        style={{ color: value > 0 ? accent : '#9ca3af' }}
+      >
+        {value}
+      </div>
     </div>
   );
 }
