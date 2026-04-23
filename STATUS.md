@@ -60,24 +60,113 @@ Every write-path goes through `assertCanEdit` / `assertIsManagerPlus` / `assertI
 
 ---
 
-## 📍 Next up — Phase 4 (Map, Hit List, Routes)
+## 📍 Next up — Phase 4 (Map, Hit List, Routes, Territory Lasso, Prospect Ingestion)
 
-Phase 4 is the mobile-first tour planner. The SPEC calls for:
+Phase 4 is the mobile-first tour planner + the territory prospecting
+tool. Scope expanded on 2026-04-23 per Kirk's product direction.
 
-- `/map` page — interactive map with partner pins colored by stage, market-bounded
-- Hit List builder — save curated lists of partners to visit; drag-reorder; TSP-ish optimize
-- Routes — given a start (HOME / OFFICE / LAST_STOP / CUSTOM) and a hit list, generate a driving order, deep-link to Google/Apple Maps
-- Appointments linked to routes ("stops") so the visit auto-logs a check-in
+### Base map + routing (SPEC §6.4)
+
+- `/map` page — interactive Google Maps with partner pins colored by
+  stage, bounded by the user's active markets.
+- Hit List builder — save curated lists of partners to visit;
+  drag-reorder; TSP-ish optimize.
+- Routes — given a start (HOME / OFFICE / LAST_STOP / CUSTOM) and a
+  hit list, generate a driving order, deep-link to Google/Apple Maps.
+- Appointments linked to routes ("stops") so the visit auto-logs a
+  check-in when a rep starts navigation.
+
+### Territory lasso (NEW — Kirk's ask)
+
+Sales managers draw a polygon (or circle / rectangle) on the map via
+the Google Maps Drawing library. Two panels surface side-by-side:
+
+1. **In this area (existing)** — every Partner we already track whose
+   lat/lng falls inside the polygon, dedupe-safe, one-click jump to
+   detail.
+2. **Prospects in this area** — businesses we don't yet have, drawn
+   from the prospect ingestion pipeline below. Each row has "+ Add as
+   partner" and "+ Add to hit list" buttons. Dedupe against existing
+   Partners by name + normalized address.
+
+Polygon results are cached in `ScrapedLead` with a 14–30 day TTL keyed
+by `(polygonGeohash, icpType)` so the same manager re-lassoing the
+same area tomorrow is free. Save-as-territory lets managers name
+polygons (e.g. "Wheat Ridge corridor") and pin them to the market.
+
+### Prospect ingestion pipeline (NEW — legal, free sources first)
+
+Decision made 2026-04-23: **no Zillow / LinkedIn scraping** — ToS
+risk, active enforcement, and the free alternatives cover most of
+what we need. Instead we build our own ingestion jobs against public
+data. Each feeds the `ScrapedLead` table with dedupe logic.
+
+Source priority:
+
+1. **NMLS Consumer Access** (federal, free) — every licensed mortgage
+   broker + loan officer in the US. Bulk download, weekly refresh.
+   Covers ~100% of the mortgage-broker ICP.
+2. **State real estate commissions** — CO DORA, KS KREC first
+   (Kirk's active markets). Per-state adapter, weekly refresh. Covers
+   realtor + broker licensees.
+3. **State insurance department producer databases** — CO Division of
+   Insurance, KS Department of Insurance first. Covers insurance
+   agents.
+4. **Overture Maps** (open data from Microsoft/Meta/Amazon/TomTom, no
+   license fee) — 60M+ global places with category tags. Used to fill
+   gaps for general-contractor / HVAC / plumbing / landscaping /
+   restoration ICPs.
+5. **Chamber of Commerce member directories** — per-chamber scraper,
+   rate-limited, respect robots.txt. Nice-to-have, not a hard dep.
+6. **Google Places Nearby Search** — the live-refresh layer on top of
+   1–5. Hit when a lasso draws somewhere we haven't seeded yet.
+   Cached aggressively.
+7. **Storm Cloud historical touchpoints** (parking-lot — pending Storm
+   dev team exposing an endpoint) — partners who've already referred
+   projects into Storm. If we get this, it's the moat.
+
+### Enrichment
+
+When a prospect is promoted to Partner, we enrich the contact card via
+a paid B2B API (Apollo or Clearbit — $50–200/mo) to pull
+decision-maker name, email, phone, LinkedIn URL. This replaces any
+temptation to scrape LinkedIn directly. Apollo gets the shortlist for
+v1 based on their roofing-industry coverage.
 
 ### Blocked on Kirk (creds needed)
 
-- `GOOGLE_MAPS_API_KEY` with Maps JS + Places + Directions enabled → Phase 4 map, address autocomplete, directions
-- `RESEND_API_KEY` + verified DKIM/SPF on `rooftechnologies.com` → switch invite from temp-password to real magic-link email
-- `R2_*` Cloudflare bucket creds → Phase 2 file uploads (currently an empty-state card that says "uploads land when creds wired")
-- `ANTHROPIC_API_KEY` → Phase 7 AI Follow-ups + tone calibration
-- `TWILIO_*` → Phase 7 SMS outbound
+- `GOOGLE_MAPS_API_KEY` with Maps JS + Drawing + Places + Directions
+  enabled → base map, lasso, prospect search, address autocomplete.
+- `APOLLO_API_KEY` (or Clearbit equivalent) → enrichment on prospect →
+  partner promotion. Optional for Phase 4 ship; degrades to manual.
+- Storm Cloud decision — does Storm have a market-prospects / past-
+  referrer feed we could consume? If yes, adds a source #7. If no,
+  sources 1–6 still ship.
+- `RESEND_API_KEY` + DKIM/SPF on `rooftechnologies.com` — Phase 3
+  invite magic-links. Not Phase 4 blocking.
+- `R2_*` Cloudflare bucket — Phase 2 file uploads. Not Phase 4
+  blocking.
+- `ANTHROPIC_API_KEY` → Phase 7 AI Follow-ups.
+- `TWILIO_*` → Phase 7 SMS outbound.
 
-Without these, the rest of Phase 4 still ships — the map falls back to a static marker list until Maps is keyed.
+Without Maps key: the map page renders a static marker list and the
+lasso becomes a city/ZIP picker. Base routing still works. Ingestion
+jobs run independent of the map key.
+
+### Phase 4 build order when we kick off
+
+1. Google Maps wrapper component + partner pins from DB (1 day)
+2. Hit List CRUD + drag-reorder + TSP-ish optimize (1 day)
+3. Routes + deep-link to Google/Apple Maps (1 day)
+4. Lasso drawing tool + "in this area (existing partners)" panel (1 day)
+5. NMLS + CO realtor + KS realtor + CO insurance ingestion jobs with
+   `ScrapedLead` writes + weekly cron (2 days)
+6. Overture Maps loader for commercial ICPs (0.5 day)
+7. Google Places live-refresh fallback + polygon cache (1 day)
+8. "Prospects in this area" panel + dedupe + "Add as partner" /
+   "Add to hit list" buttons (1 day)
+9. Save-as-territory + named polygons per market (0.5 day)
+10. Apollo enrichment on promotion (0.5 day, gated on key)
 
 ---
 
