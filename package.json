@@ -1,0 +1,49 @@
+{
+  "name": "partnerradar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prospecting CRM that feeds activated referral partners into Storm Cloud. First customer: Roof Technologies.",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "pnpm --filter web exec playwright test",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,yml,yaml}\" --ignore-path .prettierignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json,yml,yaml}\" --ignore-path .prettierignore",
+    "db:generate": "pnpm --filter @partnerradar/db prisma:generate",
+    "db:migrate": "pnpm --filter @partnerradar/db prisma:migrate",
+    "db:migrate:prod": "pnpm --filter @partnerradar/db prisma:migrate:deploy",
+    "db:seed": "pnpm --filter @partnerradar/db seed",
+    "db:studio": "pnpm --filter @partnerradar/db prisma:studio",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:reset": "pnpm --filter @partnerradar/db prisma:reset",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "prettier": "^3.4.2",
+    "prettier-plugin-tailwindcss": "^0.6.9",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{md,json,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}
