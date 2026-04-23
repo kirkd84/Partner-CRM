@@ -40,12 +40,6 @@ ENV PORT=3000
 # Non-root user
 RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
 
-# Prisma CLI for auto-migrate on container start. Pinned to the same
-# major.minor as the runtime client so engine versions match.
-RUN npm install -g prisma@5.22.0 \
-    && chown -R nextjs:nodejs /usr/local/lib/node_modules/prisma \
-    && chown -R nextjs:nodejs /usr/local/bin/prisma
-
 # Next.js standalone output already traces node_modules (we configured
 # outputFileTracingIncludes in next.config.ts to catch the Prisma engine
 # binary which the static tracer can't see via its dynamic require).
@@ -54,14 +48,8 @@ COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 # Public assets — optional; directory always exists thanks to .gitkeep.
 COPY --from=build --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
-# Schema for auto-migrate on start.
-COPY --from=build --chown=nextjs:nodejs /app/packages/db/prisma/schema.prisma /app/schema.prisma
-# Entrypoint: prisma db push → node server.js
-COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
 
 USER nextjs
 EXPOSE 3000
-# Entrypoint auto-syncs the Prisma schema before starting the server —
-# no more manual `pnpm db:push` after schema changes.
-CMD ["/app/docker-entrypoint.sh"]
+# Server entrypoint lives at apps/web/server.js inside the standalone tree.
+CMD ["node", "apps/web/server.js"]
