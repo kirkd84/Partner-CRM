@@ -60,7 +60,8 @@ export async function inviteUser(input: {
 
   const tempPassword = randomBytes(6).toString('base64url'); // 8 chars-ish
   const passwordHash = await hash(tempPassword, 10);
-  const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+  // noUncheckedIndexedAccess widens array[n] to `T | undefined`; pick with a guaranteed fallback.
+  const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)] ?? '#3b82f6';
 
   const user = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
