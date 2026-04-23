@@ -464,6 +464,15 @@ enum ScrapeSource {
   YELP
   LICENSING_BOARD
   CUSTOM_URL
+  // Phase 4 expanded scope — free, legal prospect ingestion sources.
+  // See STATUS.md §"Prospect ingestion pipeline" for priority + refresh
+  // cadence. Zillow / LinkedIn are deliberately excluded (ToS risk).
+  NMLS // federal mortgage broker + loan officer registry
+  STATE_REALTY // per-state real estate commission (CO DORA, KS KREC, ...)
+  STATE_INSURANCE // per-state insurance department producer DBs
+  OVERTURE // Overture Maps open places data (MS/Meta/Amazon/TomTom)
+  CHAMBER // chamber of commerce member directories
+  STORM_CLOUD // historical touchpoints from Storm (parking-lot, gated on Storm dev team)
 }
 
 model ScrapedLead {
