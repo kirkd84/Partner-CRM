@@ -4,7 +4,10 @@
 // be commented inline.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Railway runs node:22-alpine (musl + OpenSSL 3.x). Emit both the host
+  // binary (for local dev on macOS/Linux) and the Alpine/musl binary.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {

@@ -4,7 +4,10 @@
 # Standalone Next.js output keeps the final image lean.
 # ────────────────────────────────────────────────
 FROM node:22-alpine AS base
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+# Prisma 5 on Alpine needs libssl + libc. Also handy: tini for signal handling.
+RUN apk add --no-cache libc6-compat openssl openssl-dev && \
+    corepack enable && \
+    corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 # ── deps: install with frozen lockfile ──
@@ -25,10 +28,15 @@ FROM base AS build
 COPY --from=deps /app ./
 COPY . .
 RUN pnpm --filter @partnerradar/db prisma:generate
+# During prerender, Next collects data from server components — those
+# touch Prisma. Skip prerender of DB-backed pages by forcing dynamic.
+# (Our Radar/Partners pages already `export const dynamic = 'force-dynamic'`.)
 RUN pnpm --filter web build
 
 # ── runtime: minimal image with standalone output ──
 FROM node:22-alpine AS runtime
+# libssl + libc compat are needed at runtime too so the Prisma engine loads.
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
