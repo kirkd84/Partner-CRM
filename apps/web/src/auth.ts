@@ -3,10 +3,11 @@ import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@partnerradar/db';
 import { LoginInput } from '@partnerradar/types';
+import { authConfig } from './auth.config';
 
-// SSO placeholder — Phase 5 will add a Storm Cloud OAuth provider here once
-// API docs land. The `stormCloudUserId` field on User is already wired so
-// linking is a simple lookup.
+// SSO placeholder — Phase 5 will add a Storm Cloud OAuth provider here
+// once API docs land. The `stormCloudUserId` field on User is already
+// wired so linking is a simple lookup.
 
 declare module 'next-auth' {
   interface User {
@@ -25,9 +26,8 @@ declare module 'next-auth' {
 }
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
-  session: { strategy: 'jwt', maxAge: 60 * 60 * 8 /* 8h sliding refresh */ },
+  ...authConfig,
   secret: process.env.NEXTAUTH_SECRET,
-  pages: { signIn: '/login' },
   providers: [
     Credentials({
       name: 'credentials',
@@ -61,23 +61,4 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       },
     }),
   ],
-  callbacks: {
-    jwt({ token, user }) {
-      if (user) {
-        token.role = user.role;
-        token.avatarColor = user.avatarColor;
-        token.markets = user.markets ?? [];
-      }
-      return token;
-    },
-    session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.sub!;
-        session.user.role = (token.role as 'REP' | 'MANAGER' | 'ADMIN') ?? 'REP';
-        session.user.avatarColor = (token.avatarColor as string) ?? '#2563eb';
-        session.user.markets = (token.markets as string[]) ?? [];
-      }
-      return session;
-    },
-  },
 });
