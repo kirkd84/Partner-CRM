@@ -4,24 +4,90 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-23 — ✅ Phase 2 + Phase 3 SHIPPED
+
+Kirk said "continue" and Cowork ran Phases 2+3 through to completion in
+one sitting. Everything is live on Railway once the new commits deploy.
+
+### Phase 2 — Partners core (SPEC §6.2)
+
+| Commit  | Scope                                                                                                       |
+| ------- | ----------------------------------------------------------------------------------------------------------- |
+| b82f3c7 | Partner detail page + Activate → mock Storm Cloud → 🎈 balloon celebration (prefers-reduced-motion honored) |
+| bd8e034 | Contacts + Tasks + Appointments drawers wired (dashed-blue "+ New" pattern per SPEC §3.13)                  |
+| 905a522 | New Partner drawer on `/partners` list + server-side search (companyName / PR-#### / city)                  |
+| 23c0f73 | ⌘K global command palette — partners + contacts + tasks, debounced, keyboard-nav                            |
+
+**What works now:**
+
+- `/partners/[id]` 3-col top (Contacts / Info / Activity rail) + bottom split (Tasks / Appointments / Files).
+- Contacts: add / mark-primary / delete via row actions.
+- Tasks: create via drawer, complete with optimistic checkbox, priority pills.
+- Appointments: create via drawer that mirrors Storm Cloud's event modal. Type pill on each row.
+- Stage dropdown + Activate button fire `changeStage` / `activatePartner` server actions with audit trail.
+- Activate button (manager+) runs mock Storm Cloud push, persists `stormCloudId`, fires balloons 🎈, haptic buzz on mobile.
+- `/partners` list: stage filter sidebar + toolbar with "+ New" drawer + search box + live `q=` URL param.
+- ⌘K / Ctrl+K anywhere pops a centered palette, jumps to any partner/contact/task in your market scope.
+
+### Phase 3 — Admin + Settings (SPEC §6.3)
+
+| Commit  | Scope                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| 62c8a14 | Admin shell (sidebar + overview) + `/admin/users` (invite, roles, markets, deactivate, delete)     |
+| aad07c5 | `/admin/markets` CRUD (name, timezone, lat/lng center, scrape radius, CAN-SPAM address)            |
+| aab27fc | `/admin/audit-log` — filterable by user / entity / action / date range, diff drawer on each row    |
+| c8a9c0a | `/settings` — profile, avatar palette, addresses, route defaults, map app, notifications, password |
+
+**What works now:**
+
+- `/admin` dashboard tiles to sub-pages with live counts.
+- `/admin/users`: Invite user drawer → returns temp password to copy/share until Resend is wired. Per-row menu: Edit role+markets, Reset password, Deactivate/Reactivate, Delete (ADMIN only, refuses if user has activity history). Self-row guarded.
+- `/admin/markets`: CRUD with shared drawer. Delete refuses if partners or users are still attached.
+- `/admin/audit-log`: ADMIN-only; every mutation across the app writes a row; clickable "View diff" shows the full JSON payload.
+- `/settings`: profile form with live Avatar preview, 10-color palette picker, home/office addresses, route-start default, map app preference, notification toggles (task-due / stage / activation / mentions), sound effects. Password card with current/new/confirm + auto-invalidation of other sessions via `tokenVersion` bump.
+
+Every write-path goes through `assertCanEdit` / `assertIsManagerPlus` / `assertIsAdmin` helpers and emits an `AuditLog` entry with `diff`.
+
+### Deploy state
+
+| Piece     | Value                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| GitHub    | `kirkd84/Partner-CRM` · `main` is the green tip                                                  |
+| Railway   | `Partner-CRM` service + `Postgres` service, both Online — new builds auto-triggered by each push |
+| Web URL   | `https://partner-crm-production.up.railway.app`                                                  |
+| DB        | Railway Postgres — no new migrations required for Phase 2/3 (schema was already comprehensive)   |
+| Auto-push | `scripts/cowork-push.sh` used for every push, zero prompts                                       |
+
+---
+
+## 📍 Next up — Phase 4 (Map, Hit List, Routes)
+
+Phase 4 is the mobile-first tour planner. The SPEC calls for:
+
+- `/map` page — interactive map with partner pins colored by stage, market-bounded
+- Hit List builder — save curated lists of partners to visit; drag-reorder; TSP-ish optimize
+- Routes — given a start (HOME / OFFICE / LAST_STOP / CUSTOM) and a hit list, generate a driving order, deep-link to Google/Apple Maps
+- Appointments linked to routes ("stops") so the visit auto-logs a check-in
+
+### Blocked on Kirk (creds needed)
+
+- `GOOGLE_MAPS_API_KEY` with Maps JS + Places + Directions enabled → Phase 4 map, address autocomplete, directions
+- `RESEND_API_KEY` + verified DKIM/SPF on `rooftechnologies.com` → switch invite from temp-password to real magic-link email
+- `R2_*` Cloudflare bucket creds → Phase 2 file uploads (currently an empty-state card that says "uploads land when creds wired")
+- `ANTHROPIC_API_KEY` → Phase 7 AI Follow-ups + tone calibration
+- `TWILIO_*` → Phase 7 SMS outbound
+
+Without these, the rest of Phase 4 still ships — the map falls back to a static marker list until Maps is keyed.
+
+---
+
 ## 2026-04-23 — ✅ Phase 1 LIVE on Railway + 6 polish iterations
 
 **Kirk is logged in.** `admin@demo.com / Demo1234!` at
 `https://partner-crm-production.up.railway.app` lands on Radar with
-real seeded data. This is the moment Phase 1 is considered delivered.
+real seeded data.
 
-### Deploy state
-
-| Piece     | Value                                                                                                                      |
-| --------- | -------------------------------------------------------------------------------------------------------------------------- |
-| GitHub    | `kirkd84/Partner-CRM` · 17 commits on `main` · latest `01f307e`                                                            |
-| Railway   | `Partner-CRM` service + `Postgres` service, both Online                                                                    |
-| Web URL   | `https://partner-crm-production.up.railway.app`                                                                            |
-| DB        | Railway Postgres, schema pushed via `pnpm db:push`, seeded via `pnpm db:seed`                                              |
-| Env vars  | DATABASE_URL (reference-resolved), NEXTAUTH_URL (https://), NEXTAUTH_SECRET, ENCRYPTION_KEY — verified set                 |
-| Auto-push | Cowork PAT lives in `Partner CRM/.cowork-secrets` (1yr expiry); `scripts/cowork-push.sh` used for every push, zero prompts |
-
-### Design polish iterations (all shipped, all on main)
+### Design polish iterations (all shipped)
 
 1. `1147c6f` — baseline polish (SPEC §3.1 tokens, lighter shadows, tighter nav)
 2. `ea23e64` — stat count to 38px for visual anchor
@@ -29,50 +95,3 @@ real seeded data. This is the moment Phase 1 is considered delivered.
 4. `bc6d5b0` — header polish: bold text, Recent menu, solid +New, prominent bell, Handshake logo
 5. `c322d32` — full-width layout, 40% sticky activity rail, leaderboard, icon-chipped stat cards
 6. `01f307e` — leaderboard rich metrics: activated / meetings / leads worked per rep
-
-### Kirk's feedback — all addressed
-
-- ✅ Storm uses full width → removed `max-w-[1400px]`
-- ✅ Activity needs its own rail → 40% right column, full-height sticky
-- ✅ 30-day stats needs icons + belongs below tasks → done (color-tinted icon chips)
-- ✅ Add leaderboard with per-rep details → done with 3 metrics, sorted by activated DESC
-- ✅ Replace "PR" logo with referral-partner icon → Handshake lucide icon
-- ✅ Bolder text, better notification bell → font-semibold across nav, ring-2 badge
-
----
-
-## 📍 Next up — Phase 2 + Phase 3 (kickoff on return)
-
-Kirk said "kick off phase 2 when usage limit refreshes. I am going home."
-Any future Cowork session: read this file, read MEMORY, then start.
-
-**Phase 2 (SPEC §6.2):**
-
-- Partner detail page at `/partners/[id]` — 3-column layout (Contacts / Info-tabs / Activity-tabs) + bottom-split (Files / Expenses-Activities-Messages-Docs-FinancialOverview tabs)
-- Contacts CRUD with dashed-blue "+ New contact" pattern
-- Activity composer with @mentions + 10s polling
-- Appointments + Tasks tabs (internal only — calendar sync is Phase 4)
-- File upload to R2 (blocked on Kirk's R2 creds — degrade gracefully until provided)
-- Stage dropdown in detail header, advancements logged as Activity(STAGE_CHANGE)
-- **"Activate Partner" button (manager+) → mock Storm push → full-screen balloons 🎈** via `react-confetti-boom`, ~30 balloons, ~4s
-- Global search (Cmd/Ctrl+K) fuzzy across partners + contacts + tasks in visible scope
-- Radar live feed: SSR → 10s polling via React Query
-
-**Phase 3 (SPEC §6.3):**
-
-- `/admin/users` — list, invite, deactivate, hard-delete; invite flow via Resend email → set-password link
-- `/admin/markets` — CRUD with timezone, map center, scrape radius
-- `/admin/audit-log` — filterable table with diff drawer
-- `/settings` — profile, avatar color picker, home/office addresses via Google Places, route defaults, notification prefs
-
-### Running tally of "Blocked on Kirk" env vars
-
-Same as before — Phase 2+3 depends on:
-
-- `RESEND_API_KEY` + verified DKIM/SPF on `rooftechnologies.com` (Phase 3 invite emails)
-- `R2_*` creds for Cloudflare bucket (Phase 2 file uploads; app will skip cleanly without)
-- `GOOGLE_MAPS_API_KEY` with Places API enabled (Phase 3 address autocomplete)
-- `ANTHROPIC_API_KEY` (Phase 7; not blocking 2/3)
-- `TWILIO_*` (Phase 7; not blocking)
-
-Without these, Phase 2+3 ships with graceful no-op stubs for those specific features. The rest works end-to-end.
