@@ -62,7 +62,7 @@ export function TopNav() {
         </button>
       </div>
 
-      <nav className="ml-2 flex items-center gap-1">
+      <nav className="ml-2 flex items-center gap-0.5">
         {NAV_ITEMS.map((item) => {
           if (item.managerPlus && !isManagerPlus) return null;
           const active = pathname.startsWith(item.href);
@@ -72,11 +72,13 @@ export function TopNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-nav-text/80 hover:text-white',
-                active && 'bg-nav-active text-white hover:text-white',
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors',
+                active
+                  ? 'bg-nav-active text-white shadow-sm'
+                  : 'text-nav-text/75 hover:bg-white/5 hover:text-white',
               )}
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="h-3.5 w-3.5" />
               <span>{item.label}</span>
               {item.hasDropdown && <ChevronDown className="h-3 w-3 opacity-60" />}
             </Link>

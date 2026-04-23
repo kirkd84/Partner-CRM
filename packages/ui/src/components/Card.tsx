@@ -15,7 +15,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        'rounded-lg border border-card-border bg-card p-4 shadow-card md:p-5',
+        'rounded-md border border-card-border bg-card px-4 py-3.5 shadow-card md:px-5 md:py-4',
         className,
       )}
       {...props}
@@ -23,7 +23,9 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       {(title ?? actions ?? onEdit) && (
         <div className="mb-3 flex items-center justify-between">
           {title ? (
-            <h3 className="text-sm font-semibold text-gray-900 md:text-[15px]">{title}</h3>
+            <h3 className="text-[13px] font-semibold tracking-tight text-gray-900 md:text-sm">
+              {title}
+            </h3>
           ) : (
             <span />
           )}
