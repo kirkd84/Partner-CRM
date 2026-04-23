@@ -1,4 +1,4 @@
-import { prisma } from '@partnerradar/db';
+import { Prisma, prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
 import { Button, FilterSidebar, Pill, Table, THead, TBody, TR, TH, TD } from '@partnerradar/ui';
 import {
@@ -12,24 +12,28 @@ import { Plus, Search } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
+type PartnersSearchParams = { stage?: PartnerStage };
+
 export default async function PartnersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stage?: PartnerStage }>;
+  searchParams: Promise<PartnersSearchParams>;
 }) {
   const session = await auth();
   if (!session?.user) return null;
   const params = await searchParams;
 
+  const where: Prisma.PartnerWhereInput = {
+    marketId: { in: session.user.markets },
+    archivedAt: null,
+  };
+  if (session.user.role === 'REP') {
+    where.OR = [{ assignedRepId: session.user.id }, { assignedRepId: null }];
+  }
+  if (params.stage) where.stage = params.stage;
+
   const partners = await prisma.partner.findMany({
-    where: {
-      marketId: { in: session.user.markets },
-      archivedAt: null,
-      ...(session.user.role === 'REP'
-        ? { OR: [{ assignedRepId: session.user.id }, { assignedRepId: null }] }
-        : {}),
-      ...(params.stage ? { stage: params.stage } : {}),
-    },
+    where,
     orderBy: [{ stageChangedAt: 'desc' }],
     include: { assignedRep: { select: { name: true, avatarColor: true } } },
     take: 200,
@@ -39,7 +43,7 @@ export default async function PartnersPage({
     <div className="flex h-full">
       <FilterSidebar>
         <div>
-          <div className="text-xs font-medium text-gray-600 mb-1">Stage</div>
+          <div className="mb-1 text-xs font-medium text-gray-600">Stage</div>
           <ul className="space-y-0.5 text-sm">
             <li>
               <Link className="text-blue-600 hover:underline" href="/partners">
@@ -60,8 +64,8 @@ export default async function PartnersPage({
         </div>
       </FilterSidebar>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-card-border bg-white">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex items-center gap-3 border-b border-card-border bg-white px-6 py-4">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Referral Partners</h1>
             <p className="text-xs text-gray-500">
@@ -75,7 +79,7 @@ export default async function PartnersPage({
               <input
                 type="search"
                 placeholder="Search partners…"
-                className="pl-8 pr-3 py-1.5 text-sm rounded-md border border-gray-300 focus:border-primary focus:ring-1 focus:ring-primary w-60"
+                className="w-60 rounded-md border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>
             <Button>
@@ -100,12 +104,15 @@ export default async function PartnersPage({
               {partners.map((p) => (
                 <TR key={p.id}>
                   <TD>
-                    <Link href={`/partners/${p.id}`} className="text-primary font-medium hover:underline">
+                    <Link
+                      href={`/partners/${p.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
                       {p.companyName}
                     </Link>
                   </TD>
                   <TD>
-                    <span className="text-xs font-mono text-gray-500">{p.publicId}</span>
+                    <span className="font-mono text-xs text-gray-500">{p.publicId}</span>
                   </TD>
                   <TD>{PARTNER_TYPE_LABELS[p.partnerType]}</TD>
                   <TD>
@@ -114,7 +121,11 @@ export default async function PartnersPage({
                     </Pill>
                   </TD>
                   <TD>
-                    {p.city ? `${p.city}, ${p.state ?? ''}` : <span className="text-gray-400">—</span>}
+                    {p.city ? (
+                      `${p.city}, ${p.state ?? ''}`
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
                   </TD>
                   <TD>
                     {p.assignedRep ? (

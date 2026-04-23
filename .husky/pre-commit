@@ -1,1 +1,17 @@
-pnpm lint-staged
+# Make pnpm findable from husky's minimal PATH (Windows/Cowork/CI friendly).
+# Tries user-local corepack install, then falls back to npx-bundled pnpm.
+export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm lint-staged
+else
+  # lint-staged is installed as a devDep; fall back to a direct node invocation
+  # so the hook doesn't silently skip when pnpm isn't on PATH (rare — only
+  # happens in restricted environments).
+  if [ -x "node_modules/.bin/lint-staged" ]; then
+    node_modules/.bin/lint-staged
+  else
+    echo "pre-commit: pnpm + lint-staged both unavailable — skipping lint-staged"
+    echo "(install deps with \`pnpm install\` or run prettier/eslint manually)"
+  fi
+fi

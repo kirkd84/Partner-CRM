@@ -17,10 +17,9 @@ const nextConfig: NextConfig = {
     // ESLint is run by the monorepo root `pnpm lint`
     ignoreDuringBuilds: true,
   },
-  experimental: {
-    // Prisma + Next 15 standalone compatibility
-    serverComponentsExternalPackages: ['@prisma/client', 'bcryptjs'],
-  },
+  // Prisma + bcrypt need to stay external (not bundled) for the server.
+  // Renamed in Next 15: was `experimental.serverComponentsExternalPackages`.
+  serverExternalPackages: ['@prisma/client', 'bcryptjs'],
 };
 
 export default nextConfig;

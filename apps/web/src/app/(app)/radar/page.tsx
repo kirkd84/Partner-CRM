@@ -1,4 +1,4 @@
-import { prisma } from '@partnerradar/db';
+import { Prisma, prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
 import { Card, StatusTile, ActivityItem } from '@partnerradar/ui';
 import { ORDERED_STAGES, STAGE_COLORS, STAGE_LABELS } from '@partnerradar/types';
@@ -11,23 +11,22 @@ export default async function RadarPage() {
   if (!session?.user) return null;
   const t = tenant();
 
-  const userMarkets = session.user.markets;
-  const baseWhere = {
-    marketId: { in: userMarkets },
+  const partnerWhere: Prisma.PartnerWhereInput = {
+    marketId: { in: session.user.markets },
     archivedAt: null,
-    ...(session.user.role === 'REP'
-      ? { OR: [{ assignedRepId: session.user.id }, { assignedRepId: null }] }
-      : {}),
-  } as const;
+  };
+  if (session.user.role === 'REP') {
+    partnerWhere.OR = [{ assignedRepId: session.user.id }, { assignedRepId: null }];
+  }
 
   const [byStage, activities, tasks] = await Promise.all([
     prisma.partner.groupBy({
       by: ['stage'],
-      where: baseWhere,
+      where: partnerWhere,
       _count: { stage: true },
     }),
     prisma.activity.findMany({
-      where: { partner: baseWhere },
+      where: { partner: partnerWhere },
       orderBy: { createdAt: 'desc' },
       take: 15,
       include: {
@@ -42,20 +41,19 @@ export default async function RadarPage() {
     }),
   ]);
 
-  const counts: Record<string, number> = Object.fromEntries(
-    byStage.map((b) => [b.stage, b._count.stage]),
-  );
+  const counts: Record<string, number> = {};
+  for (const row of byStage) counts[row.stage] = row._count.stage;
 
   return (
-    <div className="max-w-[1400px] mx-auto p-6 space-y-6">
+    <div className="mx-auto max-w-[1400px] space-y-6 p-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Radar</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <p className="mt-0.5 text-sm text-gray-500">
           {t.brandName} for {t.legalName} · roofing · solar · gutters
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {ORDERED_STAGES.map((stage) => (
           <StatusTile
             key={stage}
@@ -67,23 +65,23 @@ export default async function RadarPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_400px]">
         <Card title="My open tasks">
           {tasks.length === 0 ? (
             <p className="text-sm text-gray-500">Nothing on your plate. Plan a hit list.</p>
           ) : (
             <ul className="divide-y divide-gray-100">
-              {tasks.map((t) => (
-                <li key={t.id} className="py-2 flex items-center justify-between">
+              {tasks.map((task) => (
+                <li key={task.id} className="flex items-center justify-between py-2">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">{t.title}</div>
-                    {t.dueAt && (
+                    <div className="text-sm font-medium text-gray-900">{task.title}</div>
+                    {task.dueAt && (
                       <div className="text-xs text-gray-500">
-                        Due {new Date(t.dueAt).toLocaleDateString()}
+                        Due {new Date(task.dueAt).toLocaleDateString()}
                       </div>
                     )}
                   </div>
-                  <span className="text-xs text-gray-400 uppercase">{t.priority}</span>
+                  <span className="text-xs uppercase text-gray-400">{task.priority}</span>
                 </li>
               ))}
             </ul>
