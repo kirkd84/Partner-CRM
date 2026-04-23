@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "react",
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*", "tailwind-preset.ts"]
+}
