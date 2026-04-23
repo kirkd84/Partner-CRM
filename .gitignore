@@ -16,6 +16,11 @@ out/
 .env.*.local
 !.env.example
 
+# Cowork cross-session credentials (lives in Google-Drive-synced folder,
+# never commits to git). See MEMORY pointer reference_cowork_git_push.md
+.cowork-secrets
+.cowork-secrets.*
+
 # OS
 .DS_Store
 Thumbs.db
