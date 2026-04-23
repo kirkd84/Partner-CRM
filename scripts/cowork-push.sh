@@ -15,18 +15,29 @@
 #     and paste a fresh PAT into Cowork — it'll rewrite this file.
 set -euo pipefail
 
-SECRETS_FILE="/sessions/adoring-sharp-wozniak/mnt/Partner CRM/.cowork-secrets"
-if [[ ! -f "$SECRETS_FILE" ]]; then
-  echo "error: $SECRETS_FILE not found." >&2
-  echo "  → Ask Kirk to paste a fresh PAT; Cowork will recreate this file." >&2
-  exit 1
-fi
-
-# shellcheck disable=SC1090
-source "$SECRETS_FILE"
+# Prefer env var if already exported; otherwise probe every Cowork session mount
+# for the `.cowork-secrets` file. Session IDs rotate per Cowork run, so we can't
+# hard-code a single path — we glob /sessions/*/mnt/Partner\ CRM/ instead.
 if [[ -z "${GITHUB_TOKEN:-}" ]]; then
-  echo "error: GITHUB_TOKEN missing from $SECRETS_FILE" >&2
-  exit 1
+  SECRETS_FILE=""
+  # shellcheck disable=SC2231
+  for candidate in /sessions/*/mnt/Partner\ CRM/.cowork-secrets; do
+    if [[ -f "$candidate" ]]; then
+      SECRETS_FILE="$candidate"
+      break
+    fi
+  done
+  if [[ -z "$SECRETS_FILE" ]]; then
+    echo "error: no .cowork-secrets file found under /sessions/*/mnt/Partner CRM/" >&2
+    echo "  → Ask Kirk to paste a fresh PAT; Cowork will recreate this file." >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "$SECRETS_FILE"
+  if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    echo "error: GITHUB_TOKEN missing from $SECRETS_FILE" >&2
+    exit 1
+  fi
 fi
 
 BRANCH="${1:-main}"
