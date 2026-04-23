@@ -20,6 +20,7 @@
     "db:generate": "pnpm --filter @partnerradar/db prisma:generate",
     "db:migrate": "pnpm --filter @partnerradar/db prisma:migrate",
     "db:migrate:prod": "pnpm --filter @partnerradar/db prisma:migrate:deploy",
+    "db:push": "pnpm --filter @partnerradar/db prisma:push",
     "db:seed": "pnpm --filter @partnerradar/db seed",
     "db:studio": "pnpm --filter @partnerradar/db prisma:studio",
     "db:up": "docker compose up -d postgres",
