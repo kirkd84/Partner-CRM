@@ -1,29 +1,14 @@
-import NextAuth, { type DefaultSession } from 'next-auth';
+import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@partnerradar/db';
 import { LoginInput } from '@partnerradar/types';
 import { authConfig } from './auth.config';
 
-// SSO placeholder — Phase 5 will add a Storm Cloud OAuth provider here
-// once API docs land. The `stormCloudUserId` field on User is already
-// wired so linking is a simple lookup.
-
-declare module 'next-auth' {
-  interface User {
-    role?: 'REP' | 'MANAGER' | 'ADMIN';
-    avatarColor?: string;
-    markets?: string[];
-  }
-  interface Session {
-    user: {
-      id: string;
-      role: 'REP' | 'MANAGER' | 'ADMIN';
-      avatarColor: string;
-      markets: string[];
-    } & DefaultSession['user'];
-  }
-}
+// Session / User / JWT augmentations live in src/types/next-auth.d.ts
+// so both this file and auth.config.ts pick them up regardless of import
+// order. SSO placeholder — Phase 5 will add a Storm Cloud OAuth provider
+// here once API docs land.
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,

@@ -4,8 +4,7 @@ import { Prisma, prisma } from '@partnerradar/db';
 import {
   PartnerCreateInput,
   PartnerFiltersInput,
-  PartnerStage,
-  PartnerType,
+  type PartnerStage,
   STAGE_LABELS,
 } from '@partnerradar/types';
 import { authedProcedure, managerProcedure, router } from '../trpc';
@@ -144,6 +143,3 @@ export const partnersRouter = router({
       });
     }),
 });
-
-// Silence unused-import lint: PartnerType is re-exported for downstream phases.
-export type { PartnerType };
