@@ -1,6 +1,6 @@
 import { Prisma, prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
-import { Button, FilterSidebar, Pill, Table, THead, TBody, TR, TH, TD } from '@partnerradar/ui';
+import { FilterSidebar, Pill, Table, THead, TBody, TR, TH, TD } from '@partnerradar/ui';
 import {
   PARTNER_TYPE_LABELS,
   STAGE_COLORS,
@@ -8,11 +8,11 @@ import {
   type PartnerStage,
 } from '@partnerradar/types';
 import Link from 'next/link';
-import { Plus, Search } from 'lucide-react';
+import { PartnersToolbar } from './PartnersToolbar';
 
 export const dynamic = 'force-dynamic';
 
-type PartnersSearchParams = { stage?: PartnerStage };
+type PartnersSearchParams = { stage?: PartnerStage; q?: string };
 
 export default async function PartnersPage({
   searchParams,
@@ -22,6 +22,7 @@ export default async function PartnersPage({
   const session = await auth();
   if (!session?.user) return null;
   const params = await searchParams;
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
 
   const where: Prisma.PartnerWhereInput = {
     marketId: { in: session.user.markets },
@@ -31,13 +32,40 @@ export default async function PartnersPage({
     where.OR = [{ assignedRepId: session.user.id }, { assignedRepId: null }];
   }
   if (params.stage) where.stage = params.stage;
+  if (params.q && params.q.trim()) {
+    const q = params.q.trim();
+    const searchOr: Prisma.PartnerWhereInput[] = [
+      { companyName: { contains: q, mode: 'insensitive' } },
+      { publicId: { contains: q, mode: 'insensitive' } },
+      { city: { contains: q, mode: 'insensitive' } },
+    ];
+    where.AND = where.OR ? [{ OR: where.OR }, { OR: searchOr }] : [{ OR: searchOr }];
+    delete where.OR;
+  }
 
-  const partners = await prisma.partner.findMany({
-    where,
-    orderBy: [{ stageChangedAt: 'desc' }],
-    include: { assignedRep: { select: { name: true, avatarColor: true } } },
-    take: 200,
-  });
+  const [partners, markets, reps] = await Promise.all([
+    prisma.partner.findMany({
+      where,
+      orderBy: [{ stageChangedAt: 'desc' }],
+      include: { assignedRep: { select: { name: true, avatarColor: true } } },
+      take: 200,
+    }),
+    prisma.market.findMany({
+      where: { id: { in: session.user.markets } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    isManagerPlus
+      ? prisma.user.findMany({
+          where: {
+            markets: { some: { marketId: { in: session.user.markets } } },
+            active: true,
+          },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        })
+      : Promise.resolve([]),
+  ]);
 
   return (
     <div className="flex h-full">
@@ -71,20 +99,11 @@ export default async function PartnersPage({
             <p className="text-xs text-gray-500">
               {partners.length} in view
               {params.stage ? ` · ${STAGE_LABELS[params.stage]}` : ''}
+              {params.q ? ` · matching "${params.q}"` : ''}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
-              <input
-                type="search"
-                placeholder="Search partners…"
-                className="w-60 rounded-md border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              />
-            </div>
-            <Button>
-              <Plus className="h-4 w-4" /> New
-            </Button>
+            <PartnersToolbar markets={markets} reps={reps} canAssign={isManagerPlus} />
           </div>
         </div>
 
