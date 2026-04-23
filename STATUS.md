@@ -4,6 +4,47 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-23 (autonomous pass #2) — 🚧 Phase 4 foundations landed
+
+Kirk fired a 4-hour autonomous build on top of the freshly-shipped
+Phase 2+3 baseline. Four Phase 4 scaffolds landed as atomic commits:
+
+| Commit  | Scope                                                                                                                         |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 6428685 | Hit Lists CRUD — /lists hub (card grid), /lists/[id] detail with drag-reorder + per-stop complete, "+ New hit list" drawer    |
+| c7c03c5 | /map page with graceful Google Maps degradation — renders pins when `GOOGLE_MAPS_API_KEY` is set, fallback pin list otherwise |
+| d803180 | Prospect queue — /admin/scraped-leads with approve→Partner / reject-with-reason; ScrapeSource enum expanded to 10 values      |
+| d2fd938 | NMLS ingestion adapter (streaming CSV) + generic `runIngest` pipeline + `scripts/ingest-nmls.ts` CLI                          |
+
+**What this means practically:**
+
+- Every rep can now plan a day: open /lists, hit "+ New", drop
+  partners onto the list, drag to reorder, check off as they visit
+  (each check-in writes a VISIT activity to the partner).
+- /map works _today_ as a pin list — the moment Kirk drops a Google
+  Maps key on Railway it upgrades to full interactive pins with a
+  side detail rail. Drawing + Places libs are already requested in
+  the loader.
+- The ingestion pipeline end-to-end: NMLS adapter (or any future
+  adapter) emits `ProspectCandidate` rows → base runner dedupes
+  against `ScrapedLead.dedupHash` → human approver hits /admin/
+  scraped-leads → one click becomes a Partner in NEW_LEAD stage with
+  a full audit trail.
+
+**Phase 4 items still to land:**
+
+1. Google Maps key provisioning (blocked on Kirk).
+2. Territory lasso + "In this area" / "Prospects in this area"
+   panels on /map (unlocks with the key).
+3. State licensing-board adapters (CO DORA, KS KREC, CO/KS insurance
+   depts). Same pipeline as NMLS, different parsers.
+4. Overture Maps loader + Google Places live-refresh fallback.
+5. Cron wiring for weekly runs (Railway cron or GitHub Actions).
+6. Apollo enrichment on Partner promotion (blocked on `APOLLO_API_KEY`).
+7. Routing deep-links + per-stop driving order.
+
+---
+
 ## 2026-04-23 — ✅ Phase 2 + Phase 3 SHIPPED
 
 Kirk said "continue" and Cowork ran Phases 2+3 through to completion in
