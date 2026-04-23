@@ -10,6 +10,10 @@ import type { NextAuthConfig } from 'next-auth';
  * `auth.ts` and spreads this config in.
  */
 export const authConfig = {
+  // Required for NextAuth v5 when running behind a proxy (Railway,
+  // Vercel, Fly, etc.) — otherwise auth refuses to operate and shows
+  // the generic "Server error / configuration problem" page.
+  trustHost: true,
   session: { strategy: 'jwt', maxAge: 60 * 60 * 8 /* 8h sliding */ },
   pages: { signIn: '/login' },
   providers: [], // actually wired in `auth.ts`
