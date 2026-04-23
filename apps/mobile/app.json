@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "PartnerRadar",
+    "slug": "partnerradar",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a1929"
+    },
+    "scheme": "partnerradar",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rooftechnologies.partnerradar"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a1929"
+      },
+      "package": "com.rooftechnologies.partnerradar"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "ios": { "deploymentTarget": "15.1" }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
