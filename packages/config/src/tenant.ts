@@ -53,7 +53,7 @@ export interface TenantConfig {
 /** Roof Technologies, LLC — PartnerRadar's first customer. */
 export const ROOF_TECHNOLOGIES: TenantConfig = {
   id: 'roof-technologies',
-  brandName: 'PartnerRadar',
+  brandName: 'Partner Portal',
   legalName: 'Roof Technologies, LLC',
   physicalAddress: '4955 Miller St. Suite 202, Wheat Ridge, CO 80033',
   mainPhone: '(855) 766-3001',
@@ -89,7 +89,8 @@ export const ROOF_TECHNOLOGIES: TenantConfig = {
  * should read brand strings directly — always go through `tenant()`.
  */
 export function tenant(): TenantConfig {
-  const id = process.env.NEXT_PUBLIC_TENANT ?? process.env.EXPO_PUBLIC_TENANT ?? 'roof-technologies';
+  const id =
+    process.env.NEXT_PUBLIC_TENANT ?? process.env.EXPO_PUBLIC_TENANT ?? 'roof-technologies';
   switch (id) {
     case 'roof-technologies':
       return ROOF_TECHNOLOGIES;

@@ -135,30 +135,14 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
     (a) => new Date(a.startsAt).getTime() >= now,
   ).length;
 
-  // Serialize Date → ISO strings for the client rail
+  // Serialize Date → ISO strings for the Comments rail (tabs removed —
+  // Appointments + Tasks have dedicated cards in the 2×2 grid below)
   const activitiesSer = partner.activities.map((a) => ({
     id: a.id,
     type: a.type,
     body: a.body,
     createdAt: a.createdAt.toISOString(),
     user: { id: a.user.id, name: a.user.name, avatarColor: a.user.avatarColor },
-  }));
-  const appointmentsSer = partner.appointments.map((a) => ({
-    id: a.id,
-    type: a.type,
-    title: a.title,
-    location: a.location,
-    startsAt: a.startsAt.toISOString(),
-    endsAt: a.endsAt.toISOString(),
-    notes: a.notes,
-  }));
-  const tasksSer = partner.tasks.map((t) => ({
-    id: t.id,
-    title: t.title,
-    description: t.description,
-    dueAt: t.dueAt ? t.dueAt.toISOString() : null,
-    priority: t.priority,
-    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
   }));
 
   return (
@@ -206,280 +190,281 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
 
       {/* ── Body ───────────────────────────────────────────────────── */}
       <div className="flex-1 space-y-4 overflow-y-auto p-5">
-        {/* Top row — Contacts | Info | Activity (much bigger rail, Storm parity) */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)_minmax(420px,560px)]">
-          {/* Contacts */}
-          <Card
-            title={
-              <span className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-gray-500" />
-                Contacts
-              </span>
-            }
-          >
-            {partner.contacts.length === 0 ? (
-              <EmptyState
-                title="No contacts yet"
-                description="Add a broker, owner, or decision maker."
-              />
-            ) : (
-              <ul className="space-y-3">
-                {partner.contacts.map((c) => {
-                  const emails =
-                    (c.emails as Array<{ address: string; label?: string }> | null) ?? [];
-                  const phones =
-                    (c.phones as Array<{ number: string; label?: string }> | null) ?? [];
-                  return (
-                    <li key={c.id} className="group flex items-start gap-2">
-                      <Avatar name={c.name} size="md" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-[13px] font-semibold text-gray-900">
-                            {c.name}
-                          </span>
-                          {c.isPrimary && (
+        {/* Outer 2-col grid: LEFT = all data cards, RIGHT = full-height Comments rail */}
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(440px,560px)]">
+          <div className="space-y-4">
+            {/* Top row — Contacts | Info */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
+              {/* Contacts */}
+              <Card
+                title={
+                  <span className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-gray-500" />
+                    Contacts
+                  </span>
+                }
+              >
+                {partner.contacts.length === 0 ? (
+                  <EmptyState
+                    title="No contacts yet"
+                    description="Add a broker, owner, or decision maker."
+                  />
+                ) : (
+                  <ul className="space-y-3">
+                    {partner.contacts.map((c) => {
+                      const emails =
+                        (c.emails as Array<{ address: string; label?: string }> | null) ?? [];
+                      const phones =
+                        (c.phones as Array<{ number: string; label?: string }> | null) ?? [];
+                      return (
+                        <li key={c.id} className="group flex items-start gap-2">
+                          <Avatar name={c.name} size="md" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-[13px] font-semibold text-gray-900">
+                                {c.name}
+                              </span>
+                              {c.isPrimary && (
+                                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-amber-700">
+                                  Primary
+                                </span>
+                              )}
+                            </div>
+                            {c.title && <div className="text-xs text-gray-500">{c.title}</div>}
+                            {emails[0] && (
+                              <a
+                                href={`mailto:${emails[0].address}`}
+                                className="mt-1 flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
+                              >
+                                <Mail className="h-3 w-3" />
+                                <span className="truncate">{emails[0].address}</span>
+                              </a>
+                            )}
+                            {phones[0] && (
+                              <a
+                                href={`tel:${phones[0].number}`}
+                                className="flex items-center gap-1 text-[11px] text-gray-600 hover:text-gray-900"
+                              >
+                                <Phone className="h-3 w-3" />
+                                <span>{phones[0].number}</span>
+                              </a>
+                            )}
+                          </div>
+                          {canEdit && (
+                            <div className="opacity-0 transition group-hover:opacity-100">
+                              <ContactRowActions
+                                partnerId={partner.id}
+                                contactId={c.id}
+                                isPrimary={c.isPrimary}
+                              />
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {canEdit && <NewContactButton partnerId={partner.id} />}
+              </Card>
+
+              {/* Info */}
+              <Card title="Partner info">
+                <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-[13px]">
+                  <InfoRow label="Type" value={PARTNER_TYPE_LABELS[partner.partnerType]} />
+                  <InfoRow label="Stage">
+                    <Pill color={STAGE_COLORS[partner.stage]} tone="soft">
+                      {STAGE_LABELS[partner.stage]}
+                    </Pill>
+                  </InfoRow>
+                  <InfoRow label="Market" value={partner.market.name} />
+                  <InfoRow label="Assigned">
+                    {partner.assignedRep ? (
+                      <div className="flex items-center gap-1.5">
+                        <Avatar
+                          name={partner.assignedRep.name}
+                          color={partner.assignedRep.avatarColor}
+                          size="sm"
+                        />
+                        <span className="text-gray-900">{partner.assignedRep.name}</span>
+                      </div>
+                    ) : (
+                      <span className="text-amber-600">Unassigned</span>
+                    )}
+                  </InfoRow>
+                  <InfoRow label="Primary email" value={primaryEmail ?? '—'} />
+                  <InfoRow label="Primary phone" value={primaryPhone ?? '—'} />
+                  <InfoRow label="Address" value={addressLine || '—'} />
+                  {partner.website && (
+                    <InfoRow label="Website">
+                      <a
+                        href={partner.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                      >
+                        {partner.website.replace(/^https?:\/\//, '')}
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </InfoRow>
+                  )}
+                  {partner.stormCloudId && (
+                    <InfoRow label="Storm ID" value={partner.stormCloudId} />
+                  )}
+                  {partner.activatedAt && (
+                    <InfoRow
+                      label="Activated"
+                      value={new Date(partner.activatedAt).toLocaleDateString()}
+                    />
+                  )}
+                  {partner.notes && (
+                    <InfoRow label="Notes">
+                      <p className="whitespace-pre-wrap text-gray-700">{partner.notes}</p>
+                    </InfoRow>
+                  )}
+                </dl>
+              </Card>
+            </div>
+
+            {/* Partner performance — MTD / YTD / Last year / Lifetime */}
+            <PartnerStatsRow stats={stormStats} />
+
+            {/* 2×2 grid — Tasks / Appointments / Events / Files */}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Card
+                title={
+                  <span className="flex items-center gap-2">
+                    <ListTodo className="h-4 w-4 text-gray-500" />
+                    Tasks
+                    {openTaskCount > 0 && (
+                      <span className="text-[10.5px] uppercase tracking-label text-gray-400">
+                        {openTaskCount} open
+                      </span>
+                    )}
+                  </span>
+                }
+              >
+                {partner.tasks.filter((t) => !t.completedAt).length === 0 ? (
+                  <EmptyState title="Nothing due" description="Tasks you create land here." />
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {partner.tasks
+                      .filter((t) => !t.completedAt)
+                      .map((task) => (
+                        <li key={task.id} className="flex items-start gap-2 py-2">
+                          {canEdit && <TaskCheckbox taskId={task.id} />}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium text-gray-900">{task.title}</div>
+                            {task.dueAt && (
+                              <div className="text-xs text-gray-500">
+                                Due {new Date(task.dueAt).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                          {task.priority === 'HIGH' && (
                             <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-amber-700">
-                              Primary
+                              High
                             </span>
                           )}
-                        </div>
-                        {c.title && <div className="text-xs text-gray-500">{c.title}</div>}
-                        {emails[0] && (
-                          <a
-                            href={`mailto:${emails[0].address}`}
-                            className="mt-1 flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
-                          >
-                            <Mail className="h-3 w-3" />
-                            <span className="truncate">{emails[0].address}</span>
-                          </a>
-                        )}
-                        {phones[0] && (
-                          <a
-                            href={`tel:${phones[0].number}`}
-                            className="flex items-center gap-1 text-[11px] text-gray-600 hover:text-gray-900"
-                          >
-                            <Phone className="h-3 w-3" />
-                            <span>{phones[0].number}</span>
-                          </a>
-                        )}
-                      </div>
-                      {canEdit && (
-                        <div className="opacity-0 transition group-hover:opacity-100">
-                          <ContactRowActions
-                            partnerId={partner.id}
-                            contactId={c.id}
-                            isPrimary={c.isPrimary}
-                          />
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {canEdit && <NewContactButton partnerId={partner.id} />}
-          </Card>
-
-          {/* Info */}
-          <Card title="Partner info">
-            <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-[13px]">
-              <InfoRow label="Type" value={PARTNER_TYPE_LABELS[partner.partnerType]} />
-              <InfoRow label="Stage">
-                <Pill color={STAGE_COLORS[partner.stage]} tone="soft">
-                  {STAGE_LABELS[partner.stage]}
-                </Pill>
-              </InfoRow>
-              <InfoRow label="Market" value={partner.market.name} />
-              <InfoRow label="Assigned">
-                {partner.assignedRep ? (
-                  <div className="flex items-center gap-1.5">
-                    <Avatar
-                      name={partner.assignedRep.name}
-                      color={partner.assignedRep.avatarColor}
-                      size="sm"
-                    />
-                    <span className="text-gray-900">{partner.assignedRep.name}</span>
-                  </div>
-                ) : (
-                  <span className="text-amber-600">Unassigned</span>
+                          {task.priority === 'URGENT' && (
+                            <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-red-700">
+                              Urgent
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                  </ul>
                 )}
-              </InfoRow>
-              <InfoRow label="Primary email" value={primaryEmail ?? '—'} />
-              <InfoRow label="Primary phone" value={primaryPhone ?? '—'} />
-              <InfoRow label="Address" value={addressLine || '—'} />
-              {partner.website && (
-                <InfoRow label="Website">
-                  <a
-                    href={partner.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-blue-600 hover:underline"
-                  >
-                    {partner.website.replace(/^https?:\/\//, '')}
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </InfoRow>
-              )}
-              {partner.stormCloudId && <InfoRow label="Storm ID" value={partner.stormCloudId} />}
-              {partner.activatedAt && (
-                <InfoRow
-                  label="Activated"
-                  value={new Date(partner.activatedAt).toLocaleDateString()}
-                />
-              )}
-              {partner.notes && (
-                <InfoRow label="Notes">
-                  <p className="whitespace-pre-wrap text-gray-700">{partner.notes}</p>
-                </InfoRow>
-              )}
-            </dl>
-          </Card>
+                {canEdit && <NewTaskButton partnerId={partner.id} />}
+              </Card>
 
-          {/* Activity — tabbed, bigger rail */}
-          <ActivityRail
-            partnerId={partner.id}
-            canEdit={canEdit}
-            activities={activitiesSer}
-            appointments={appointmentsSer}
-            tasks={tasksSer}
-            openTaskCount={openTaskCount}
-            upcomingAppointmentCount={upcomingAppointmentCount}
-          />
-        </div>
-
-        {/* Partner performance — MTD / YTD / Last year / Lifetime */}
-        <PartnerStatsRow stats={stormStats} />
-
-        {/* 2×2 grid — Tasks / Appointments / Events / Files */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card
-            title={
-              <span className="flex items-center gap-2">
-                <ListTodo className="h-4 w-4 text-gray-500" />
-                Tasks
-                {openTaskCount > 0 && (
-                  <span className="text-[10.5px] uppercase tracking-label text-gray-400">
-                    {openTaskCount} open
+              <Card
+                title={
+                  <span className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-gray-500" />
+                    Appointments
                   </span>
+                }
+              >
+                {partner.appointments.length === 0 ? (
+                  <EmptyState title="No appointments" description="1:1 meetings land here." />
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {partner.appointments.slice(0, 5).map((a) => (
+                      <li key={a.id} className="py-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-gray-900">{a.title}</span>
+                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-blue-700">
+                            {a.type}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(a.startsAt).toLocaleString()}
+                          {a.location && ` · ${a.location}`}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </span>
-            }
-          >
-            {partner.tasks.filter((t) => !t.completedAt).length === 0 ? (
-              <EmptyState title="Nothing due" description="Tasks you create land here." />
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {partner.tasks
-                  .filter((t) => !t.completedAt)
-                  .map((task) => (
-                    <li key={task.id} className="flex items-start gap-2 py-2">
-                      {canEdit && <TaskCheckbox taskId={task.id} />}
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-gray-900">{task.title}</div>
-                        {task.dueAt && (
-                          <div className="text-xs text-gray-500">
-                            Due {new Date(task.dueAt).toLocaleDateString()}
-                          </div>
-                        )}
-                      </div>
-                      {task.priority === 'HIGH' && (
-                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-amber-700">
-                          High
-                        </span>
-                      )}
-                      {task.priority === 'URGENT' && (
-                        <span className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-red-700">
-                          Urgent
-                        </span>
-                      )}
-                    </li>
-                  ))}
-              </ul>
-            )}
-            {canEdit && <NewTaskButton partnerId={partner.id} />}
-          </Card>
+                {canEdit && <NewAppointmentButton partnerId={partner.id} />}
+              </Card>
 
-          <Card
-            title={
-              <span className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-gray-500" />
-                Appointments
-              </span>
-            }
-          >
-            {partner.appointments.length === 0 ? (
-              <EmptyState title="No appointments" description="1:1 meetings land here." />
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {partner.appointments.slice(0, 5).map((a) => (
-                  <li key={a.id} className="py-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-medium text-gray-900">{a.title}</span>
-                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-blue-700">
-                        {a.type}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(a.startsAt).toLocaleString()}
-                      {a.location && ` · ${a.location}`}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {canEdit && <NewAppointmentButton partnerId={partner.id} />}
-          </Card>
+              <Card
+                title={
+                  <span className="flex items-center gap-2">
+                    <PartyPopper className="h-4 w-4 text-gray-500" />
+                    Events
+                    <span className="text-[10.5px] uppercase tracking-label text-gray-400">
+                      Chamber · Broker opens · Mixers
+                    </span>
+                  </span>
+                }
+              >
+                {events.length === 0 ? (
+                  <EmptyState
+                    title="No events yet"
+                    description="Chamber mixers, broker opens, lunch-and-learns."
+                  />
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {events.slice(0, 5).map((e) => (
+                      <li key={e.id} className="py-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-gray-900">{e.title}</span>
+                          <span className="rounded bg-pink-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-pink-700">
+                            {e.type}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(e.startsAt).toLocaleString()}
+                          {e.location && ` · ${e.location}`}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {canEdit && <NewEventButton partnerId={partner.id} />}
+              </Card>
 
-          <Card
-            title={
-              <span className="flex items-center gap-2">
-                <PartyPopper className="h-4 w-4 text-gray-500" />
-                Events
-                <span className="text-[10.5px] uppercase tracking-label text-gray-400">
-                  Chamber · Broker opens · Mixers
-                </span>
-              </span>
-            }
-          >
-            {events.length === 0 ? (
-              <EmptyState
-                title="No events yet"
-                description="Chamber mixers, broker opens, lunch-and-learns."
-              />
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {events.slice(0, 5).map((e) => (
-                  <li key={e.id} className="py-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-medium text-gray-900">{e.title}</span>
-                      <span className="rounded bg-pink-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-pink-700">
-                        {e.type}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(e.startsAt).toLocaleString()}
-                      {e.location && ` · ${e.location}`}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {canEdit && <NewEventButton partnerId={partner.id} />}
-          </Card>
+              <Card
+                title={
+                  <span className="flex items-center gap-2">
+                    <Paperclip className="h-4 w-4 text-gray-500" />
+                    Files
+                  </span>
+                }
+              >
+                <EmptyState
+                  title="No files"
+                  description="Cloudflare R2 uploads arrive when creds are wired."
+                />
+              </Card>
+            </div>
+          </div>
 
-          <Card
-            title={
-              <span className="flex items-center gap-2">
-                <Paperclip className="h-4 w-4 text-gray-500" />
-                Files
-              </span>
-            }
-          >
-            <EmptyState
-              title="No files"
-              description="Cloudflare R2 uploads arrive when creds are wired."
-            />
-          </Card>
+          {/* RIGHT column — full-height Comments rail */}
+          <div className="lg:sticky lg:top-0 lg:self-stretch">
+            <ActivityRail partnerId={partner.id} canEdit={canEdit} activities={activitiesSer} />
+          </div>
         </div>
 
         {/* Linked projects — Storm-style roster at the bottom */}

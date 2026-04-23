@@ -89,7 +89,7 @@ export function CommandPalette() {
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
-      aria-label="Search PartnerRadar"
+      aria-label="Search Partner Portal"
     >
       <div
         className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl ring-1 ring-gray-200"

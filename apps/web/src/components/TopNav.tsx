@@ -52,10 +52,10 @@ export function TopNav() {
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-black/30 bg-nav-bg px-4">
-      {/* Logo — Handshake icon captures "referral partners" concept */}
+      {/* Logo — red handshake on grey chip, Storm-style brand block */}
       <Link href="/radar" className="flex items-center gap-2 font-semibold text-white">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-white">
-          <Handshake className="h-4 w-4" strokeWidth={2.25} />
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-200 text-red-600 ring-1 ring-inset ring-gray-300">
+          <Handshake className="h-4 w-4" strokeWidth={2.5} />
         </div>
         <span className="hidden text-[14px] sm:inline">{t.brandName}</span>
       </Link>

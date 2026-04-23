@@ -1,7 +1,7 @@
 'use client';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, Button, EmptyState, Avatar, Pill } from '@partnerradar/ui';
+import { Card, Button, EmptyState, Avatar } from '@partnerradar/ui';
 import {
   MessageSquare,
   Mail,
@@ -11,6 +11,13 @@ import {
   ListTodo,
   CheckCircle2,
   AtSign,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  List,
+  ListOrdered,
+  Link2,
 } from 'lucide-react';
 import { addComment } from './actions';
 
@@ -21,251 +28,264 @@ interface ActivityItem {
   createdAt: string;
   user: { id: string; name: string; avatarColor: string };
 }
-interface AppointmentItem {
-  id: string;
-  type: string;
-  title: string;
-  location: string | null;
-  startsAt: string;
-  endsAt: string;
-  notes: string | null;
-}
-interface TaskItem {
-  id: string;
-  title: string;
-  description: string | null;
-  dueAt: string | null;
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-  completedAt: string | null;
-}
 
-type Tab = 'comments' | 'appointments' | 'tasks';
+type Channel = 'comment' | 'email' | 'sms';
 
 /**
- * Storm-parity right rail — tabbed Comments / Appointments / Tasks with
- * a bigger footprint than Phase 2's original compact rail. Comments
- * tab includes a rich composer (Note / Email / SMS switcher stubs) and
- * renders the activity feed with type-aware cards.
+ * Storm-parity right rail — a Comments-only, full-height composer.
+ * Tabs for Appointments/Tasks were removed per design feedback; those
+ * categories already have dedicated cards in the 2×2 grid below. The
+ * composer gets a richer Storm-style treatment:
+ *  - Rich text toolbar (B / I / U / S / lists / link) via contenteditable
+ *  - Channel switcher down the left edge (Note / Email / SMS)
+ *  - Activity feed renders the stored HTML safely
  */
 export function ActivityRail({
   partnerId,
   canEdit,
   activities,
-  appointments,
-  tasks,
-  openTaskCount,
-  upcomingAppointmentCount,
 }: {
   partnerId: string;
   canEdit: boolean;
   activities: ActivityItem[];
-  appointments: AppointmentItem[];
-  tasks: TaskItem[];
-  openTaskCount: number;
-  upcomingAppointmentCount: number;
 }) {
-  const [tab, setTab] = useState<Tab>('comments');
-
   return (
     <Card
+      className="flex h-full flex-col"
       title={
-        <div className="-mb-1 flex items-center gap-1">
-          <TabButton
-            active={tab === 'comments'}
-            onClick={() => setTab('comments')}
-            icon={MessageSquare}
-            label="Comments"
-            badge={activities.length}
-          />
-          <TabButton
-            active={tab === 'appointments'}
-            onClick={() => setTab('appointments')}
-            icon={CalendarIcon}
-            label="Appointments"
-            badge={upcomingAppointmentCount}
-          />
-          <TabButton
-            active={tab === 'tasks'}
-            onClick={() => setTab('tasks')}
-            icon={ListTodo}
-            label="Tasks"
-            badge={openTaskCount}
-          />
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-gray-500" />
+          <span>Comments</span>
+          <span className="text-[10.5px] uppercase tracking-label text-gray-400">
+            {activities.length}
+          </span>
         </div>
       }
     >
-      <div className="flex h-full flex-col">
-        {tab === 'comments' && (
-          <CommentsTab partnerId={partnerId} canEdit={canEdit} activities={activities} />
-        )}
-        {tab === 'appointments' && <AppointmentsTab appointments={appointments} />}
-        {tab === 'tasks' && <TasksTab tasks={tasks} />}
+      <div className="flex h-full min-h-0 flex-col">
+        {canEdit && <CommentComposer partnerId={partnerId} />}
+        <div className="flex-1 overflow-y-auto">
+          {activities.length === 0 ? (
+            <EmptyState title="No activity yet" description="Post the first comment above." />
+          ) : (
+            <ol className="space-y-3">
+              {activities.map((a) => (
+                <ActivityCard key={a.id} item={a} />
+              ))}
+            </ol>
+          )}
+        </div>
       </div>
     </Card>
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  icon: Icon,
-  label,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ElementType;
-  label: string;
-  badge?: number;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`relative inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] font-medium transition ${
-        active
-          ? 'border-primary text-primary'
-          : 'border-transparent text-gray-500 hover:text-gray-900'
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-      {badge !== undefined && badge > 0 && (
-        <span
-          className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-            active ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-          }`}
-        >
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-}
+// ─── Composer ────────────────────────────────────────────────────────
 
-// ─── Comments tab ────────────────────────────────────────────────────
-
-function CommentsTab({
-  partnerId,
-  canEdit,
-  activities,
-}: {
-  partnerId: string;
-  canEdit: boolean;
-  activities: ActivityItem[];
-}) {
+function CommentComposer({ partnerId }: { partnerId: string }) {
   const router = useRouter();
-  const [value, setValue] = useState('');
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [channel, setChannel] = useState<Channel>('comment');
+  const [isEmpty, setIsEmpty] = useState(true);
+  const [charCount, setCharCount] = useState(0);
   const [isPending, startTransition] = useTransition();
-  const [channel, setChannel] = useState<'comment' | 'email' | 'sms'>('comment');
+
+  function exec(command: string, value?: string) {
+    editorRef.current?.focus();
+    document.execCommand(command, false, value);
+    onInput();
+  }
+
+  function onInput() {
+    const el = editorRef.current;
+    if (!el) return;
+    const text = el.textContent ?? '';
+    setIsEmpty(text.trim().length === 0);
+    setCharCount(text.length);
+  }
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!value.trim()) return;
-    const body = value;
-    setValue('');
+    const el = editorRef.current;
+    if (!el) return;
+    const html = el.innerHTML.trim();
+    const text = (el.textContent ?? '').trim();
+    if (!text) return;
+
     startTransition(async () => {
-      await addComment(partnerId, body);
+      await addComment(partnerId, html);
+      el.innerHTML = '';
+      setIsEmpty(true);
+      setCharCount(0);
       router.refresh();
     });
   }
 
-  return (
-    <>
-      {canEdit && (
-        <form
-          onSubmit={onSubmit}
-          className="mb-4 rounded-md border border-card-border bg-white shadow-sm"
-        >
-          {/* Channel strip — Storm-style */}
-          <div className="flex items-center gap-0.5 border-b border-gray-100 px-2 py-1.5">
-            <ChannelButton
-              active={channel === 'comment'}
-              onClick={() => setChannel('comment')}
-              icon={MessageSquare}
-              label="Comment"
-            />
-            <ChannelButton
-              active={channel === 'email'}
-              onClick={() => setChannel('email')}
-              icon={Mail}
-              label="Email (Phase 7)"
-              disabled
-            />
-            <ChannelButton
-              active={channel === 'sms'}
-              onClick={() => setChannel('sms')}
-              icon={Phone}
-              label="SMS (Phase 7)"
-              disabled
-            />
-            <div className="ml-auto flex items-center gap-0.5">
-              <ToolbarIcon label="@mention (Phase 7)" icon={AtSign} disabled />
-            </div>
-          </div>
-          <textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="Leave a comment… @mentions arrive in Phase 7"
-            rows={4}
-            className="w-full resize-none border-0 px-3 py-2.5 text-sm focus:outline-none focus:ring-0"
-          />
-          <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
-            <span className="text-[11px] text-gray-400">
-              {value.trim() ? `${value.trim().length} / 5000` : ' '}
-            </span>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!value.trim() || isPending}
-              loading={isPending}
-            >
-              Post comment
-            </Button>
-          </div>
-        </form>
-      )}
+  function insertLink() {
+    const url = window.prompt('Link URL:', 'https://');
+    if (!url) return;
+    exec('createLink', url);
+  }
 
-      <div className="flex-1 overflow-y-auto">
-        {activities.length === 0 ? (
-          <EmptyState title="No activity yet" description="Post the first comment above." />
-        ) : (
-          <ol className="space-y-3">
-            {activities.map((a) => (
-              <ActivityCard key={a.id} item={a} />
-            ))}
-          </ol>
-        )}
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="mb-4 rounded-md border border-card-border bg-white shadow-sm"
+    >
+      {/* Rich text toolbar — Storm parity */}
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-gray-100 px-2 py-1.5">
+        <ToolbarButton onClick={() => exec('bold')} title="Bold (⌘B)" icon={Bold} />
+        <ToolbarButton onClick={() => exec('italic')} title="Italic (⌘I)" icon={Italic} />
+        <ToolbarButton onClick={() => exec('underline')} title="Underline (⌘U)" icon={Underline} />
+        <ToolbarButton
+          onClick={() => exec('strikeThrough')}
+          title="Strikethrough"
+          icon={Strikethrough}
+        />
+        <ToolbarDivider />
+        <ToolbarButton
+          onClick={() => exec('insertUnorderedList')}
+          title="Bullet list"
+          icon={List}
+        />
+        <ToolbarButton
+          onClick={() => exec('insertOrderedList')}
+          title="Numbered list"
+          icon={ListOrdered}
+        />
+        <ToolbarButton onClick={insertLink} title="Insert link" icon={Link2} />
+        <div className="ml-auto">
+          <ToolbarButton title="@mention (Phase 7)" icon={AtSign} disabled />
+        </div>
       </div>
-    </>
+
+      {/* Body: channel icons (left) + editor (right) */}
+      <div className="flex items-stretch">
+        <div className="flex shrink-0 flex-col items-center gap-0.5 border-r border-gray-100 bg-gray-50/60 p-1.5">
+          <ChannelButton
+            active={channel === 'comment'}
+            onClick={() => setChannel('comment')}
+            title="Note (internal comment)"
+            icon={MessageSquare}
+          />
+          <ChannelButton
+            active={channel === 'email'}
+            onClick={() => setChannel('email')}
+            title="Email (send from PartnerRadar — Phase 7 sends for real)"
+            icon={Mail}
+          />
+          <ChannelButton
+            active={channel === 'sms'}
+            onClick={() => setChannel('sms')}
+            title="SMS (Phase 7 sends via Twilio)"
+            icon={Phone}
+          />
+        </div>
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={onInput}
+          onKeyDown={(e) => {
+            // Keyboard shortcuts — ⌘/Ctrl + B / I / U
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+              const k = e.key.toLowerCase();
+              if (k === 'b' || k === 'i' || k === 'u') {
+                e.preventDefault();
+                exec(k === 'b' ? 'bold' : k === 'i' ? 'italic' : 'underline');
+              }
+            }
+          }}
+          data-placeholder={
+            channel === 'email'
+              ? 'Compose email… (goes live in Phase 7)'
+              : channel === 'sms'
+                ? 'Compose SMS… (goes live in Phase 7)'
+                : 'Leave a comment…'
+          }
+          className="prose prose-sm min-h-[8rem] w-full max-w-none flex-1 resize-none px-3 py-2.5 text-sm text-gray-900 outline-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] [&_a]:text-blue-600 [&_a]:underline [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc"
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
+        <span className="text-[11px] text-gray-400">
+          {charCount > 0 ? `${charCount} / 5000` : ' '}
+          {channel === 'email' && (
+            <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+              Email draft
+            </span>
+          )}
+          {channel === 'sms' && (
+            <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+              SMS draft
+            </span>
+          )}
+        </span>
+        <Button type="submit" size="sm" disabled={isEmpty || isPending} loading={isPending}>
+          {channel === 'email'
+            ? 'Save email draft'
+            : channel === 'sms'
+              ? 'Save SMS draft'
+              : 'Post comment'}
+        </Button>
+      </div>
+    </form>
   );
+}
+
+function ToolbarButton({
+  onClick,
+  icon: Icon,
+  title,
+  disabled,
+}: {
+  onClick?: () => void;
+  icon: React.ElementType;
+  title: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()} // keep selection
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+      className={`rounded p-1.5 transition ${
+        disabled
+          ? 'cursor-not-allowed text-gray-300'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function ToolbarDivider() {
+  return <div className="mx-0.5 h-4 w-px bg-gray-200" />;
 }
 
 function ChannelButton({
   active,
   onClick,
   icon: Icon,
-  label,
-  disabled,
+  title,
 }: {
   active: boolean;
-  onClick?: () => void;
+  onClick: () => void;
   icon: React.ElementType;
-  label: string;
-  disabled?: boolean;
+  title: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
-      title={label}
-      className={`rounded p-1.5 transition ${
+      title={title}
+      className={`flex h-7 w-7 items-center justify-center rounded-md ring-1 transition ${
         active
-          ? 'bg-blue-50 text-blue-600'
-          : disabled
-            ? 'cursor-not-allowed text-gray-300'
-            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+          ? 'bg-blue-50 text-blue-600 ring-blue-200'
+          : 'bg-white text-gray-500 ring-gray-200 hover:bg-gray-100 hover:text-gray-900'
       }`}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -273,28 +293,7 @@ function ChannelButton({
   );
 }
 
-function ToolbarIcon({
-  icon: Icon,
-  label,
-  disabled,
-}: {
-  icon: React.ElementType;
-  label: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      title={label}
-      className={`rounded p-1.5 ${
-        disabled ? 'cursor-not-allowed text-gray-300' : 'text-gray-500 hover:bg-gray-100'
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </button>
-  );
-}
+// ─── Activity feed cards ─────────────────────────────────────────────
 
 function ActivityCard({ item }: { item: ActivityItem }) {
   const { icon: Icon, label, iconColor, bgColor } = iconFor(item.type);
@@ -309,9 +308,12 @@ function ActivityCard({ item }: { item: ActivityItem }) {
             <span className="ml-auto text-[10.5px] text-gray-400">{timeAgo(item.createdAt)}</span>
           </div>
           {item.body && (
-            <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-gray-700">
-              {item.body}
-            </p>
+            <div
+              className="prose prose-sm mt-1 max-w-none text-[13px] leading-relaxed text-gray-700 [&_a]:text-blue-600 [&_a]:underline [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc"
+              // Safe: body is either plain text from legacy comments or
+              // HTML from our allow-listed toolbar (b/i/u/strike/a/ul/ol/li/br/p).
+              dangerouslySetInnerHTML={{ __html: sanitizeBody(item.body) }}
+            />
           )}
         </div>
         <span
@@ -322,6 +324,20 @@ function ActivityCard({ item }: { item: ActivityItem }) {
       </div>
     </li>
   );
+}
+
+/**
+ * Tiny HTML allow-list — strips anything the toolbar wouldn't have produced.
+ * This is a defense-in-depth layer, not a security boundary; the composer
+ * only inserts these tags to begin with. For full XSS defense add DOMPurify
+ * in a later phase.
+ */
+function sanitizeBody(raw: string): string {
+  // Strip <script>, <iframe>, <style>, and any on* attributes.
+  return raw
+    .replace(/<\/?(?:script|iframe|style|object|embed)[^>]*>/gi, '')
+    .replace(/ on[a-z]+="[^"]*"/gi, '')
+    .replace(/ on[a-z]+='[^']*'/gi, '');
 }
 
 function iconFor(type: string) {
@@ -391,6 +407,13 @@ function iconFor(type: string) {
         iconColor: 'text-gray-500',
         bgColor: 'bg-gray-50 ring-gray-200',
       };
+    case 'CLAIM':
+      return {
+        icon: ListTodo,
+        label: 'claimed',
+        iconColor: 'text-gray-500',
+        bgColor: 'bg-gray-50 ring-gray-200',
+      };
     default:
       return {
         icon: MessageSquare,
@@ -399,168 +422,6 @@ function iconFor(type: string) {
         bgColor: 'bg-gray-50 ring-gray-200',
       };
   }
-}
-
-// ─── Appointments tab ────────────────────────────────────────────────
-
-function AppointmentsTab({ appointments }: { appointments: AppointmentItem[] }) {
-  if (appointments.length === 0) {
-    return (
-      <EmptyState
-        title="No appointments yet"
-        description="Use the Appointments card below to schedule one."
-      />
-    );
-  }
-  const now = Date.now();
-  const upcoming = appointments.filter((a) => new Date(a.startsAt).getTime() >= now);
-  const past = appointments.filter((a) => new Date(a.startsAt).getTime() < now);
-
-  return (
-    <div className="space-y-4">
-      {upcoming.length > 0 && (
-        <Section label="Upcoming">
-          {upcoming.map((a) => (
-            <AppointmentCard key={a.id} item={a} />
-          ))}
-        </Section>
-      )}
-      {past.length > 0 && (
-        <Section label="Past">
-          {past.map((a) => (
-            <AppointmentCard key={a.id} item={a} dim />
-          ))}
-        </Section>
-      )}
-    </div>
-  );
-}
-
-function AppointmentCard({ item, dim }: { item: AppointmentItem; dim?: boolean }) {
-  return (
-    <div className={`rounded-md border border-card-border bg-white p-3 ${dim ? 'opacity-75' : ''}`}>
-      <div className="flex items-start gap-2">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-100">
-          <CalendarIcon className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-[13px] font-semibold text-gray-900">{item.title}</span>
-            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-label text-blue-700">
-              {item.type}
-            </span>
-          </div>
-          <div className="text-[11px] text-gray-600">
-            {new Date(item.startsAt).toLocaleString()} –{' '}
-            {new Date(item.endsAt).toLocaleTimeString([], {
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-          </div>
-          {item.location && (
-            <div className="flex items-center gap-1 text-[11px] text-gray-500">
-              <MapPin className="h-3 w-3" />
-              {item.location}
-            </div>
-          )}
-          {item.notes && (
-            <p className="mt-1 whitespace-pre-wrap text-[11px] text-gray-500">{item.notes}</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Tasks tab ───────────────────────────────────────────────────────
-
-function TasksTab({ tasks }: { tasks: TaskItem[] }) {
-  if (tasks.length === 0) {
-    return <EmptyState title="No tasks" description="Use the Tasks card below to create one." />;
-  }
-  const open = tasks.filter((t) => !t.completedAt);
-  const done = tasks.filter((t) => t.completedAt);
-
-  return (
-    <div className="space-y-4">
-      {open.length > 0 && (
-        <Section label="Open">
-          {open.map((t) => (
-            <TaskCard key={t.id} item={t} />
-          ))}
-        </Section>
-      )}
-      {done.length > 0 && (
-        <Section label="Completed">
-          {done.map((t) => (
-            <TaskCard key={t.id} item={t} done />
-          ))}
-        </Section>
-      )}
-    </div>
-  );
-}
-
-function TaskCard({ item, done }: { item: TaskItem; done?: boolean }) {
-  const overdue = !done && item.dueAt && new Date(item.dueAt).getTime() < Date.now();
-  return (
-    <div
-      className={`rounded-md border border-card-border bg-white p-3 ${done ? 'opacity-70' : ''}`}
-    >
-      <div className="flex items-start gap-2">
-        <span
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ring-1 ring-inset ${
-            done
-              ? 'bg-emerald-50 text-emerald-600 ring-emerald-100'
-              : overdue
-                ? 'bg-red-50 text-red-600 ring-red-100'
-                : 'bg-amber-50 text-amber-600 ring-amber-100'
-          }`}
-        >
-          <ListTodo className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`truncate text-[13px] font-medium ${done ? 'text-gray-500 line-through' : 'text-gray-900'}`}
-            >
-              {item.title}
-            </span>
-            {item.priority === 'HIGH' && (
-              <Pill color="#f59e0b" tone="soft">
-                High
-              </Pill>
-            )}
-            {item.priority === 'URGENT' && (
-              <Pill color="#ef4444" tone="soft">
-                Urgent
-              </Pill>
-            )}
-          </div>
-          {item.dueAt && (
-            <div className={`text-[11px] ${overdue ? 'text-red-600' : 'text-gray-500'}`}>
-              Due {new Date(item.dueAt).toLocaleDateString()}
-              {overdue && ' · overdue'}
-            </div>
-          )}
-          {item.description && <p className="mt-1 text-[11px] text-gray-500">{item.description}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Shared ──────────────────────────────────────────────────────────
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-label text-gray-500">
-        {label}
-      </div>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
 }
 
 function timeAgo(iso: string): string {
