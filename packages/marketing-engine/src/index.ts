@@ -46,10 +46,16 @@ export * from './brand/types';
 export { extractBrandProfile, type ExtractBrandInput, type ExtractResult } from './brand/extract';
 
 // MW-3: generation pipeline.
+//
+// IMPORTANT: renderDesign + generateDesignFull are exported from the
+// `@partnerradar/marketing-engine/render` subpath, NOT here. They pull
+// in `satori` + `@resvg/resvg-js` (native `.node` binary) which must
+// never end up in a client bundle. Client components that need types
+// or non-render utilities should import from the main barrel; server
+// routes / actions that need to actually render a PNG import from the
+// /render subpath.
 export { parseIntent, parseViaRules } from './pipeline/intent';
 export { direct, directViaRules, type DirectorOutput } from './pipeline/director';
-export { renderDesign, type RenderDesignInput, type RenderedDesign } from './pipeline/render';
-export { generateDesignFull, type GenerateArgs, type GenerateResult } from './pipeline/generate';
 export { toBrandRenderProfile } from './pipeline/adapt-brand';
 export {
   mergeTokens,

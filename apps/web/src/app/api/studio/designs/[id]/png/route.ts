@@ -10,11 +10,13 @@ import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@partnerradar/db';
 import {
-  renderDesign,
   toBrandRenderProfile,
   type BrandProfile,
   type MergeContext,
 } from '@partnerradar/marketing-engine';
+// Renderer lives behind a server-only subpath so webpack never drags
+// satori / @resvg/resvg-js into a client bundle.
+import { renderDesign } from '@partnerradar/marketing-engine/render';
 import {
   getTemplate,
   getPlatformSize,

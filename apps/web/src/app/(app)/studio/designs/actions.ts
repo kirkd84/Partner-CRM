@@ -18,7 +18,6 @@ import { revalidatePath } from 'next/cache';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
 import {
-  generateDesignFull,
   parseIntent,
   direct,
   mergeSlotsText,
@@ -26,6 +25,9 @@ import {
   type DesignIntent,
   type MergeContext,
 } from '@partnerradar/marketing-engine';
+// generateDesignFull lives on the server-only /render subpath so its
+// native-binary deps never leak into a client bundle.
+import { generateDesignFull } from '@partnerradar/marketing-engine/render';
 import type { SlotValues, ColorVariant } from '@partnerradar/marketing-templates';
 
 export interface CreateDesignInput {

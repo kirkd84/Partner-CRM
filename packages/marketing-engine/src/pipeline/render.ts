@@ -85,7 +85,11 @@ export async function renderDesign(input: RenderDesignInput): Promise<RenderedDe
 
   let satoriFn: (node: unknown, opts: unknown) => Promise<string>;
   try {
-    const mod = await import('satori');
+    // webpackIgnore keeps Next's bundler from tracing into the package —
+    // satori is already in `serverExternalPackages`, but the comment is
+    // belt-and-suspenders when this module is ever reached via
+    // transitive imports.
+    const mod = await import(/* webpackIgnore: true */ 'satori');
     satoriFn =
       (mod as unknown as { default: typeof satoriFn }).default ??
       (mod as unknown as { satori: typeof satoriFn }).satori;
@@ -105,7 +109,7 @@ export async function renderDesign(input: RenderDesignInput): Promise<RenderedDe
 
   let Resvg: new (svg: string, opts: unknown) => { render: () => { asPng: () => Uint8Array } };
   try {
-    const mod = await import('@resvg/resvg-js');
+    const mod = await import(/* webpackIgnore: true */ '@resvg/resvg-js');
     Resvg = (mod as unknown as { Resvg: typeof Resvg }).Resvg;
   } catch (err) {
     throw new Error(

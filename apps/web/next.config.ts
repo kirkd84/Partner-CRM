@@ -41,7 +41,18 @@ const nextConfig: NextConfig = {
   },
   // Prisma + bcrypt stay external (not bundled) for the server.
   // Renamed in Next 15: was `experimental.serverComponentsExternalPackages`.
-  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@anthropic-ai/sdk', 'inngest'],
+  // Satori + @resvg/resvg-js are native node modules (resvg ships a
+  // platform-specific `.node` binary) and MUST NOT be bundled by
+  // webpack — they're only ever loaded by the /api/studio/designs/[id]/png
+  // server route via dynamic import.
+  serverExternalPackages: [
+    '@prisma/client',
+    'bcryptjs',
+    '@anthropic-ai/sdk',
+    'inngest',
+    'satori',
+    '@resvg/resvg-js',
+  ],
 };
 
 export default nextConfig;
