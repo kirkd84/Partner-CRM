@@ -707,3 +707,385 @@ function Field({
     </label>
   );
 }
+
+// ─── Expense drawer (Phase 6) ────────────────────────────────────────
+import { createExpense } from './actions';
+import { generateAIDraft as generateAIDraftAction, recordDraftAccepted } from './actions';
+import { DollarSign, Sparkles, Copy as CopyIcon, Send, RefreshCw } from 'lucide-react';
+
+const EXPENSE_CATEGORIES = ['Meal', 'Gift', 'Event', 'Travel', 'Other'] as const;
+
+export function NewExpenseButton({
+  partnerId,
+  r2Configured,
+}: {
+  partnerId: string;
+  r2Configured: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState<string>('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<(typeof EXPENSE_CATEGORIES)[number]>('Meal');
+  const [occurredOn, setOccurredOn] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [result, setResult] = useState<
+    { kind: 'ok'; status: string; reason: string } | { kind: 'blocked'; reason: string } | null
+  >(null);
+  const [isPending, startTransition] = useTransition();
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0 || !description.trim()) return;
+    startTransition(async () => {
+      try {
+        const res = await createExpense(partnerId, {
+          amount: amt,
+          description,
+          category,
+          occurredOn: new Date(occurredOn).toISOString(),
+        });
+        if (!res.ok) {
+          setResult({ kind: 'blocked', reason: res.reason });
+          return;
+        }
+        setResult({ kind: 'ok', status: res.status, reason: res.reason });
+        setAmount('');
+        setDescription('');
+        router.refresh();
+      } catch (err) {
+        setResult({
+          kind: 'blocked',
+          reason: err instanceof Error ? err.message : 'Failed',
+        });
+      }
+    });
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+          setResult(null);
+        }}
+        className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-emerald-500 bg-transparent px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50"
+      >
+        <DollarSign className="h-3.5 w-3.5" /> Log expense
+      </button>
+      <DrawerModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Log expense"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={onSubmit}
+              loading={isPending}
+              disabled={!amount || !description.trim()}
+            >
+              Submit
+            </Button>
+          </>
+        }
+      >
+        {result?.kind === 'ok' && (
+          <div className="mb-3 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+            <strong>
+              {result.status === 'AUTO_APPROVED' ? 'Auto-approved.' : 'Submitted for approval.'}
+            </strong>{' '}
+            {result.reason}
+          </div>
+        )}
+        {result?.kind === 'blocked' && (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+            <strong>Blocked.</strong> {result.reason}
+          </div>
+        )}
+        <form onSubmit={onSubmit} className="space-y-3">
+          <div className="grid grid-cols-[120px_1fr] gap-3">
+            <Field label="Amount (USD)" required>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+                autoFocus
+                placeholder="0.00"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+            <Field label="Category" required>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as (typeof EXPENSE_CATEGORIES)[number])}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                {EXPENSE_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <Field label="Description" required>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+              placeholder="e.g. Coffee at Stumptown with Alex"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </Field>
+          <Field label="Date" required>
+            <input
+              type="date"
+              value={occurredOn}
+              onChange={(e) => setOccurredOn(e.target.value)}
+              required
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </Field>
+          <Field label="Receipt">
+            <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-3 py-3 text-center text-xs text-gray-500">
+              {r2Configured ? (
+                <>
+                  Drag a receipt here, or{' '}
+                  <button type="button" className="text-primary underline">
+                    browse
+                  </button>
+                </>
+              ) : (
+                <>Receipt upload lights up once R2 storage is wired (Phase 6.1).</>
+              )}
+            </div>
+          </Field>
+          <p className="text-[11px] text-gray-400">
+            Expenses under $25 auto-approve. Between $25–$100 go to a manager. Over $100 needs an
+            admin. Admin can tune thresholds per market or per rep in Admin → Budget rules.
+          </p>
+        </form>
+      </DrawerModal>
+    </>
+  );
+}
+
+// ─── AI Draft drawer (Phase 7) ───────────────────────────────────────
+
+const AI_PURPOSES = [
+  { value: 'first_outreach', label: 'First outreach' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 'schedule_meeting', label: 'Schedule a meeting' },
+  { value: 'post_meeting_thankyou', label: 'Post-meeting thank-you' },
+  { value: 're_engagement', label: 'Re-engagement' },
+  { value: 'custom', label: 'Custom' },
+] as const;
+
+type AIPurpose = (typeof AI_PURPOSES)[number]['value'];
+
+export function AIDraftButton({
+  partnerId,
+  aiConfigured,
+}: {
+  partnerId: string;
+  aiConfigured: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [channel, setChannel] = useState<'email' | 'sms'>('email');
+  const [purpose, setPurpose] = useState<AIPurpose>('follow_up');
+  const [context, setContext] = useState('');
+  const [draft, setDraft] = useState<{
+    subject?: string;
+    body: string;
+    model: string;
+    isPlaceholder: boolean;
+  } | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+
+  function doGenerate() {
+    setErr(null);
+    startTransition(async () => {
+      try {
+        const res = await generateAIDraftAction(partnerId, {
+          channel,
+          purpose,
+          contextNotes: context.trim() || undefined,
+        });
+        setDraft(res);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'Failed to generate');
+      }
+    });
+  }
+
+  function doAccept() {
+    if (!draft) return;
+    startTransition(async () => {
+      try {
+        await recordDraftAccepted(partnerId, {
+          channel,
+          subject: draft.subject,
+          body: draft.body,
+        });
+        setOpen(false);
+        setDraft(null);
+        router.refresh();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : 'Failed to record');
+      }
+    });
+  }
+
+  function doCopy() {
+    if (!draft) return;
+    const text =
+      channel === 'email' && draft.subject
+        ? `Subject: ${draft.subject}\n\n${draft.body}`
+        : draft.body;
+    navigator.clipboard?.writeText(text);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+          setDraft(null);
+        }}
+        className="inline-flex items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 transition hover:border-purple-300 hover:bg-purple-100"
+      >
+        <Sparkles className="h-3.5 w-3.5" /> Draft with AI
+      </button>
+      <DrawerModal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Draft AI message"
+        footer={
+          draft ? (
+            <>
+              <Button variant="secondary" onClick={() => setDraft(null)}>
+                Start over
+              </Button>
+              <Button onClick={doCopy} variant="secondary">
+                <CopyIcon className="h-3.5 w-3.5" /> Copy
+              </Button>
+              <Button onClick={doGenerate} variant="secondary" loading={isPending}>
+                <RefreshCw className="h-3.5 w-3.5" /> Regenerate
+              </Button>
+              <Button onClick={doAccept} loading={isPending}>
+                <Send className="h-3.5 w-3.5" /> Accept & log
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={doGenerate} loading={isPending}>
+                Generate draft
+              </Button>
+            </>
+          )
+        }
+      >
+        {!aiConfigured && (
+          <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <strong>Using placeholder drafts.</strong> Real AI-written messages light up once
+            ANTHROPIC_API_KEY is set in Railway. The UX below is the shape reps will see every day.
+          </div>
+        )}
+        {err && (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+            {err}
+          </div>
+        )}
+        {!draft ? (
+          <div className="space-y-3">
+            <Field label="Channel">
+              <div className="flex gap-1 rounded-md border border-gray-200 bg-white p-0.5">
+                {(['email', 'sms'] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setChannel(c)}
+                    className={`flex-1 rounded px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                      channel === c ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {c === 'email' ? 'Email' : 'SMS'}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Purpose">
+              <select
+                value={purpose}
+                onChange={(e) => setPurpose(e.target.value as AIPurpose)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                {AI_PURPOSES.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Context notes (optional)">
+              <textarea
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                rows={4}
+                placeholder="Anything the AI should know — a specific reason, a recent event they mentioned, a time window that works…"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+            <p className="text-[11px] text-gray-400">
+              We send the partner's company info, your recent touchpoints, and your tone profile to
+              Claude Sonnet. You'll review the draft before anything goes out.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {channel === 'email' && (
+              <Field label="Subject">
+                <input
+                  type="text"
+                  value={draft.subject ?? ''}
+                  onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </Field>
+            )}
+            <Field label="Message">
+              <textarea
+                value={draft.body}
+                onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+                rows={12}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+            <p className="text-[11px] text-gray-400">
+              Model: <span className="font-mono">{draft.model}</span>
+              {draft.isPlaceholder && (
+                <span className="ml-2 inline-flex items-center gap-1 text-amber-700">
+                  (placeholder — not from Claude)
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+      </DrawerModal>
+    </>
+  );
+}

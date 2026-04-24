@@ -23,9 +23,12 @@ import {
   NewTaskButton,
   NewAppointmentButton,
   NewEventButton,
+  NewExpenseButton,
+  AIDraftButton,
   ContactRowActions,
   TaskCheckbox,
 } from './PartnerDrawers';
+import { isAIConfigured } from '@partnerradar/ai';
 import { ActivityRail } from './ActivityRail';
 import { PartnerStatsRow } from './PartnerStatsRow';
 import { LinkedProjectsTable } from './LinkedProjectsTable';
@@ -91,6 +94,24 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
       err,
     );
   }
+
+  // Spend + revenue for the Financial Overview card. Spend aggregates
+  // every expense except rejected ones; revenue pulls from RevenueAttribution
+  // which the 6-hour Storm sync job populates (Phase 5). Graceful on empty.
+  const [partnerSpendAgg, partnerRevenueAgg] = await Promise.all([
+    prisma.expense.aggregate({
+      where: { partnerId: partner.id, approvalStatus: { not: 'REJECTED' } },
+      _sum: { amount: true },
+    }),
+    prisma.revenueAttribution
+      .aggregate({
+        where: { partnerId: partner.id },
+        _sum: { amount: true },
+      })
+      .catch(() => ({ _sum: { amount: null } })),
+  ]);
+  const partnerTotalSpent = Number(partnerSpendAgg._sum.amount ?? 0);
+  const partnerRevenueAttributed = Number(partnerRevenueAgg._sum.amount ?? 0);
 
   // Admin-managed appointment type catalog — gracefully degrades to an
   // empty list (which the NewAppointmentButton falls back to a text input
@@ -195,7 +216,8 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             Synced · Storm Cloud
           </Pill>
         )}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {canEdit && <AIDraftButton partnerId={partner.id} aiConfigured={isAIConfigured()} />}
           <PartnerActionBar
             partnerId={partner.id}
             currentStage={partner.stage}
@@ -471,14 +493,23 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                 title={
                   <span className="flex items-center gap-2">
                     <Paperclip className="h-4 w-4 text-gray-500" />
-                    Files
+                    Expenses & Files
                   </span>
                 }
               >
-                <EmptyState
-                  title="No files"
-                  description="Cloudflare R2 uploads arrive when creds are wired."
+                <FinancialOverviewCard
+                  totalSpent={partnerTotalSpent}
+                  revenueAttributed={partnerRevenueAttributed}
                 />
+                {canEdit && (
+                  <NewExpenseButton
+                    partnerId={partner.id}
+                    r2Configured={Boolean(process.env.R2_ACCOUNT_ID && process.env.R2_BUCKET)}
+                  />
+                )}
+                <p className="mt-2 text-[11px] text-gray-400">
+                  Files + receipts upload once Cloudflare R2 is connected.
+                </p>
               </Card>
             </div>
           </div>
@@ -510,5 +541,53 @@ function InfoRow({
       <dt className={cn('py-1 text-[11px] uppercase tracking-label text-gray-500')}>{label}</dt>
       <dd className="py-1 text-gray-900">{children ?? value}</dd>
     </>
+  );
+}
+
+function FinancialOverviewCard({
+  totalSpent,
+  revenueAttributed,
+}: {
+  totalSpent: number;
+  revenueAttributed: number;
+}) {
+  const hasSpend = totalSpent > 0;
+  const hasRevenue = revenueAttributed > 0;
+  const roi = hasSpend ? ((revenueAttributed - totalSpent) / totalSpent) * 100 : null;
+  const roiTone =
+    roi == null
+      ? 'text-gray-400'
+      : roi >= 100
+        ? 'text-green-700'
+        : roi >= 0
+          ? 'text-amber-700'
+          : 'text-red-700';
+  const fmt = (n: number) =>
+    n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return (
+    <div className="mb-2 grid grid-cols-3 gap-2 rounded-md border border-card-border bg-gray-50 p-3 text-center">
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-label text-gray-500">
+          Spent
+        </div>
+        <div className="mt-0.5 text-sm font-semibold text-gray-900">
+          {hasSpend ? fmt(totalSpent) : '—'}
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-label text-gray-500">
+          Revenue
+        </div>
+        <div className="mt-0.5 text-sm font-semibold text-gray-900">
+          {hasRevenue ? fmt(revenueAttributed) : '—'}
+        </div>
+      </div>
+      <div>
+        <div className="text-[10px] font-semibold uppercase tracking-label text-gray-500">ROI</div>
+        <div className={`mt-0.5 text-sm font-semibold tabular-nums ${roiTone}`}>
+          {roi == null ? '—' : `${roi >= 0 ? '+' : ''}${roi.toFixed(0)}%`}
+        </div>
+      </div>
+    </div>
   );
 }
