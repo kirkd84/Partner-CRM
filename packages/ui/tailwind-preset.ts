@@ -6,7 +6,10 @@ import type { Config } from 'tailwindcss';
 import { colors } from './src/tokens';
 
 const preset: Partial<Config> = {
-  darkMode: 'class',
+  // System preference — Tailwind `media` strategy uses
+  // `@media (prefers-color-scheme: dark)`. Users don't toggle in-app;
+  // the theme follows their OS setting.
+  darkMode: 'media',
   theme: {
     extend: {
       colors: {

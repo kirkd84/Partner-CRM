@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 html,
@@ -34,4 +34,82 @@ body {
 :focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 2px;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   Dark mode — triggers on the user's OS preference, no in-app toggle.
+   Scoped via cascade overrides of the most common Tailwind utilities
+   (`bg-white`, `bg-gray-50`, `text-gray-900`, etc.) rather than
+   retrofitting every component with `dark:` variants. This gives an
+   80% dark mode for free; individual components can still add their
+   own `dark:` overrides where this pass doesn't land right.
+   ────────────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #0b1220;
+    color: #e5e7eb;
+  }
+
+  /* Canvas-level surfaces */
+  .bg-white { background-color: #111827 !important; }
+  .bg-gray-50 { background-color: #0f172a !important; }
+  .bg-gray-100 { background-color: #1f2937 !important; }
+  .bg-blue-50\/20 { background-color: rgb(30 64 175 / 0.08) !important; }
+  .bg-blue-50\/40 { background-color: rgb(30 64 175 / 0.12) !important; }
+  .bg-blue-50\/60 { background-color: rgb(30 64 175 / 0.18) !important; }
+  .bg-blue-50 { background-color: rgb(30 64 175 / 0.22) !important; }
+  .bg-amber-50 { background-color: rgb(180 83 9 / 0.2) !important; }
+  .bg-green-50 { background-color: rgb(5 150 105 / 0.2) !important; }
+  .bg-red-50 { background-color: rgb(220 38 38 / 0.2) !important; }
+  .bg-purple-50 { background-color: rgb(124 58 237 / 0.2) !important; }
+  .bg-emerald-50 { background-color: rgb(5 150 105 / 0.2) !important; }
+
+  /* Borders */
+  .border-card-border { border-color: #1f2937 !important; }
+  .border-gray-100 { border-color: #1f2937 !important; }
+  .border-gray-200 { border-color: #374151 !important; }
+  .border-gray-300 { border-color: #4b5563 !important; }
+  .divide-card-border > :not([hidden]) ~ :not([hidden]) { border-color: #1f2937 !important; }
+  .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1f2937 !important; }
+
+  /* Text — we flip gray-900/800/700 towards lighter greys and gray-500/400 towards mid greys. */
+  .text-gray-900 { color: #f3f4f6 !important; }
+  .text-gray-800 { color: #e5e7eb !important; }
+  .text-gray-700 { color: #d1d5db !important; }
+  .text-gray-600 { color: #9ca3af !important; }
+  .text-gray-500 { color: #9ca3af !important; }
+  .text-gray-400 { color: #6b7280 !important; }
+  .text-gray-300 { color: #4b5563 !important; }
+
+  /* Inputs and form controls */
+  input,
+  textarea,
+  select {
+    background-color: #111827;
+    color: #e5e7eb;
+    border-color: #374151;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: #6b7280;
+  }
+
+  /* Hover surface tweaks — anything hover:bg-gray-50 flips to a subtle lift */
+  .hover\:bg-gray-50:hover { background-color: #1f2937 !important; }
+  .hover\:bg-gray-100:hover { background-color: #374151 !important; }
+  .hover\:bg-blue-50:hover { background-color: rgb(30 64 175 / 0.3) !important; }
+  .hover\:bg-blue-50\/40:hover { background-color: rgb(30 64 175 / 0.2) !important; }
+  .hover\:bg-amber-50:hover { background-color: rgb(180 83 9 / 0.3) !important; }
+  .hover\:bg-red-50:hover { background-color: rgb(220 38 38 / 0.3) !important; }
+  .hover\:bg-green-50:hover { background-color: rgb(5 150 105 / 0.3) !important; }
+  .hover\:bg-purple-100:hover { background-color: rgb(124 58 237 / 0.3) !important; }
+
+  /* Ring tweaks so the primary focus ring still reads on dark */
+  .ring-inset.ring-emerald-100 { --tw-ring-color: rgb(5 150 105 / 0.3) !important; }
+
+  /* Code chips used for env var names, IDs, etc. */
+  code {
+    background-color: #1f2937 !important;
+    color: #e5e7eb !important;
+  }
 }

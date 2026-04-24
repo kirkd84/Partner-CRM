@@ -67,9 +67,14 @@ export function MapView({
       };
     }
     const script = document.createElement('script');
+    // NOTE: NO `loading=async` query param — that flag switches Google
+    // Maps into a lazy "importLibrary()" mode where symbols like
+    // `google.maps.LatLngBounds` aren't immediately available on the
+    // global. We use those symbols directly below, so stay on the
+    // legacy eager loader.
     script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
       apiKey,
-    )}&libraries=drawing,places&loading=async`;
+    )}&libraries=drawing,places`;
     script.async = true;
     script.defer = true;
     script.dataset.googleMaps = '1';
@@ -84,9 +89,15 @@ export function MapView({
   useEffect(() => {
     if (status !== 'ready' || !mapRef.current) return;
     const google = (window as any).google;
-    if (!google?.maps) {
-      setStatus('error');
-      return;
+    // Defend against the lazy-loader case where google.maps exists but
+    // its constructors haven't attached yet. Re-run once they're live.
+    if (
+      !google?.maps ||
+      typeof google.maps.LatLngBounds !== 'function' ||
+      typeof google.maps.Map !== 'function'
+    ) {
+      const t = window.setTimeout(() => setStatus((s) => (s === 'ready' ? 'ready' : s)), 150);
+      return () => window.clearTimeout(t);
     }
 
     const bounds = new google.maps.LatLngBounds();
@@ -143,7 +154,8 @@ export function MapView({
           <div className="text-sm">
             <div className="font-semibold text-gray-900">Could not load Google Maps</div>
             <div className="text-xs text-gray-600">
-              The key is present but the script failed to load. Check billing, referrer restrictions, and that the Maps JS API is enabled.
+              The key is present but the script failed to load. Check billing, referrer
+              restrictions, and that the Maps JS API is enabled.
             </div>
           </div>
         </div>
@@ -171,7 +183,9 @@ export function MapView({
                   {STAGE_LABELS[selected.stage]}
                 </Pill>
               </div>
-              <div className="text-xs text-gray-600">{PARTNER_TYPE_LABELS[selected.partnerType]}</div>
+              <div className="text-xs text-gray-600">
+                {PARTNER_TYPE_LABELS[selected.partnerType]}
+              </div>
               {(selected.city || selected.state) && (
                 <div className="text-xs text-gray-500">
                   {selected.city}
@@ -199,7 +213,8 @@ export function MapView({
         ) : (
           <Card title="Click a pin">
             <p className="text-xs text-gray-500">
-              Partner details show up here. Pin color = stage: grey NEW_LEAD, blue CONTACTED, violet MEETING_SET, yellow PROPOSAL, emerald ACTIVATED, orange DORMANT, red DO_NOT_CONTACT.
+              Partner details show up here. Pin color = stage: grey NEW_LEAD, blue CONTACTED, violet
+              MEETING_SET, yellow PROPOSAL, emerald ACTIVATED, orange DORMANT, red DO_NOT_CONTACT.
             </p>
           </Card>
         )}
