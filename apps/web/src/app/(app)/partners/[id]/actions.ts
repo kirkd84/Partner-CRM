@@ -437,3 +437,216 @@ export async function activatePartner(partnerId: string) {
 
   return { alreadyActivated: false, stormCloudId };
 }
+
+// ─── Expenses (Phase 6) ──────────────────────────────────────────────
+import { decideApproval } from '@partnerradar/api';
+import {
+  draftMessage,
+  placeholderDraft,
+  isAIConfigured,
+  type DraftArgs,
+  type DraftPurpose,
+} from '@partnerradar/ai';
+
+const EXPENSE_CATEGORIES = ['Meal', 'Gift', 'Event', 'Travel', 'Other'] as const;
+type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
+export async function createExpense(
+  partnerId: string,
+  input: {
+    amount: number;
+    description: string;
+    category: ExpenseCategory;
+    occurredOn: string; // ISO
+    // receiptFileId comes in Phase 6.1 once R2 is connected
+  },
+): Promise<{ ok: true; status: string; reason: string } | { ok: false; reason: string }> {
+  const { session } = await assertCanEdit(partnerId);
+  if (!input.amount || input.amount <= 0) throw new Error('Amount must be positive');
+  if (!input.description.trim()) throw new Error('Description required');
+  if (!EXPENSE_CATEGORIES.includes(input.category)) throw new Error('Invalid category');
+
+  // Pull the rep's month-to-date spend + applicable budget rule.
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const [monthSpendRow, userRow, ruleRow] = await Promise.all([
+    prisma.expense.aggregate({
+      where: {
+        userId: session.user.id,
+        occurredOn: { gte: startOfMonth },
+        approvalStatus: { not: 'REJECTED' },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { monthlyRevenueCached: true },
+    }),
+    // Prefer a rep-specific rule, then market-specific, then default.
+    findApplicableBudgetRule(session.user.id, session.user.markets[0] ?? null),
+  ]);
+
+  const monthToDateSpend = Number(monthSpendRow._sum.amount ?? 0);
+  const monthlyRevenueCached = userRow?.monthlyRevenueCached
+    ? Number(userRow.monthlyRevenueCached)
+    : null;
+
+  const decision = decideApproval({
+    amount: input.amount,
+    rule: {
+      autoApproveUnder: Number(ruleRow.autoApproveUnder),
+      managerApproveUnder: Number(ruleRow.managerApproveUnder),
+      monthlyBudgetPercentOfRevenue: ruleRow.monthlyBudgetPercentOfRevenue
+        ? Number(ruleRow.monthlyBudgetPercentOfRevenue)
+        : null,
+    },
+    monthToDateSpend,
+    monthlyRevenueCached,
+  });
+
+  if (decision.status === 'BLOCKED_OVER_CAP') {
+    return { ok: false, reason: decision.reason };
+  }
+
+  const dbStatus = decision.status === 'AUTO_APPROVED' ? 'AUTO_APPROVED' : 'PENDING';
+
+  await prisma.expense.create({
+    data: {
+      partnerId,
+      userId: session.user.id,
+      amount: new Prisma.Decimal(input.amount),
+      description: input.description.trim(),
+      category: input.category,
+      occurredOn: new Date(input.occurredOn),
+      approvalStatus: dbStatus,
+    },
+  });
+
+  revalidatePath(`/partners/${partnerId}`);
+  revalidatePath('/admin/expenses');
+  revalidatePath('/radar');
+  return { ok: true, status: decision.status, reason: decision.reason };
+}
+
+async function findApplicableBudgetRule(userId: string, marketId: string | null) {
+  const rule = await prisma.budgetRule.findFirst({
+    where: { repId: userId },
+  });
+  if (rule) return rule;
+  if (marketId) {
+    const marketRule = await prisma.budgetRule.findFirst({
+      where: { marketId, repId: null },
+    });
+    if (marketRule) return marketRule;
+  }
+  const globalRule = await prisma.budgetRule.findFirst({
+    where: { marketId: null, repId: null },
+  });
+  if (globalRule) return globalRule;
+  // No rule stored yet — return DEFAULT as a Decimal-friendly shape.
+  return {
+    autoApproveUnder: new Prisma.Decimal(25),
+    managerApproveUnder: new Prisma.Decimal(100),
+    monthlyBudgetPercentOfRevenue: null as Prisma.Decimal | null,
+  };
+}
+
+// ─── AI drafts (Phase 7) ─────────────────────────────────────────────
+
+export async function generateAIDraft(
+  partnerId: string,
+  input: {
+    channel: 'email' | 'sms';
+    purpose: DraftPurpose;
+    contextNotes?: string;
+  },
+): Promise<{ subject?: string; body: string; model: string; isPlaceholder: boolean }> {
+  const { session } = await assertCanEdit(partnerId);
+
+  const [partner, user, recentActivities] = await Promise.all([
+    prisma.partner.findUniqueOrThrow({
+      where: { id: partnerId },
+      select: {
+        companyName: true,
+        partnerType: true,
+        notes: true,
+        market: { select: { name: true } },
+      },
+    }),
+    prisma.user.findUniqueOrThrow({
+      where: { id: session.user.id },
+      select: { name: true, aiToneProfile: true },
+    }),
+    prisma.activity.findMany({
+      where: { partnerId },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { type: true, body: true, createdAt: true },
+    }),
+  ]);
+
+  const firstName = user.name.split(/\s+/)[0] ?? user.name;
+  const recentSummaries = recentActivities.map(
+    (a) => `${a.type.toLowerCase()}: ${(a.body ?? '').slice(0, 140)}`,
+  );
+
+  const args: DraftArgs = {
+    channel: input.channel,
+    purpose: input.purpose,
+    contextNotes: input.contextNotes,
+    partner: {
+      companyName: partner.companyName,
+      partnerType: partner.partnerType,
+      marketName: partner.market?.name,
+      notes: partner.notes,
+      recentActivity: recentSummaries,
+    },
+    rep: { name: user.name, firstName },
+    tone:
+      user.aiToneProfile && typeof user.aiToneProfile === 'object'
+        ? (user.aiToneProfile as DraftArgs['tone'])
+        : null,
+  };
+
+  if (!isAIConfigured()) {
+    return { ...placeholderDraft(args), isPlaceholder: true };
+  }
+  try {
+    const res = await draftMessage(args);
+    return { ...res, isPlaceholder: false };
+  } catch (err) {
+    console.error('[ai draft] falling back to placeholder:', err);
+    return { ...placeholderDraft(args), isPlaceholder: true };
+  }
+}
+
+/**
+ * Record that the rep accepted a draft (sent it or saved it with edits).
+ * Increments aiAutonomousApprovals toward the 5-approval autonomy gate.
+ */
+export async function recordDraftAccepted(
+  partnerId: string,
+  input: { channel: 'email' | 'sms'; subject?: string; body: string },
+): Promise<void> {
+  const { session } = await assertCanEdit(partnerId);
+  await prisma.$transaction([
+    prisma.activity.create({
+      data: {
+        partnerId,
+        userId: session.user.id,
+        type: input.channel === 'email' ? 'EMAIL_OUT' : 'SMS_OUT',
+        body:
+          input.channel === 'email'
+            ? `[draft-accepted] ${input.subject ?? '(no subject)'}\n\n${input.body}`
+            : `[draft-accepted] ${input.body}`,
+      },
+    }),
+    prisma.user.update({
+      where: { id: session.user.id },
+      data: { aiAutonomousApprovals: { increment: 1 } },
+    }),
+  ]);
+  revalidatePath(`/partners/${partnerId}`);
+}

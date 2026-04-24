@@ -23,6 +23,7 @@ const nextConfig: NextConfig = {
   },
   reactStrictMode: true,
   transpilePackages: [
+    '@partnerradar/ai',
     '@partnerradar/api',
     '@partnerradar/config',
     '@partnerradar/db',
@@ -40,7 +41,7 @@ const nextConfig: NextConfig = {
   },
   // Prisma + bcrypt stay external (not bundled) for the server.
   // Renamed in Next 15: was `experimental.serverComponentsExternalPackages`.
-  serverExternalPackages: ['@prisma/client', 'bcryptjs'],
+  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@anthropic-ai/sdk'],
 };
 
 export default nextConfig;

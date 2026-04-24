@@ -13,3 +13,4 @@ export type AppRouter = typeof appRouter;
 
 export * from './trpc';
 export * from './permissions';
+export * from './approval';

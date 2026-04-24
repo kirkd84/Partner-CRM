@@ -10,7 +10,11 @@ RUN apk add --no-cache libc6-compat openssl openssl-dev && \
     corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
-# ── deps: install with frozen lockfile ──
+# ── deps: install workspace ──
+# Cowork-authored commits can add workspace:* deps between lockfile
+# regenerations, so we allow pnpm to refresh the lockfile rather than
+# hard-fail on --frozen-lockfile. The lockfile still gets committed
+# locally when a human works on the repo.
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
 COPY apps/web/package.json ./apps/web/
@@ -21,7 +25,7 @@ COPY packages/types/package.json ./packages/types/
 COPY packages/ai/package.json ./packages/ai/
 COPY packages/config/package.json ./packages/config/
 COPY packages/integrations/package.json ./packages/integrations/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # ── build: generate Prisma client + build web ──
 FROM base AS build

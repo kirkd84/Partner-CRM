@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@partnerradar/ai": "workspace:*",
     "@partnerradar/api": "workspace:*",
     "@partnerradar/config": "workspace:*",
     "@partnerradar/db": "workspace:*",
