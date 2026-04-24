@@ -31,6 +31,9 @@ model Market {
   scrapeJobs      ScrapeJob[]
   budgetRules     BudgetRule[]
   scrapedLeads    ScrapedLead[]
+  evEvents        EvEvent[]
+  evWaitlistRule  EvWaitlistRule?
+  mwWorkspace     MwWorkspace?
 }
 
 model User {
@@ -70,6 +73,10 @@ model User {
   notifications          Notification[]
   calendarConnections    CalendarConnection[]
   toneSamples            AIToneSample[]
+  // Event Tracking
+  evHostedEvents         EvHost[]             @relation("EvHosts")
+  // Marketing Wizard
+  mwWorkspaces           MwWorkspaceMember[]
 
   @@index([email])
 }
@@ -156,6 +163,10 @@ model Partner {
   revenueAttributions RevenueAttribution[]
   hitListStops        HitListStop[]
   tags                PartnerTag[]
+  // Event Tracking — fallback waitlist
+  autoWaitlistEligible Boolean             @default(false)
+  waitlistPriority     Int?
+  evInvites            EvInvite[]
 
   @@index([marketId, stage])
   @@index([assignedRepId])
@@ -727,4 +738,592 @@ model WebhookEvent {
   createdAt       DateTime @default(now())
 
   @@index([source, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// EVENT TRACKING — see SPEC_EVENTS.md
+// All Ev* tables group together so they can be audited / extracted as one.
+// ═══════════════════════════════════════════════════════════════════════
+
+model EvEvent {
+  id                          String            @id @default(cuid())
+  publicId                    String            @unique // "EV-1234" for display
+  marketId                    String
+  market                      Market            @relation(fields: [marketId], references: [id])
+  name                        String
+  description                 String?           @db.Text
+  venueName                   String?
+  venueAddress                String?
+  venueLat                    Float?
+  venueLng                    Float?
+  startsAt                    DateTime
+  endsAt                      DateTime
+  timezone                    String
+  status                      EvEventStatus     @default(DRAFT)
+  visibility                  EvEventVisibility @default(PRIVATE)
+  defaultPlusOnesAllowed      Boolean           @default(false)
+  responseWindowOverride      Json?
+  confirmationCascadeOverride Json?
+  designId                    String?           // MwDesign
+  emailSubject                String?
+  smsBodyTemplate             String?
+  createdBy                   String
+  createdAt                   DateTime          @default(now())
+  updatedAt                   DateTime          @updatedAt
+  canceledAt                  DateTime?
+  canceledReason              String?
+  ticketTypes                 EvTicketType[]
+  invites                     EvInvite[]
+  hosts                       EvHost[]
+  subEvents                   EvSubEvent[]
+  reminders                   EvReminder[]
+  activityLog                 EvActivityLogEntry[]
+
+  @@index([marketId, status])
+  @@index([startsAt])
+  @@index([createdBy])
+}
+
+enum EvEventStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELED
+}
+
+enum EvEventVisibility {
+  PRIVATE
+  MARKET_WIDE
+  PUBLIC
+}
+
+model EvTicketType {
+  id                 String               @id @default(cuid())
+  eventId            String
+  event              EvEvent              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name               String
+  kind               EvTicketKind
+  capacity           Int
+  isPrimary          Boolean              @default(false)
+  internalAllocation Int                  @default(0)
+  description        String?
+  createdAt          DateTime             @default(now())
+  assignments        EvTicketAssignment[]
+  subEvents          EvSubEvent[]
+
+  @@unique([eventId, name])
+  @@index([eventId])
+}
+
+enum EvTicketKind {
+  PRIMARY
+  DEPENDENT
+}
+
+model EvHost {
+  id            String   @id @default(cuid())
+  eventId       String
+  event         EvEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation("EvHosts", fields: [userId], references: [id])
+  ticketTypeIds Json     @default("[]")
+  role          String?
+  createdAt     DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+model EvSubEvent {
+  id                    String          @id @default(cuid())
+  eventId               String
+  event                 EvEvent         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  kind                  EvSubEventKind
+  name                  String
+  venueName             String?
+  venueAddress          String?
+  startsAt              DateTime
+  endsAt                DateTime
+  invitationScope       EvSubEventScope
+  dependentTicketTypeId String?
+  dependentTicketType   EvTicketType?   @relation(fields: [dependentTicketTypeId], references: [id])
+  reminderOverride      Json?
+  createdAt             DateTime        @default(now())
+
+  @@index([eventId])
+  @@index([startsAt])
+}
+
+enum EvSubEventKind {
+  SETUP
+  PRE_EVENT
+  MAIN
+  DINNER
+  POST_EVENT
+  TEARDOWN
+  CUSTOM
+}
+
+enum EvSubEventScope {
+  INTERNAL_ONLY
+  ALL_CONFIRMED
+  DEPENDENT_TICKET_HOLDERS
+  CUSTOM
+}
+
+model EvInvite {
+  id                      String               @id @default(cuid())
+  eventId                 String
+  event                   EvEvent              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  partnerId               String?
+  partner                 Partner?             @relation(fields: [partnerId], references: [id])
+  contactId               String?
+  adHocName               String?
+  adHocEmail              String?
+  adHocPhone              String?
+  plusOneAllowed          Boolean              @default(false)
+  plusOneName             String?
+  queueOrder              Int
+  queueTier               EvQueueTier          @default(PRIMARY)
+  status                  EvInviteStatus       @default(QUEUED)
+  sentAt                  DateTime?
+  respondedAt             DateTime?
+  confirmationRequestedAt DateTime?
+  confirmedAt             DateTime?
+  expiresAt               DateTime?
+  canceledAt              DateTime?
+  canceledReason          String?
+  rsvpToken               String               @unique @default(cuid())
+  lastEmailMessageId      String?
+  lastSmsSid              String?
+  notes                   String?              @db.Text
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  ticketAssignments       EvTicketAssignment[]
+  rsvpEvents              EvRsvpEvent[]
+  reminders               EvReminder[]
+
+  @@unique([eventId, partnerId])
+  @@index([eventId, status, queueOrder])
+  @@index([partnerId])
+  @@index([rsvpToken])
+  @@index([expiresAt])
+}
+
+enum EvInviteStatus {
+  QUEUED
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CONFIRMATION_REQUESTED
+  CONFIRMED
+  NO_SHOW
+  CANCELED
+  AUTO_CANCELED
+}
+
+enum EvQueueTier {
+  PRIMARY
+  AUTO_FALLBACK
+  AD_HOC
+}
+
+model EvTicketAssignment {
+  id           String         @id @default(cuid())
+  inviteId     String
+  invite       EvInvite       @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  ticketTypeId String
+  ticketType   EvTicketType   @relation(fields: [ticketTypeId], references: [id])
+  quantity     Int            @default(1)
+  status       EvTicketStatus @default(TENTATIVE)
+  checkedInAt  DateTime?
+  checkedInBy  String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([inviteId, ticketTypeId])
+  @@index([ticketTypeId, status])
+}
+
+enum EvTicketStatus {
+  TENTATIVE
+  CONFIRMED
+  DROPPED
+  RELEASED
+}
+
+model EvRsvpEvent {
+  id          String   @id @default(cuid())
+  inviteId    String
+  invite      EvInvite @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  kind        String
+  ticketDelta Json?
+  actorType   String
+  actorId     String?
+  userAgent   String?
+  ipAddress   String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([inviteId, createdAt])
+}
+
+model EvReminder {
+  id             String            @id @default(cuid())
+  inviteId       String?
+  invite         EvInvite?         @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  subEventId     String?
+  eventId        String
+  event          EvEvent           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  kind           EvReminderKind
+  channel        EvReminderChannel
+  scheduledFor   DateTime
+  sentAt         DateTime?
+  deliveryStatus String            @default("pending")
+  messageId      String?
+  createdAt      DateTime          @default(now())
+
+  @@index([scheduledFor, sentAt])
+  @@index([inviteId])
+  @@index([eventId])
+}
+
+enum EvReminderKind {
+  INITIAL_INVITE
+  CONFIRMATION_REQUEST
+  CONFIRMATION_NUDGE_1
+  CONFIRMATION_NUDGE_2
+  AUTO_CANCEL_NOTICE
+  DAY_BEFORE
+  ARRIVAL_DETAILS
+  SETUP_T_MINUS_4H
+  SETUP_T_MINUS_1H
+  CUSTOM
+}
+
+enum EvReminderChannel {
+  EMAIL
+  SMS
+  BOTH
+}
+
+model EvActivityLogEntry {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     EvEvent  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String?
+  kind      String
+  summary   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([eventId, createdAt])
+}
+
+model EvWaitlistRule {
+  id               String   @id @default(cuid())
+  marketId         String   @unique
+  market           Market   @relation(fields: [marketId], references: [id])
+  active           Boolean  @default(true)
+  orderingStrategy String   @default("priority-asc")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MARKETING WIZARD — see SPEC_MARKETING.md
+// All Mw* tables group together to stay extractable.
+// ═══════════════════════════════════════════════════════════════════════
+
+model MwWorkspace {
+  id                       String              @id @default(cuid())
+  name                     String
+  partnerRadarMarketId     String?             @unique
+  market                   Market?             @relation(fields: [partnerRadarMarketId], references: [id])
+  ownerUserId              String
+  plan                     MwPlan              @default(EMBEDDED)
+  stripeCustomerId         String?
+  stripeSubscriptionId     String?
+  monthlyGenerationQuota   Int                 @default(25)
+  monthlyGenerationsUsed   Int                 @default(0)
+  quotaResetsAt            DateTime
+  overageRatePerGeneration Decimal             @default(0.79) @db.Money
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  brands                   MwBrand[]
+  designs                  MwDesign[]
+  members                  MwWorkspaceMember[]
+  socialAccounts           MwSocialAccount[]
+  printJobs                MwPrintJob[]
+
+  @@index([stripeCustomerId])
+}
+
+enum MwPlan {
+  SEEDLING
+  PRO
+  AGENCY
+  STUDIO
+  ENTERPRISE
+  TRIAL
+  EMBEDDED
+}
+
+model MwWorkspaceMember {
+  id          String          @id @default(cuid())
+  workspaceId String
+  workspace   MwWorkspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User            @relation(fields: [userId], references: [id])
+  role        MwWorkspaceRole @default(EDITOR)
+  invitedBy   String?
+  createdAt   DateTime        @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+enum MwWorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model MwBrand {
+  id              String             @id @default(cuid())
+  workspaceId     String
+  workspace       MwWorkspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name            String
+  profile         Json
+  status          MwBrandStatus      @default(TRAINING)
+  isDefault       Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  trainingSamples MwTrainingSample[]
+  designs         MwDesign[]
+  logos           MwBrandAsset[]
+
+  @@index([workspaceId])
+}
+
+enum MwBrandStatus {
+  TRAINING
+  ACTIVE
+  ARCHIVED
+}
+
+model MwTrainingSample {
+  id          String   @id @default(cuid())
+  brandId     String
+  brand       MwBrand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  fileId      String
+  contentType String
+  analysis    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([brandId])
+}
+
+model MwBrandAsset {
+  id        String           @id @default(cuid())
+  brandId   String
+  brand     MwBrand          @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  kind      MwBrandAssetKind
+  variant   String?
+  fileId    String
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  @@index([brandId])
+}
+
+enum MwBrandAssetKind {
+  LOGO
+  BADGE
+  CERTIFICATION
+  ICON
+  CUSTOM
+}
+
+model MwDesign {
+  id                    String            @id @default(cuid())
+  workspaceId           String
+  workspace             MwWorkspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  brandId               String
+  brand                 MwBrand           @relation(fields: [brandId], references: [id])
+  createdBy             String
+  name                  String
+  contentType           MwContentType
+  templateId            String?
+  status                MwDesignStatus    @default(DRAFT)
+  intent                Json
+  direction             Json
+  document              Json
+  previewImageUrl       String?
+  partnerRadarEventId   String?
+  partnerRadarPartnerId String?
+  tags                  String[]
+  archivedAt            DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  versions              MwDesignVersion[]
+  exports               MwExport[]
+  campaigns             MwCampaign[]
+
+  @@index([workspaceId, status])
+  @@index([brandId])
+  @@index([partnerRadarEventId])
+  @@index([createdBy])
+}
+
+enum MwDesignStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  FINAL
+  ARCHIVED
+}
+
+enum MwContentType {
+  FLYER
+  SOCIAL_POST
+  SOCIAL_STORY
+  BROCHURE
+  BUSINESS_CARD
+  EMAIL_HEADER
+  POSTCARD
+}
+
+model MwDesignVersion {
+  id        String   @id @default(cuid())
+  designId  String
+  design    MwDesign @relation(fields: [designId], references: [id], onDelete: Cascade)
+  document  Json
+  changeLog String
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([designId, createdAt])
+}
+
+model MwExport {
+  id            String   @id @default(cuid())
+  designId      String
+  design        MwDesign @relation(fields: [designId], references: [id], onDelete: Cascade)
+  format        String
+  targetChannel String?
+  width         Int
+  height        Int
+  dpi           Int?
+  colorMode     String?
+  fileId        String
+  sizeBytes     Int
+  createdAt     DateTime @default(now())
+
+  @@index([designId])
+}
+
+model MwCampaign {
+  id                  String           @id @default(cuid())
+  workspaceId         String
+  designId            String
+  design              MwDesign         @relation(fields: [designId], references: [id], onDelete: Cascade)
+  name                String
+  channelMix          Json
+  recipients          Json
+  status              MwCampaignStatus @default(DRAFT)
+  scheduledFor        DateTime?
+  sentAt              DateTime?
+  stats               Json?
+  partnerRadarEventId String?
+  createdBy           String
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([partnerRadarEventId])
+}
+
+enum MwCampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  FAILED
+  CANCELED
+}
+
+model MwSocialAccount {
+  id                 String           @id @default(cuid())
+  workspaceId        String
+  workspace          MwWorkspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId             String?
+  platform           MwSocialPlatform
+  externalId         String
+  handle             String
+  displayName        String?
+  avatarUrl          String?
+  providerAccountRef String
+  connectionStatus   String           @default("active")
+  connectedAt        DateTime         @default(now())
+  lastPostedAt       DateTime?
+
+  @@unique([workspaceId, platform, externalId])
+  @@index([workspaceId, platform])
+  @@index([userId])
+}
+
+enum MwSocialPlatform {
+  FACEBOOK
+  INSTAGRAM
+  LINKEDIN
+  PINTEREST
+  X
+  TIKTOK
+  YOUTUBE
+  GOOGLE_BUSINESS
+}
+
+model MwGeneration {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  designId     String?
+  userId       String
+  model        String
+  kind         String
+  inputTokens  Int?
+  outputTokens Int?
+  durationMs   Int?
+  costUsd      Decimal  @db.Money
+  status       String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
+  @@index([model])
+}
+
+model MwPrintJob {
+  id              String      @id @default(cuid())
+  workspaceId     String
+  workspace       MwWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  designId        String
+  userId          String
+  provider        String
+  product         String
+  quantity        Int
+  shippingAddress Json
+  orderCost       Decimal     @db.Money
+  markupApplied   Decimal     @default(0) @db.Money
+  externalOrderId String?
+  status          String
+  trackingUrl     String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([workspaceId, status])
 }

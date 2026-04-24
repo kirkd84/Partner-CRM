@@ -16,6 +16,8 @@ import {
   ListTodo,
   BarChart3,
   Settings as SettingsIcon,
+  Ticket,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { Avatar, cn } from '@partnerradar/ui';
@@ -35,6 +37,8 @@ const NAV_ITEMS: readonly NavItem[] = [
   { href: '/partners', label: 'Partners', icon: Users },
   { href: '/map', label: 'Map', icon: MapIcon },
   { href: '/lists', label: 'Lists', icon: ListTodo, hasDropdown: true },
+  { href: '/events', label: 'Events', icon: Ticket },
+  { href: '/studio', label: 'Studio', icon: Sparkles, managerPlus: true },
   { href: '/reports', label: 'Reports', icon: BarChart3, managerPlus: true },
   { href: '/admin', label: 'Admin', icon: SettingsIcon, managerPlus: true },
 ];
