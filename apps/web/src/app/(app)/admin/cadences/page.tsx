@@ -1,0 +1,210 @@
+/**
+ * /admin/cadences — automated multi-step outreach.
+ *
+ * When a partner's stage changes to a cadence's triggerStage, the
+ * CadenceExecution worker (Phase 8) schedules every step at
+ * (now + offsetHours). Each step either sends autonomously or queues
+ * into the approval drawer.
+ */
+
+import { prisma } from '@partnerradar/db';
+import { auth } from '@/auth';
+import { redirect } from 'next/navigation';
+import { Table, THead, TBody, TR, TH, TD, Pill } from '@partnerradar/ui';
+import { Workflow } from 'lucide-react';
+import { NewCadenceButton, CadenceRowActions } from './CadencesClient';
+import type { CadenceStepInput, PartnerStage, MessageKind } from './actions';
+
+export const dynamic = 'force-dynamic';
+
+export default async function AdminCadencesPage() {
+  const session = await auth();
+  if (!session?.user) redirect('/login');
+  if (session.user.role !== 'MANAGER' && session.user.role !== 'ADMIN') redirect('/radar');
+
+  type Row = {
+    id: string;
+    name: string;
+    triggerStage: PartnerStage;
+    steps: unknown;
+    active: boolean;
+    updatedAt: Date;
+  };
+
+  let rawCadences: Row[] = [];
+  try {
+    rawCadences = await prisma.automationCadence.findMany({
+      orderBy: [{ active: 'desc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        triggerStage: true,
+        steps: true,
+        active: true,
+        updatedAt: true,
+      },
+    });
+  } catch {
+    rawCadences = [];
+  }
+
+  const cadences = rawCadences.map((c) => ({
+    ...c,
+    steps: coerceSteps(c.steps),
+  }));
+
+  // Template picker source. Pull active + kind so the cadence editor
+  // can scope the template dropdown by kind.
+  type TemplateRow = {
+    id: string;
+    name: string;
+    kind: MessageKind;
+    active: boolean;
+    stage: PartnerStage | null;
+  };
+  let templates: TemplateRow[] = [];
+  try {
+    templates = await prisma.messageTemplate.findMany({
+      where: { active: true },
+      orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, kind: true, active: true, stage: true },
+    });
+  } catch {
+    templates = [];
+  }
+
+  const activeCount = cadences.filter((c) => c.active).length;
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex items-center gap-3 border-b border-card-border bg-white px-6 py-4">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">Cadences</h1>
+          <p className="text-xs text-gray-500">
+            {activeCount} active · {cadences.length - activeCount} archived · fires when partners
+            enter a given stage
+          </p>
+        </div>
+        <div className="ml-auto">
+          <NewCadenceButton templates={templates} />
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-auto bg-white">
+        {cadences.length === 0 ? (
+          <div className="p-10 text-center">
+            <Workflow className="mx-auto h-8 w-8 text-gray-300" />
+            <h3 className="mt-2 text-sm font-semibold text-gray-900">No cadences yet</h3>
+            <p className="text-xs text-gray-500">
+              Create a cadence to automate post-meeting follow-ups, re-engagement pings, or any
+              multi-step outreach.
+            </p>
+            {templates.length === 0 && (
+              <p className="mt-3 text-[11px] text-amber-700">
+                Tip: create a couple of message templates first — cadences reference them step by
+                step.
+              </p>
+            )}
+          </div>
+        ) : (
+          <Table>
+            <THead>
+              <TR>
+                <TH>Name</TH>
+                <TH>Triggers on</TH>
+                <TH>Steps</TH>
+                <TH>Timeline</TH>
+                <TH>Status</TH>
+                <TH className="text-right">Actions</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {cadences.map((c) => (
+                <TR key={c.id}>
+                  <TD>
+                    <span className="font-medium text-gray-900">{c.name}</span>
+                  </TD>
+                  <TD>
+                    <Pill color="#6366f1" tone="soft">
+                      {humanizeStage(c.triggerStage)}
+                    </Pill>
+                  </TD>
+                  <TD>
+                    <span className="text-xs text-gray-700">
+                      {c.steps.length} step{c.steps.length === 1 ? '' : 's'}
+                    </span>
+                  </TD>
+                  <TD>
+                    <span className="text-xs text-gray-600">{summarizeTimeline(c.steps)}</span>
+                  </TD>
+                  <TD>
+                    {c.active ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-green-700">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                        <span className="h-1.5 w-1.5 rounded-full bg-gray-300" /> Archived
+                      </span>
+                    )}
+                  </TD>
+                  <TD className="text-right">
+                    <CadenceRowActions
+                      cadence={{
+                        id: c.id,
+                        name: c.name,
+                        triggerStage: c.triggerStage,
+                        steps: c.steps,
+                        active: c.active,
+                      }}
+                      templates={templates}
+                    />
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function coerceSteps(raw: unknown): CadenceStepInput[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r) => {
+      if (typeof r !== 'object' || r === null) return null;
+      const obj = r as Record<string, unknown>;
+      const offsetHours = Number(obj.offsetHours);
+      const kind = obj.kind === 'SMS' ? 'SMS' : 'EMAIL';
+      const templateId = typeof obj.templateId === 'string' ? obj.templateId : '';
+      const requireApproval = Boolean(obj.requireApproval);
+      if (!Number.isFinite(offsetHours) || offsetHours < 0) return null;
+      return { offsetHours, kind, templateId, requireApproval } satisfies CadenceStepInput;
+    })
+    .filter((s): s is CadenceStepInput => s !== null)
+    .sort((a, b) => a.offsetHours - b.offsetHours);
+}
+
+function summarizeTimeline(steps: CadenceStepInput[]): string {
+  if (steps.length === 0) return '—';
+  const first = steps[0]!.offsetHours;
+  const last = steps[steps.length - 1]!.offsetHours;
+  return `${formatHours(first)} → ${formatHours(last)}`;
+}
+
+function formatHours(h: number): string {
+  if (h === 0) return 'T+0';
+  if (h < 24) return `+${h}h`;
+  const d = Math.round(h / 24);
+  return `+${d}d`;
+}
+
+function humanizeStage(stage: string): string {
+  return stage
+    .toLowerCase()
+    .split('_')
+    .map((w) => w[0]?.toUpperCase() + w.slice(1))
+    .join(' ');
+}
