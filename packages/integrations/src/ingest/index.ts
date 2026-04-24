@@ -7,3 +7,8 @@ export {
   type IngestRunResult,
 } from './base';
 export { readNmlsCompaniesCsv, type NmlsCsvOptions } from './nmls';
+export {
+  fetchGooglePlacesCandidates,
+  type GooglePlacesQuery,
+  type GooglePartnerType,
+} from './google-places';

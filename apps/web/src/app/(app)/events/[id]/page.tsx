@@ -26,6 +26,7 @@ import { ActivityTab } from './ActivityTab';
 import { BatchOffersCard } from './BatchOffersCard';
 import { DashboardTab } from './DashboardTab';
 import { computeEventAnalytics } from '@/lib/events/analytics';
+import { EventMarketingCard } from './EventMarketingCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,6 +179,58 @@ export default async function EventDetailPage({
     claimedByName: o.claimedByInviteId ? (claimerById[o.claimedByInviteId] ?? null) : null,
   }));
 
+  // EV-10: pull this event's existing Studio designs + check whether the
+  // market's workspace has an ACTIVE brand. Both are wrapped in catch so
+  // a Studio-side hiccup never blocks the event detail page.
+  const eventDesignsRaw = await prisma.mwDesign
+    .findMany({
+      where: { partnerRadarEventId: event.id, archivedAt: null },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        contentType: true,
+        status: true,
+        updatedAt: true,
+        document: true,
+      },
+      take: 8,
+    })
+    .catch(
+      () =>
+        [] as Array<{
+          id: string;
+          name: string;
+          contentType: string;
+          status: string;
+          updatedAt: Date;
+          document: unknown;
+        }>,
+    );
+  const eventDesigns = eventDesignsRaw.map((d) => {
+    const doc = d.document as { width?: number; height?: number; variant?: string } | null;
+    return {
+      id: d.id,
+      name: d.name,
+      contentType: d.contentType,
+      status: d.status,
+      updatedAt: d.updatedAt.toISOString(),
+      variant: doc?.variant ?? 'light',
+      width: doc?.width ?? 1080,
+      height: doc?.height ?? 1080,
+    };
+  });
+  const eventBrandActive = await prisma.mwBrand
+    .findFirst({
+      where: {
+        status: 'ACTIVE',
+        workspace: { partnerRadarMarketId: event.marketId },
+      },
+      select: { id: true },
+    })
+    .then((b) => Boolean(b))
+    .catch(() => false);
+
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-card-border bg-white">
@@ -254,7 +307,16 @@ export default async function EventDetailPage({
       <div className="flex-1 overflow-auto bg-canvas">
         {tab === 'overview' && (
           <div className="grid grid-cols-1 gap-4 p-4 sm:gap-5 sm:p-6 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
-            <OverviewTab event={event} canEdit={canEdit} markets={[event.market]} />
+            <div className="space-y-5">
+              <OverviewTab event={event} canEdit={canEdit} markets={[event.market]} />
+              {(role === 'ADMIN' || role === 'MANAGER') && (
+                <EventMarketingCard
+                  eventId={event.id}
+                  hasActiveBrand={eventBrandActive}
+                  existingDesigns={eventDesigns}
+                />
+              )}
+            </div>
             <div className="space-y-5">
               <TicketTypesCard event={event} canEdit={canEdit} />
               <BatchOffersCard eventId={event.id} offers={batchOfferRows} canEdit={canEdit} />

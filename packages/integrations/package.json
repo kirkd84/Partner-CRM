@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./storm": "./src/storm/index.ts",
-    "./scrapers": "./src/scrapers/index.ts"
+    "./scrapers": "./src/scrapers/index.ts",
+    "./ingest": "./src/ingest/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

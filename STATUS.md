@@ -4,6 +4,84 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #14 — ✅ EV-10 + Phase 9 (route opt + run view) + Phase 8 (Google Places + scrape-jobs admin)
+
+Three high-leverage tracks shipped in one push, bridging Studio↔Events,
+adding the missing route-planning + execution surface, and giving
+Phase 8 its first first-class scraper.
+
+**EV-10 — Marketing Wizard ↔ Events:**
+
+- New `EventMarketingCard` on event detail (admin/manager only): four
+  one-tap presets (Invite flyer / Social teaser / Email header /
+  Thank-you). Each calls `createDesignFromEvent(eventId, args)` which
+  resolves the event + market workspace + active brand, runs the
+  director with an event-aware prompt, and pre-merges
+  `{{event.name}} / {{event.date}} / {{event.venue}} / {{event.time}}`
+  into the slot copy.
+- Designs land in MwDesign with `partnerRadarEventId` so the card
+  also lists prior designs for the event with thumbnails.
+- Generation logs an `EvActivityLogEntry` so the event activity tab
+  shows the design-creation event.
+
+**Phase 9 — Route optimization + Run view:**
+
+- `lib/lists/optimize-route.ts` — pure helper. Two paths:
+  - Google Directions API when `GOOGLE_MAPS_API_KEY` (or
+    `GOOGLE_DIRECTIONS_API_KEY`) is set, with `optimize:true` on the
+    waypoints. Returns ordered stops + planned arrivals + total
+    distance/duration.
+  - Greedy nearest-neighbor via haversine when no key, with locked
+    stops (calendar appointments) preserved at their fixed times and
+    free stops slotted around them.
+- `optimizeHitList(listId, opts?)` action — runs the optimizer over
+  remaining (uncompleted, non-skipped) stops, persists order +
+  arrivals in a transaction, updates HitList total distance/duration.
+  "Re-plan from here" passes the rep's GPS as the start.
+- `/lists/[id]/run` mobile-first run view:
+  - Big "next stop" card with venue address, ETA, planned visit
+    duration, partner notes (last visit memo).
+  - Three-button thumb row: Navigate (platform-aware deep links —
+    Apple Maps on iOS, Google Maps elsewhere), Visited
+    (`markStopComplete`), Skip (`skipStop` with reason sheet).
+  - Upcoming + Done sections with quick complete/skip/undo per row.
+  - "Re-plan from here" requests geolocation and re-runs the optimizer
+    using the rep's current position.
+- New `skipStop(stopId, reason?)` action — toggles skipped state and
+  logs an Activity on the partner with the reason.
+- Hit-list detail header gains "Optimize route" + "Run hit list"
+  buttons; optimization result is surfaced inline (provider,
+  distance, missing-geocode count).
+
+**Phase 8 — Google Places adapter + ScrapeJob admin:**
+
+- `packages/integrations/src/ingest/google-places.ts` —
+  `fetchGooglePlacesCandidates({ apiKey, partnerType, centerLat,
+centerLng, radiusMi, maxResults })` async generator. Calls
+  Places API (New) `:searchNearby`, paginates through nextPageToken
+  with a 2s back-off, normalizes to `ProspectCandidate` with proper
+  city/state/zip pulled from `addressComponents`. Maps each
+  PartnerType to the right Google `includedTypes`.
+- `@partnerradar/integrations/ingest` subpath export added.
+- `/admin/scrape-jobs` — full CRUD + Run-now + pause/resume:
+  - List grouped by active status; cadence + last-run timestamp + lead
+    count per job. Run-now currently wired for GOOGLE_PLACES (other
+    sources still ingest via per-source scripts).
+  - "New job" sheet with market picker, source selector (Google Places
+    is the default and the only one with run-now today), partner-type
+    - center lat/lng + radius + maxResults filters, free-text cadence.
+  - Run-now reuses `placesApiKey()` so the same key powers the venue
+    autocomplete and the scraper.
+- Sidebar gains "Scrape jobs" entry between Prospect queue and
+  Partner reliability.
+
+**Why this matters together:** EV-10 closes the Events↔Studio loop;
+Phase 9 finally makes the Hit List a daily-use surface for reps;
+Phase 8 turns the existing prospect queue into something that fills
+itself when Kirk has a market to expand into.
+
+---
+
 ## 2026-04-24 pass #13 — ✅ MW-4 full + MW-5 multi-size + MW-6 mail-merge
 
 Three of the remaining MW phases land in one push. After this Studio

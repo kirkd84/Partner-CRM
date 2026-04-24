@@ -147,7 +147,9 @@ export async function removeStop(stopId: string) {
     select: { id: true },
   });
   await Promise.all(
-    remaining.map((s, idx) => prisma.hitListStop.update({ where: { id: s.id }, data: { order: idx } })),
+    remaining.map((s, idx) =>
+      prisma.hitListStop.update({ where: { id: s.id }, data: { order: idx } }),
+    ),
   );
 
   revalidatePath(`/lists/${stop.hitListId}`);
@@ -189,7 +191,10 @@ export async function markStopComplete(stopId: string) {
   await assertCanEditList(stop.hitListId);
 
   const now = stop.completedAt ? null : new Date();
-  await prisma.hitListStop.update({ where: { id: stopId }, data: { completedAt: now, skippedAt: null } });
+  await prisma.hitListStop.update({
+    where: { id: stopId },
+    data: { completedAt: now, skippedAt: null },
+  });
 
   // Log an Activity on the partner when a check-in completes (skip undo).
   if (now) {
@@ -213,4 +218,119 @@ export async function deleteHitList(listId: string) {
   await prisma.hitList.delete({ where: { id: list.id } });
   revalidatePath('/lists');
   redirect('/lists');
+}
+
+/**
+ * Phase 9: skip a stop with an optional reason. Mirrors markStopComplete
+ * but the activity body never logs a check-in — it logs the no-go.
+ */
+export async function skipStop(stopId: string, reason?: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const stop = await prisma.hitListStop.findUnique({
+    where: { id: stopId },
+    select: { hitListId: true, partnerId: true, skippedAt: true },
+  });
+  if (!stop) throw new Error('NOT_FOUND');
+  await assertCanEditList(stop.hitListId);
+
+  const now = stop.skippedAt ? null : new Date();
+  await prisma.hitListStop.update({
+    where: { id: stopId },
+    data: {
+      skippedAt: now,
+      skipReason: now ? reason?.trim() || null : null,
+      completedAt: null,
+    },
+  });
+
+  if (now) {
+    await prisma.activity.create({
+      data: {
+        partnerId: stop.partnerId,
+        userId: session.user.id,
+        type: 'VISIT',
+        body: `${session.user.name} skipped a planned stop${reason ? `: ${reason.trim()}` : ''}.`,
+      },
+    });
+  }
+  revalidatePath(`/lists/${stop.hitListId}`);
+  return { ok: true };
+}
+
+/**
+ * Phase 9: run the route optimizer over a hit list. Uses Google
+ * Directions when GOOGLE_MAPS_API_KEY is set, otherwise a greedy
+ * nearest-neighbor heuristic over haversine distance. Persists the
+ * new order + planned arrivals back to HitListStop.
+ *
+ * "Re-plan from here" use case: pass startedAt = now() and an
+ * override startLat/startLng (typically the rep's current GPS).
+ */
+export async function optimizeHitList(
+  listId: string,
+  opts: { startedAt?: string; startLat?: number; startLng?: number } = {},
+) {
+  const { list } = await assertCanEditList(listId);
+  const stops = await prisma.hitListStop.findMany({
+    where: { hitListId: list.id, completedAt: null, skippedAt: null },
+    include: { partner: { select: { lat: true, lng: true } } },
+    orderBy: { order: 'asc' },
+  });
+  if (stops.length === 0) return { ok: false, reason: 'No remaining stops to optimize' as const };
+
+  const usable = stops.filter((s) => s.partner.lat != null && s.partner.lng != null);
+  const skipped = stops.length - usable.length;
+
+  const { optimizeRoute } = await import('@/lib/lists/optimize-route');
+  const startedAt = opts.startedAt ?? defaultStartedAt(list.date);
+  const result = await optimizeRoute({
+    startLat: opts.startLat ?? list.startLat,
+    startLng: opts.startLng ?? list.startLng,
+    startedAt,
+    stops: usable.map((s) => ({
+      id: s.id,
+      lat: s.partner.lat!,
+      lng: s.partner.lng!,
+      isAppointmentLock: s.isAppointmentLock,
+      ...(s.isAppointmentLock ? { fixedArrival: s.plannedArrival.toISOString() } : {}),
+      visitDurationMin: s.plannedDurationMin,
+    })),
+  });
+
+  await prisma.$transaction([
+    ...result.stops.map((s) =>
+      prisma.hitListStop.update({
+        where: { id: s.id },
+        data: {
+          order: s.order,
+          plannedArrival: new Date(s.plannedArrival),
+          plannedDurationMin: s.plannedDurationMin,
+        },
+      }),
+    ),
+    prisma.hitList.update({
+      where: { id: list.id },
+      data: {
+        totalDistance: result.totalDistanceMi,
+        totalDuration: result.totalDurationMin,
+      },
+    }),
+  ]);
+  revalidatePath(`/lists/${list.id}`);
+  revalidatePath(`/lists/${list.id}/run`);
+  return {
+    ok: true as const,
+    provider: result.provider,
+    totalDistance: result.totalDistanceMi,
+    totalDuration: result.totalDurationMin,
+    skippedNoGeo: skipped,
+  };
+}
+
+function defaultStartedAt(listDate: Date): string {
+  // Use 8am Mountain on the list date as the rep's nominal start.
+  const d = new Date(listDate);
+  d.setUTCHours(13, 0, 0, 0);
+  return d.toISOString();
 }

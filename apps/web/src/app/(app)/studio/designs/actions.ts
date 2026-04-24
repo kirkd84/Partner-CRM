@@ -21,8 +21,10 @@ import {
   generateDesignFull,
   parseIntent,
   direct,
+  mergeSlotsText,
   type BrandProfile,
   type DesignIntent,
+  type MergeContext,
 } from '@partnerradar/marketing-engine';
 import type { SlotValues, ColorVariant } from '@partnerradar/marketing-templates';
 
@@ -225,6 +227,195 @@ export async function updateDesignStatus(
   });
   revalidatePath('/studio');
   revalidatePath(`/studio/designs/${designId}`);
+}
+
+/**
+ * EV-10: generate a design directly from an EvEvent. We pull the event
+ * + market + active brand, build an event-aware merge context, and run
+ * the regular create pipeline with a pre-built prompt. Slot text from
+ * the director is then merged through the event context so {{event.name}}
+ * etc. are baked in at create time. The design is tagged with
+ * partnerRadarEventId so the event detail page can list it.
+ */
+export async function createDesignFromEvent(
+  eventId: string,
+  args: {
+    contentType: 'FLYER' | 'SOCIAL_POST' | 'EMAIL_HEADER';
+    purpose: 'invite' | 'announce' | 'thank-you' | 'reminder';
+  },
+): Promise<{ id: string }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+
+  const event = await prisma.evEvent.findUnique({
+    where: { id: eventId },
+    include: {
+      market: { select: { id: true, timezone: true, name: true } },
+      hosts: { select: { user: { select: { name: true } } } },
+    },
+  });
+  if (!event) throw new Error('EVENT_NOT_FOUND');
+
+  // Workspace gate — manager+ in the event's market.
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER') {
+    throw new Error('FORBIDDEN');
+  }
+  if (session.user.role === 'MANAGER') {
+    const markets = session.user.markets ?? [];
+    if (!markets.includes(event.marketId)) throw new Error('FORBIDDEN');
+  }
+
+  const workspace = await prisma.mwWorkspace.findFirst({
+    where: { partnerRadarMarketId: event.marketId },
+  });
+  if (!workspace) throw new Error('NO_WORKSPACE_FOR_MARKET');
+  const brand = await prisma.mwBrand.findFirst({
+    where: { workspaceId: workspace.id, status: 'ACTIVE' },
+    orderBy: { updatedAt: 'desc' },
+  });
+  if (!brand) throw new Error('No active brand for this market. Approve one in /studio/brands.');
+  const brandProfile = brand.profile as unknown as BrandProfile;
+
+  // Format human-friendly date / time strings the templates can use.
+  const tz = event.market.timezone || event.timezone || 'America/Denver';
+  const dateLine = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    month: 'short',
+    day: 'numeric',
+  })
+    .format(event.startsAt)
+    .toUpperCase();
+  const timeLine = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(event.startsAt);
+  const fullDate = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    weekday: 'short',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(event.startsAt);
+
+  // Build the prompt with explicit purpose so the rule-based director
+  // can route via mood-tag matching even without an Anthropic key.
+  const purposeLabel: Record<typeof args.purpose, string> = {
+    invite: 'Event invitation',
+    announce: 'Event announcement teaser',
+    'thank-you': 'Post-event thank-you',
+    reminder: 'Event reminder',
+  };
+  const prompt = `${purposeLabel[args.purpose]} for ${event.name} on ${fullDate}${
+    event.venueName ? ` at ${event.venueName}` : ''
+  }. ${args.purpose === 'thank-you' ? 'Warm, gracious tone.' : 'Inviting, clear, on-brand.'}`;
+
+  const intent: DesignIntent = {
+    contentType: args.contentType === 'EMAIL_HEADER' ? 'SOCIAL_POST' : args.contentType,
+    purpose: prompt,
+    tone: args.purpose === 'thank-you' ? 'warm' : 'celebratory',
+  };
+
+  const directorOut = await direct({ intent, brand: brandProfile });
+  const template = directorOut.template;
+
+  // Pre-merge event tokens into the director's slot copy so
+  // {{event.name}}, {{event.date}}, {{event.venue}} resolve at create
+  // time. Also seed event-specific slots that the director won't fill.
+  const merge: MergeContext = {
+    event: {
+      name: event.name,
+      date: fullDate,
+      venue: event.venueName ?? '',
+      time: timeLine,
+    },
+    brand: {
+      companyName: brandProfile.companyName,
+      ...(brandProfile.tagline ? { tagline: brandProfile.tagline } : {}),
+    },
+  };
+  const mergedText = mergeSlotsText(directorOut.slotValues.text, merge);
+  // Specific overrides for known event-aware slots, regardless of what
+  // the director produced. These keys exist on flyer-event-invitation,
+  // social-event-teaser, and a few others.
+  if (template.manifest.slots.some((s) => s.key === 'eventName')) mergedText.eventName = event.name;
+  if (template.manifest.slots.some((s) => s.key === 'dateLine')) mergedText.dateLine = dateLine;
+  if (template.manifest.slots.some((s) => s.key === 'timeLine')) mergedText.timeLine = timeLine;
+  if (template.manifest.slots.some((s) => s.key === 'venue') && event.venueName)
+    mergedText.venue = event.venueName;
+  // Leave headline/subhead alone if director already produced them; otherwise seed.
+  if (template.manifest.slots.some((s) => s.key === 'headline') && !mergedText.headline)
+    mergedText.headline =
+      args.purpose === 'thank-you' ? `Thanks for joining us at ${event.name}` : event.name;
+  if (template.manifest.slots.some((s) => s.key === 'cta') && !mergedText.cta) {
+    mergedText.cta = args.purpose === 'thank-you' ? 'See you next time' : 'RSVP today';
+  }
+
+  const sizeKey = template.manifest.sizes[0]!.key;
+  const size = template.manifest.sizes[0]!;
+  const variant: ColorVariant = 'light';
+
+  const designName = `${purposeLabel[args.purpose]} — ${event.name}`.slice(0, 120);
+
+  const document = {
+    templateKey: template.manifest.catalogKey,
+    slots: { text: mergedText, image: { ...directorOut.slotValues.image } },
+    variant,
+    sizeKey,
+    width: size.width,
+    height: size.height,
+  };
+
+  const created = await prisma.mwDesign.create({
+    data: {
+      workspaceId: workspace.id,
+      brandId: brand.id,
+      createdBy: session.user.id,
+      name: designName,
+      contentType: args.contentType,
+      templateId: template.manifest.catalogKey,
+      status: 'DRAFT',
+      intent: intent as unknown as Prisma.InputJsonValue,
+      direction: directorOut.direction as unknown as Prisma.InputJsonValue,
+      document: document as unknown as Prisma.InputJsonValue,
+      tags: ['event', args.purpose],
+      partnerRadarEventId: event.id,
+    },
+    select: { id: true },
+  });
+
+  // Light audit + activity log so the event timeline shows the design.
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        entityType: 'mw_design',
+        entityId: created.id,
+        action: 'create-from-event',
+        diff: {
+          eventId: event.id,
+          purpose: args.purpose,
+          contentType: args.contentType,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    await prisma.evActivityLogEntry.create({
+      data: {
+        eventId: event.id,
+        userId: session.user.id,
+        kind: 'design-created',
+        summary: `Generated ${args.contentType.replace('_', ' ').toLowerCase()} (${args.purpose}) in Studio`,
+        metadata: { designId: created.id } as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err) {
+    console.warn('[createDesignFromEvent] log skipped', err);
+  }
+
+  revalidatePath('/studio');
+  revalidatePath(`/events/${event.id}`);
+
+  return { id: created.id };
 }
 
 /**

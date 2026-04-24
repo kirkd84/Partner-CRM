@@ -14,11 +14,21 @@ import {
   CheckCircle2,
   Circle,
   GripVertical,
+  Loader2,
+  Navigation,
   Plus,
   Search,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
-import { addPartnerToList, deleteHitList, markStopComplete, removeStop, reorderStops } from '../actions';
+import {
+  addPartnerToList,
+  deleteHitList,
+  markStopComplete,
+  optimizeHitList,
+  removeStop,
+  reorderStops,
+} from '../actions';
 
 interface StopPartner {
   id: string;
@@ -72,6 +82,37 @@ export function HitListDetailClient({
   const [search, setSearch] = useState('');
   const [isPending, startTransition] = useTransition();
   const [dragId, setDragId] = useState<string | null>(null);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeMsg, setOptimizeMsg] = useState<string | null>(null);
+
+  function onOptimize() {
+    if (stops.length === 0) {
+      setOptimizeMsg('Add some partners first.');
+      return;
+    }
+    setOptimizing(true);
+    setOptimizeMsg(null);
+    startTransition(async () => {
+      try {
+        const result = await optimizeHitList(list.id);
+        if (result.ok) {
+          const provider =
+            result.provider === 'google-directions' ? 'Google Directions' : 'distance heuristic';
+          let msg = `Routed via ${provider}: ${result.totalDistance} mi · ~${result.totalDuration} min total`;
+          if (result.skippedNoGeo > 0) {
+            msg += ` (${result.skippedNoGeo} stop${result.skippedNoGeo === 1 ? '' : 's'} missing lat/lng — geocode their address first)`;
+          }
+          setOptimizeMsg(msg);
+        } else {
+          setOptimizeMsg(result.reason);
+        }
+      } catch (err) {
+        setOptimizeMsg(err instanceof Error ? err.message : 'Optimize failed');
+      } finally {
+        setOptimizing(false);
+      }
+    });
+  }
 
   const filteredAvailable = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -153,7 +194,9 @@ export function HitListDetailClient({
         await markStopComplete(stopId);
         setStops((prev) =>
           prev.map((s) =>
-            s.id === stopId ? { ...s, completedAt: s.completedAt ? null : new Date().toISOString() } : s,
+            s.id === stopId
+              ? { ...s, completedAt: s.completedAt ? null : new Date().toISOString() }
+              : s,
           ),
         );
       } catch (err) {
@@ -189,26 +232,52 @@ export function HitListDetailClient({
       <header className="mt-3 flex items-start gap-3">
         <div className="flex-1">
           <h1 className="text-xl font-semibold text-gray-900">{dateLabel}</h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {list.marketName} · Start from {list.startAddress} ({list.startMode.toLowerCase().replace('_', ' ')}){list.isOwnedByMe ? '' : ` · ${list.userName}'s list`}
+          <p className="mt-0.5 text-xs text-gray-500">
+            {list.marketName} · Start from {list.startAddress} (
+            {list.startMode.toLowerCase().replace('_', ' ')})
+            {list.isOwnedByMe ? '' : ` · ${list.userName}'s list`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => setAddOpen(true)} disabled={!list.isOwnedByMe && false}>
             <Plus className="h-4 w-4" /> Add partners
           </Button>
+          <Button
+            variant="secondary"
+            onClick={onOptimize}
+            loading={optimizing}
+            disabled={stops.length === 0}
+          >
+            {optimizing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            Optimize route
+          </Button>
+          <Link
+            href={`/lists/${list.id}/run`}
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500"
+          >
+            <Navigation className="h-4 w-4" /> Run hit list
+          </Link>
           <Button variant="destructive" onClick={onDeleteList} loading={isPending}>
             Delete list
           </Button>
         </div>
       </header>
+      {optimizeMsg && (
+        <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          {optimizeMsg}
+        </div>
+      )}
 
       {stops.length > 0 && (
         <div className="mt-3 flex items-center gap-3">
           <div className="h-2 flex-1 overflow-hidden rounded bg-gray-100">
             <div className="h-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
           </div>
-          <span className="text-xs text-gray-600 tabular-nums">
+          <span className="text-xs tabular-nums text-gray-600">
             {completed}/{stops.length} complete ({pct}%)
           </span>
         </div>
@@ -219,7 +288,8 @@ export function HitListDetailClient({
           <div className="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center">
             <p className="text-sm font-medium text-gray-900">No stops yet</p>
             <p className="mt-1 text-xs text-gray-500">
-              Drop partners onto this list to plan your day. They&apos;ll appear in visit order here.
+              Drop partners onto this list to plan your day. They&apos;ll appear in visit order
+              here.
             </p>
             <div className="mt-4 flex justify-center">
               <Button onClick={() => setAddOpen(true)}>
@@ -264,7 +334,7 @@ export function HitListDetailClient({
                       <Circle className="h-5 w-5 text-gray-300 hover:text-gray-500" />
                     )}
                   </button>
-                  <div className="flex-1 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/partners/${s.partner.id}`}
@@ -272,17 +342,19 @@ export function HitListDetailClient({
                       >
                         {s.partner.companyName}
                       </Link>
-                      <span className="font-mono text-[11px] text-gray-400">{s.partner.publicId}</span>
+                      <span className="font-mono text-[11px] text-gray-400">
+                        {s.partner.publicId}
+                      </span>
                       <Pill tone="soft" color={STAGE_COLORS[s.partner.stage]}>
                         {STAGE_LABELS[s.partner.stage]}
                       </Pill>
                     </div>
-                    <div className="text-[11px] text-gray-500 truncate">
+                    <div className="truncate text-[11px] text-gray-500">
                       {PARTNER_TYPE_LABELS[s.partner.partnerType]}
                       {address ? ` · ${address}` : ''}
                     </div>
                   </div>
-                  <span className="text-[11px] text-gray-500 tabular-nums">
+                  <span className="text-[11px] tabular-nums text-gray-500">
                     ~{s.plannedDurationMin} min
                   </span>
                   <button
@@ -324,20 +396,23 @@ export function HitListDetailClient({
             />
           </div>
           <div className="text-[11px] text-gray-500">
-            {filteredAvailable.length} {availablePartners.length > filteredAvailable.length ? 'shown' : 'available'}
-            {availablePartners.length > filteredAvailable.length ? ` · ${availablePartners.length} total` : ''}
+            {filteredAvailable.length}{' '}
+            {availablePartners.length > filteredAvailable.length ? 'shown' : 'available'}
+            {availablePartners.length > filteredAvailable.length
+              ? ` · ${availablePartners.length} total`
+              : ''}
           </div>
           <ul className="divide-y divide-gray-100">
             {filteredAvailable.map((p) => (
               <li key={p.id} className="flex items-center gap-3 py-2">
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-gray-900 truncate">
+                    <span className="truncate text-sm font-semibold text-gray-900">
                       {p.companyName}
                     </span>
                     <span className="font-mono text-[11px] text-gray-400">{p.publicId}</span>
                   </div>
-                  <div className="text-[11px] text-gray-500 truncate">
+                  <div className="truncate text-[11px] text-gray-500">
                     {PARTNER_TYPE_LABELS[p.partnerType]}
                     {p.city ? ` · ${p.city}, ${p.state ?? ''}` : ''}
                     {' · '}
