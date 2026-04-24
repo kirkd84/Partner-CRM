@@ -4,6 +4,48 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #4 — ✅ EV-7 (day-before + arrival reminders with QR codes)
+
+EV-7 layered on top of EV-5's reminder scheduler. The DAY_BEFORE and
+ARRIVAL_DETAILS rows were already getting written at RSVP time; this
+pass made them actually useful to the invitee on event day.
+
+**New surface:**
+
+- `apps/web/src/lib/events/qr.ts` — HMAC-signed ticket tokens + PNG
+  QR rendering (qrcode npm). Tokens encode `{ assignmentId, inviteId,
+ticketTypeId, iat }` signed with a per-event derived secret, so a
+  leaked token for one event can't forge one on another.
+- `GET /api/events/[id]/qr/[assignmentId]?token=…` — returns a 200px
+  PNG. Auth is either the signed token (for email inline images) or a
+  logged-in organizer/host. The route re-signs tokens on the fly so
+  reassignments via hand-assign / batch-offer claim stay consistent.
+- `/arrival?token=<rsvpToken>` public page — venue map (Google Static
+  Maps, key-gated with plain-address fallback), per-ticket QR codes
+  inline, plus-one name, host chips with tap-to-call / email.
+- DAY_BEFORE + ARRIVAL_DETAILS emails upgraded — both now embed QR
+  images (served through the new API route) + CTA to the /arrival
+  page; ARRIVAL copy includes the tickets list.
+- SETUP_T_MINUS_4H + SETUP_T_MINUS_1H host reminders. New
+  `regenerateSubEventSetupReminders(subEventId)` helper that writes
+  rows at T-4h and T-1h when a sub-event of `kind=SETUP` is created.
+  Wired into `createSubEvent` + `deleteSubEvent` (cancels pending on
+  delete). Dispatcher emails every host on the event with location +
+  notes.
+- Middleware now allows `/arrival` and `/api/events/*/qr/*` through
+  unauthenticated.
+- `qrcode@^1.5.4` + `@types/qrcode` added to apps/web.
+
+**Token safety:** per-event secret = HMAC(NEXTAUTH_SECRET,
+`event:<id>`). Timing-safe compare on verify. No token store —
+tokens are self-contained, and we cross-check the assignment row in
+one DB hit at scan time.
+
+Next up: EV-8 (mobile check-in UI with QR scanner, walk-in add,
+offline queue, post-event attendance postmortem).
+
+---
+
 ## 2026-04-24 pass #3 — ✅ EV-6 (cascade engine + batch-offer parking race)
 
 With EV-1..5 live and the Dockerfile fix deployed, the next logic-

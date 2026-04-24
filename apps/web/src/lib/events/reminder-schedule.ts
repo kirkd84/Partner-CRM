@@ -176,5 +176,71 @@ export async function cancelPendingReminders(inviteId: string): Promise<void> {
   });
 }
 
+/**
+ * Schedule host setup reminders for a sub-event of kind=SETUP
+ * (SPEC_EVENTS §2.7). Idempotent — wipes pending SETUP reminders for
+ * the sub-event and creates fresh ones at T-4h and T-1h before the
+ * sub-event's startsAt. No-ops for non-SETUP sub-events.
+ */
+export async function regenerateSubEventSetupReminders(subEventId: string): Promise<{
+  created: number;
+}> {
+  const sub = await prisma.evSubEvent.findUnique({
+    where: { id: subEventId },
+    select: {
+      id: true,
+      kind: true,
+      eventId: true,
+      startsAt: true,
+      event: { select: { canceledAt: true } },
+    },
+  });
+  if (!sub || sub.kind !== 'SETUP') return { created: 0 };
+  if (sub.event.canceledAt) return { created: 0 };
+
+  // Wipe prior pending SETUP reminders for this sub-event.
+  await prisma.evReminder.deleteMany({
+    where: {
+      subEventId: sub.id,
+      sentAt: null,
+      kind: { in: ['SETUP_T_MINUS_4H', 'SETUP_T_MINUS_1H'] },
+    },
+  });
+
+  const now = new Date();
+  const start = sub.startsAt.getTime();
+  const tMinus4h = new Date(start - 4 * 3600 * 1000);
+  const tMinus1h = new Date(start - 1 * 3600 * 1000);
+
+  const entries: Array<{ kind: 'SETUP_T_MINUS_4H' | 'SETUP_T_MINUS_1H'; at: Date }> = [];
+  if (tMinus4h > now) entries.push({ kind: 'SETUP_T_MINUS_4H', at: tMinus4h });
+  if (tMinus1h > now) entries.push({ kind: 'SETUP_T_MINUS_1H', at: tMinus1h });
+  if (entries.length === 0) return { created: 0 };
+
+  await prisma.evReminder.createMany({
+    data: entries.map((e) => ({
+      eventId: sub.eventId,
+      subEventId: sub.id,
+      kind: e.kind,
+      channel: 'EMAIL',
+      scheduledFor: e.at,
+      deliveryStatus: 'pending',
+    })),
+  });
+  return { created: entries.length };
+}
+
+/** Wipe pending setup reminders for a sub-event (on delete/reschedule). */
+export async function cancelSubEventSetupReminders(subEventId: string): Promise<void> {
+  await prisma.evReminder.updateMany({
+    where: {
+      subEventId,
+      sentAt: null,
+      kind: { in: ['SETUP_T_MINUS_4H', 'SETUP_T_MINUS_1H'] },
+    },
+    data: { deliveryStatus: 'canceled' },
+  });
+}
+
 // Silence unused ref if caller doesn't use it
 void Prisma;

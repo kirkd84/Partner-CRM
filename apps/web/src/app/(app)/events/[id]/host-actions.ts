@@ -15,6 +15,10 @@
 import { revalidatePath } from 'next/cache';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
+import {
+  regenerateSubEventSetupReminders,
+  cancelSubEventSetupReminders,
+} from '@/lib/events/reminder-schedule';
 
 async function loadCanEdit(eventId: string) {
   const session = await auth();
@@ -167,7 +171,7 @@ export async function createSubEvent(eventId: string, input: SubEventInput): Pro
     throw new Error('Pick which dependent ticket this sub-event is for');
   }
 
-  await prisma.$transaction([
+  const [created] = await prisma.$transaction([
     prisma.evSubEvent.create({
       data: {
         eventId,
@@ -193,6 +197,12 @@ export async function createSubEvent(eventId: string, input: SubEventInput): Pro
       },
     }),
   ]);
+  // Schedule SETUP host reminders (T-4h + T-1h) — no-op for non-SETUP.
+  if (created.kind === 'SETUP') {
+    await regenerateSubEventSetupReminders(created.id).catch((err) =>
+      console.warn('[sub-event] setup reminder schedule failed', err),
+    );
+  }
   revalidatePath(`/events/${eventId}`);
 }
 
@@ -200,6 +210,9 @@ export async function deleteSubEvent(eventId: string, subEventId: string): Promi
   const { session } = await loadCanEdit(eventId);
   const sub = await prisma.evSubEvent.findUnique({ where: { id: subEventId } });
   if (!sub || sub.eventId !== eventId) throw new Error('NOT_FOUND');
+
+  // Cancel pending setup reminders BEFORE the FK cascade takes them.
+  await cancelSubEventSetupReminders(subEventId).catch(() => null);
 
   await prisma.$transaction([
     prisma.evSubEvent.delete({ where: { id: subEventId } }),

@@ -23,6 +23,7 @@ import { inngest } from '../inngest-client';
 import { prisma, Prisma } from '@partnerradar/db';
 import { sendEmail, renderEmailLayout } from '@partnerradar/integrations';
 import { tenant } from '@partnerradar/config';
+import { signTicketToken } from '@/lib/events/qr';
 
 const BATCH = 100;
 
@@ -77,6 +78,11 @@ async function processReminder(reminderId: string): Promise<{ outcome: Outcome; 
     return handleAutoCancel(reminder);
   }
 
+  // SETUP reminders are for hosts on a sub-event, not invitees.
+  if (reminder.kind === 'SETUP_T_MINUS_4H' || reminder.kind === 'SETUP_T_MINUS_1H') {
+    return handleSetupReminder(reminder);
+  }
+
   if (!reminder.inviteId) {
     await markReminder(reminder.id, 'sent', 'no-invite');
     return { outcome: 'sent' };
@@ -105,6 +111,12 @@ async function processReminder(reminderId: string): Promise<{ outcome: Outcome; 
             orderBy: { isPrimary: 'desc' },
             select: { name: true, emails: true, emailConsent: true },
           },
+        },
+      },
+      ticketAssignments: {
+        where: { status: 'CONFIRMED' },
+        include: {
+          ticketType: { select: { id: true, name: true, isPrimary: true } },
         },
       },
     },
@@ -158,8 +170,20 @@ async function processReminder(reminderId: string): Promise<{ outcome: Outcome; 
   // Compose + send.
   const t = tenant();
   const rsvpUrl = buildRsvpUrl(invite.rsvpToken);
+  const arrivalUrl = buildArrivalUrl(invite.rsvpToken);
   const recipientName = invite.partner?.contacts[0]?.name ?? invite.adHocName ?? 'there';
   const firstName = recipientName.split(/\s+/)[0] ?? recipientName;
+  const tickets = invite.ticketAssignments.map((a) => ({
+    assignmentId: a.id,
+    name: a.ticketType.name,
+    isPrimary: a.ticketType.isPrimary,
+    qrUrl: buildQrUrl({
+      eventId: invite.event.id,
+      assignmentId: a.id,
+      inviteId: invite.id,
+      ticketTypeId: a.ticketType.id,
+    }),
+  }));
   const composed = composeReminder({
     kind: reminder.kind,
     eventName: invite.event.name,
@@ -170,7 +194,15 @@ async function processReminder(reminderId: string): Promise<{ outcome: Outcome; 
     timezone: invite.event.timezone,
     firstName,
     rsvpUrl,
+    arrivalUrl,
+    plusOneName: invite.plusOneName,
+    tickets,
   });
+
+  // ARRIVAL_DETAILS sends the arrival deep-link as CTA; everything else
+  // keeps the RSVP link so invitees can still change their answer.
+  const ctaHref =
+    reminder.kind === 'ARRIVAL_DETAILS' || reminder.kind === 'DAY_BEFORE' ? arrivalUrl : rsvpUrl;
 
   const res = await sendEmail({
     to: email,
@@ -180,7 +212,7 @@ async function processReminder(reminderId: string): Promise<{ outcome: Outcome; 
       preheader: composed.preheader,
       bodyHtml: composed.bodyHtml,
       ctaLabel: composed.ctaLabel,
-      ctaHref: rsvpUrl,
+      ctaHref,
       footerHtml: `${escapeHtml(t.legalName)} · ${escapeHtml(t.physicalAddress)}`,
     }),
     text: composed.textFallback,
@@ -318,6 +350,9 @@ function composeReminder(args: {
   timezone: string;
   firstName: string;
   rsvpUrl: string;
+  arrivalUrl: string;
+  plusOneName: string | null;
+  tickets: Array<{ assignmentId: string; name: string; isPrimary: boolean; qrUrl: string }>;
 }): {
   subject: string;
   preheader: string;
@@ -327,6 +362,29 @@ function composeReminder(args: {
 } {
   const when = formatWhen(args.startsAt, args.timezone);
   const place = [args.venueName, args.venueAddress].filter(Boolean).join(' · ');
+  const plusOneLine = args.plusOneName
+    ? `<p style="margin-top:8px;color:#4b5563;font-size:13px;">Plus-one: ${escapeHtml(args.plusOneName)}</p>`
+    : '';
+  const ticketList = args.tickets.length
+    ? `<p style="margin-top:12px;"><strong>Your tickets:</strong> ${args.tickets.map((tt) => escapeHtml(tt.name)).join(', ')}</p>`
+    : '';
+  const ticketsWithQr = args.tickets.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:16px 0;">${args.tickets
+        .map(
+          (tt) => `
+            <tr>
+              <td style="padding:6px 12px 6px 0;vertical-align:middle;">
+                <img src="${tt.qrUrl}" alt="${escapeHtml(tt.name)} QR" width="120" height="120" style="border:1px solid #e5e7eb;border-radius:8px;background:#fff;"/>
+              </td>
+              <td style="padding:6px 0;vertical-align:middle;">
+                <div style="font-size:15px;font-weight:600;color:#111827;">${escapeHtml(tt.name)}</div>
+                <div style="font-size:12px;color:#6b7280;margin-top:2px;">Scan at check-in</div>
+              </td>
+            </tr>`,
+        )
+        .join('')}</table>`
+    : '';
+
   switch (args.kind) {
     case 'CONFIRMATION_REQUEST':
       return {
@@ -350,17 +408,28 @@ function composeReminder(args: {
       return {
         subject: `Can't wait to see you tomorrow — ${args.eventName}`,
         preheader: when,
-        bodyHtml: `<p>Hi ${escapeHtml(args.firstName)},</p><p>Looking forward to seeing you tomorrow at <strong>${escapeHtml(args.eventName)}</strong>.</p><p>When: ${escapeHtml(when)}${place ? `<br>Where: ${escapeHtml(place)}` : ''}</p><p>Safe travels!</p>`,
-        ctaLabel: 'Event details',
-        textFallback: `See you tomorrow at ${args.eventName} (${when}). Details: ${args.rsvpUrl}`,
+        bodyHtml: `<p>Hi ${escapeHtml(args.firstName)},</p>
+<p>Looking forward to seeing you tomorrow at <strong>${escapeHtml(args.eventName)}</strong>.</p>
+<p><strong>When</strong>: ${escapeHtml(when)}${place ? `<br><strong>Where</strong>: ${escapeHtml(place)}` : ''}</p>
+${plusOneLine}
+${ticketsWithQr}
+<p>Tap the button below for the full arrival page — map, parking, host contacts — so you're not hunting through email tomorrow.</p>`,
+        ctaLabel: 'Arrival details',
+        textFallback: `See you tomorrow at ${args.eventName} (${when}). Arrival details: ${args.arrivalUrl}`,
       };
     case 'ARRIVAL_DETAILS':
       return {
         subject: `Arrival details — ${args.eventName}`,
         preheader: `Starts at ${when}`,
-        bodyHtml: `<p>Hi ${escapeHtml(args.firstName)},</p><p>A few hours out. Here's what you need:</p><p><strong>${escapeHtml(args.eventName)}</strong><br>When: ${escapeHtml(when)}${place ? `<br>Where: ${escapeHtml(place)}` : ''}</p><p>See you there.</p>`,
-        ctaLabel: 'Full event info',
-        textFallback: `Arrival details for ${args.eventName}: ${when}. More: ${args.rsvpUrl}`,
+        bodyHtml: `<p>Hi ${escapeHtml(args.firstName)},</p>
+<p>You're on in a few hours. Here's everything you need:</p>
+<p><strong>${escapeHtml(args.eventName)}</strong><br><strong>When</strong>: ${escapeHtml(when)}${place ? `<br><strong>Where</strong>: ${escapeHtml(place)}` : ''}</p>
+${plusOneLine}
+${ticketsWithQr}
+${ticketList}
+<p>Tap below for map, parking, and your host's phone number.</p>`,
+        ctaLabel: 'Full arrival page',
+        textFallback: `Arrival details for ${args.eventName}: ${when}. Map + parking + hosts: ${args.arrivalUrl}`,
       };
     default:
       return {
@@ -371,6 +440,116 @@ function composeReminder(args: {
         textFallback: args.rsvpUrl,
       };
   }
+}
+
+function buildArrivalUrl(token: string): string {
+  const base =
+    process.env.APP_BASE_URL ||
+    process.env.NEXTAUTH_URL ||
+    'https://partner-crm-production.up.railway.app';
+  return `${base.replace(/\/$/, '')}/arrival?token=${encodeURIComponent(token)}`;
+}
+
+function buildQrUrl(args: {
+  eventId: string;
+  assignmentId: string;
+  inviteId: string;
+  ticketTypeId: string;
+}): string {
+  const base =
+    process.env.APP_BASE_URL ||
+    process.env.NEXTAUTH_URL ||
+    'https://partner-crm-production.up.railway.app';
+  const token = signTicketToken(args);
+  return `${base.replace(/\/$/, '')}/api/events/${args.eventId}/qr/${args.assignmentId}?token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * SETUP reminders go to the hosts of a sub-event with kind=SETUP,
+ * not invitees. We resolve the sub-event → hosts via the EvHost
+ * subEventFocus linkage (or, if empty, fall back to all event hosts).
+ */
+async function handleSetupReminder(reminder: {
+  id: string;
+  kind: string;
+  eventId: string;
+  subEventId: string | null;
+}): Promise<{ outcome: Outcome; detail?: string }> {
+  if (!reminder.subEventId) {
+    await markReminder(reminder.id, 'canceled', 'no_sub_event');
+    return { outcome: 'skipped', detail: 'no_sub_event' };
+  }
+
+  const subEvent = await prisma.evSubEvent.findUnique({
+    where: { id: reminder.subEventId },
+    include: {
+      event: {
+        select: {
+          id: true,
+          name: true,
+          venueName: true,
+          venueAddress: true,
+          timezone: true,
+          hosts: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!subEvent) {
+    await markReminder(reminder.id, 'failed', 'sub_event_missing');
+    return { outcome: 'failed' };
+  }
+
+  const when = formatWhen(subEvent.startsAt, subEvent.event.timezone);
+  const place = [subEvent.event.venueName, subEvent.event.venueAddress].filter(Boolean).join(' · ');
+  const subject =
+    reminder.kind === 'SETUP_T_MINUS_4H'
+      ? `Setup in 4 hours — ${subEvent.event.name}`
+      : `Setup in 1 hour — ${subEvent.event.name}`;
+  const t = tenant();
+
+  const hosts = subEvent.event.hosts.filter((h) => h.user.email);
+  if (hosts.length === 0) {
+    await markReminder(reminder.id, 'canceled', 'no_hosts');
+    return { outcome: 'skipped' };
+  }
+
+  let failures = 0;
+  for (const h of hosts) {
+    const firstName = (h.user.name ?? 'there').split(/\s+/)[0] ?? 'there';
+    const html = renderEmailLayout({
+      title: subject,
+      preheader: `Setup begins ${when}`,
+      bodyHtml: `<p>Hi ${escapeHtml(firstName)},</p>
+<p>${reminder.kind === 'SETUP_T_MINUS_4H' ? 'Heads up — setup is 4 hours out.' : 'Last call — setup starts in an hour.'}</p>
+<p><strong>${escapeHtml(subEvent.name)}</strong><br><strong>When</strong>: ${escapeHtml(when)}${place ? `<br><strong>Where</strong>: ${escapeHtml(place)}` : ''}</p>
+<p>See you on site.</p>`,
+      ctaLabel: 'Open event',
+      ctaHref: `${process.env.APP_BASE_URL ?? process.env.NEXTAUTH_URL ?? ''}/events/${subEvent.event.id}`,
+      footerHtml: `${escapeHtml(t.legalName)} · ${escapeHtml(t.physicalAddress)}`,
+    });
+    const res = await sendEmail({
+      to: h.user.email!,
+      subject,
+      html,
+      text: `${subject}\n${when}${place ? `\n${place}` : ''}`,
+      tag: `event-${reminder.kind.toLowerCase()}`,
+    });
+    if (!res.ok) failures++;
+  }
+
+  await prisma.evReminder.update({
+    where: { id: reminder.id },
+    data: {
+      sentAt: new Date(),
+      deliveryStatus: failures === hosts.length ? 'failed' : 'sent',
+    },
+  });
+  return { outcome: failures === hosts.length ? 'failed' : 'sent' };
 }
 
 function formatWhen(d: Date, tz: string): string {
