@@ -4,6 +4,59 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #12 — ✅ MW-3/4 image upload + refinement chat + 4 more templates
+
+Catalog 12 → 16. Designs are now genuinely testable end-to-end: upload
+photos, iterate with a sentence, and the rule-based director nudges
+the template + copy without any AI keys.
+
+**Image upload (no R2 needed):**
+
+- `DesignImageSlots.tsx` — per-slot upload card with thumb, replace,
+  remove. Files compress client-side via canvas to JPEG at 1200px max,
+  ~80% quality. Compressed data URL gets stored directly inside
+  `MwDesign.document.slots.image[key]`. When R2 keys land we'll swap
+  the storage layer without touching this UI.
+- `updateDesignSlots(id, { image: { hero: dataUrl } })` — extended to
+  accept image overrides; passing `null` clears the slot.
+- Satori already accepts data URLs in `<img src>` so the renderer
+  needed zero changes.
+
+**MW-4 lite: refinement chat**
+
+- `DesignRefinement.tsx` on every design detail — text input plus
+  five quick-nudge chips ("make the headline more urgent", "use a
+  testimonial style", "swap to a different template", etc.).
+- New `refineDesign(id, instruction)` action appends the instruction
+  to the original purpose and re-runs the director. Hand-uploaded
+  photos are preserved across refinement.
+- Without an Anthropic key the rule-based director still picks up
+  tone keywords from the instruction; with one, it goes through
+  Sonnet/Opus for genuinely punchier rewrites.
+
+**4 more templates** (catalog 12 → 16):
+
+- `flyer-promotional-offer` — sale/discount with an oversized offer
+  stamp on the right and copy on the left (terms, CTA).
+- `flyer-event-invitation` — letter-size invite. Date stamp + event
+  name + venue/time row + optional bullet list.
+- `social-stat-callout` — oversized number/proof point ("98%",
+  "1,200+") with a label under it.
+- `business-card-vertical-modern` — 2×3.5″ vertical card with brand
+  band on top, name dominant.
+
+**Director keyword routing extended** to recognize:
+
+- `% off`, `free X`, `sale`, `discount`, `limited` → promotional-offer
+- numeric proof points (`98%`, `5 years`, `1,200 roofs`) → stat-callout
+- `vertical`, `portrait`, `tall card` → vertical-modern
+
+**Trade-off note:** data URLs live inside `MwDesign.document` so per-row
+size can grow to ~1MB with 4 uploads. Postgres jsonb handles this fine
+at our volume; we'll move to R2 when keys are configured.
+
+---
+
 ## 2026-04-24 pass #11 — ✅ MW-3 expansion (6 more templates + smarter director)
 
 Catalog grows from 6 → 12. Director now scores templates by keyword

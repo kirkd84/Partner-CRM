@@ -229,7 +229,11 @@ export async function updateDesignStatus(
 
 export async function updateDesignSlots(
   designId: string,
-  overrides: { text?: Record<string, string>; variant?: ColorVariant },
+  overrides: {
+    text?: Record<string, string>;
+    image?: Record<string, string | null>; // null = clear the slot
+    variant?: ColorVariant;
+  },
 ): Promise<void> {
   const session = await auth();
   if (!session?.user) throw new Error('UNAUTHORIZED');
@@ -246,12 +250,21 @@ export async function updateDesignSlots(
     height: number;
   };
 
+  // Merge image overrides — `null` removes the entry, anything else overwrites.
+  const mergedImages: Record<string, string> = { ...(existingDoc.slots.image ?? {}) };
+  if (overrides.image) {
+    for (const [k, v] of Object.entries(overrides.image)) {
+      if (v == null) delete mergedImages[k];
+      else mergedImages[k] = v;
+    }
+  }
+
   const newDoc = {
     ...existingDoc,
     variant: overrides.variant ?? existingDoc.variant,
     slots: {
       text: { ...existingDoc.slots.text, ...(overrides.text ?? {}) },
-      image: { ...existingDoc.slots.image },
+      image: mergedImages,
     },
   };
 
@@ -259,11 +272,96 @@ export async function updateDesignSlots(
     where: { id: designId },
     data: { document: newDoc as unknown as Prisma.InputJsonValue },
   });
+  const changeLog = overrides.variant
+    ? 'Variant changed'
+    : overrides.image
+      ? 'Image updated'
+      : 'Copy edited';
   await prisma.mwDesignVersion.create({
     data: {
       designId,
       createdBy: session.user.id,
-      changeLog: overrides.variant ? 'Variant changed' : 'Copy edited',
+      changeLog,
+      document: newDoc as unknown as Prisma.InputJsonValue,
+    },
+  });
+  revalidatePath(`/studio/designs/${designId}`);
+}
+
+/**
+ * MW-4 lite: take a free-text refinement instruction ("make the headline
+ * shorter", "swap to dark variant", "try a more urgent tone") and re-run
+ * the director with the existing intent + that instruction merged in.
+ *
+ * Without an Anthropic key the rule-based director just re-picks based
+ * on tone hints found in the instruction — so something like "make it
+ * urgent" still nudges the design even with no LLM available.
+ */
+export async function refineDesign(designId: string, instruction: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  if (!instruction.trim()) throw new Error('Tell me what to change.');
+  const existing = await prisma.mwDesign.findUnique({ where: { id: designId } });
+  if (!existing) throw new Error('NOT_FOUND');
+  await assertAccess(existing.workspaceId);
+  const brand = await prisma.mwBrand.findUnique({ where: { id: existing.brandId } });
+  if (!brand) throw new Error('BRAND_GONE');
+
+  const existingIntent = existing.intent as unknown as DesignIntent;
+  const existingDoc = existing.document as unknown as {
+    templateKey: string;
+    slots: SlotValues;
+    variant: ColorVariant;
+    sizeKey: string;
+    width: number;
+    height: number;
+  };
+
+  // Compose a refined intent: keep contentType, append the instruction
+  // to purpose so the rule-based + LLM directors both see it.
+  const refinedIntent: DesignIntent = {
+    ...existingIntent,
+    purpose: `${existingIntent.purpose}\n\nRefinement: ${instruction.trim()}`,
+  };
+
+  const directorOut = await direct({
+    intent: refinedIntent,
+    brand: brand.profile as unknown as BrandProfile,
+  });
+
+  // Preserve the user's image uploads — refinement is about copy/template,
+  // not about discarding photos they took the time to upload.
+  const newDoc = {
+    templateKey: directorOut.template.manifest.catalogKey,
+    slots: {
+      text: directorOut.slotValues.text,
+      image: { ...existingDoc.slots.image },
+    },
+    variant: existingDoc.variant,
+    sizeKey:
+      directorOut.template.manifest.sizes.find((s) => s.key === existingDoc.sizeKey)?.key ??
+      directorOut.template.manifest.sizes[0]!.key,
+    width:
+      directorOut.template.manifest.sizes.find((s) => s.key === existingDoc.sizeKey)?.width ??
+      directorOut.template.manifest.sizes[0]!.width,
+    height:
+      directorOut.template.manifest.sizes.find((s) => s.key === existingDoc.sizeKey)?.height ??
+      directorOut.template.manifest.sizes[0]!.height,
+  };
+
+  await prisma.mwDesign.update({
+    where: { id: designId },
+    data: {
+      intent: refinedIntent as unknown as Prisma.InputJsonValue,
+      direction: directorOut.direction as unknown as Prisma.InputJsonValue,
+      document: newDoc as unknown as Prisma.InputJsonValue,
+    },
+  });
+  await prisma.mwDesignVersion.create({
+    data: {
+      designId,
+      createdBy: session.user.id,
+      changeLog: `Refined: ${instruction.trim().slice(0, 120)}`,
       document: newDoc as unknown as Prisma.InputJsonValue,
     },
   });

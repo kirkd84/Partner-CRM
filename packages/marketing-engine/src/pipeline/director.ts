@@ -136,8 +136,11 @@ function keywordMoodTags(purpose: string): string[] {
     out.push('team', 'lifestyle', 'authentic');
   if (/portfolio|project|showcase|recent work|gallery|grid/.test(p))
     out.push('showcase', 'gallery', 'portfolio');
-  if (/special|sale|offer|promo|discount|limited/.test(p))
-    out.push('offer', 'announcement', 'urgent');
+  if (/special|sale|offer|promo|discount|limited|% off|percent off|free /.test(p))
+    out.push('offer', 'announcement', 'urgent', 'sale', 'promotion');
+  if (/stat|percent|%|\d+\s*(years|projects|roofs|reviews|customers|hours)/.test(p))
+    out.push('stat', 'proof', 'showcase');
+  if (/vertical|portrait|tall card/.test(p)) out.push('vertical', 'modern');
   if (/24[- ]hour|same[- ]day|emergency|now|immediate/.test(p)) out.push('urgent', 'announcement');
   if (/celebrate|anniversary|milestone|launch|grand opening/.test(p))
     out.push('celebration', 'announcement', 'social');

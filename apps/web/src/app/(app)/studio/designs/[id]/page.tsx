@@ -16,6 +16,8 @@ import { getTemplate } from '@partnerradar/marketing-templates';
 import { DesignPreview } from './DesignPreview';
 import { DesignActions } from './DesignActions';
 import { DesignEditor } from './DesignEditor';
+import { DesignImageSlots } from './DesignImageSlots';
+import { DesignRefinement } from './DesignRefinement';
 
 export const dynamic = 'force-dynamic';
 
@@ -101,13 +103,22 @@ export default async function DesignPage({ params }: { params: Promise<{ id: str
             />
           </div>
 
-          {/* Right column: editor + meta. On mobile, stacks under preview. */}
+          {/* Right column: refinement, copy, photos, meta. On mobile this all
+              stacks under the preview — designed thumb-first. */}
           <aside className="flex w-full flex-col gap-4 lg:max-w-[380px]">
+            <DesignRefinement designId={design.id} />
+
             <DesignEditor
               designId={design.id}
               slots={doc.slots.text}
               templateSlots={template?.manifest.slots ?? []}
               initialVariant={doc.variant}
+            />
+
+            <DesignImageSlots
+              designId={design.id}
+              imageSlots={(template?.manifest.slots ?? []).filter((s) => s.kind === 'image')}
+              values={doc.slots.image}
             />
 
             <div className="rounded-xl border border-card-border bg-white p-4 text-xs text-gray-600">
