@@ -16,6 +16,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { prisma, Prisma } from '@partnerradar/db';
+import { regenerateInviteReminders, cancelPendingReminders } from '@/lib/events/reminder-schedule';
 
 export type RsvpAction = 'accept' | 'decline' | 'confirm' | 'cancel';
 
@@ -92,6 +93,10 @@ export async function submitRsvp(input: RsvpInput): Promise<{
           drop.map((a) => a.ticketTypeId),
         );
       }
+      // Schedule confirmation cascade reminders.
+      await regenerateInviteReminders(invite.id).catch((err) =>
+        console.warn('[rsvp] reminder regen failed', err),
+      );
       revalidatePath(`/rsvp/${input.token}`);
       return { ok: true, status: 'ACCEPTED' };
     }
@@ -119,6 +124,7 @@ export async function submitRsvp(input: RsvpInput): Promise<{
           },
         }),
       ]);
+      await cancelPendingReminders(invite.id).catch(() => null);
       await triggerCascade(invite.event.id, releasedTypes);
       revalidatePath(`/rsvp/${input.token}`);
       return { ok: true, status: 'DECLINED' };
@@ -145,6 +151,10 @@ export async function submitRsvp(input: RsvpInput): Promise<{
           },
         }),
       ]);
+      // Drop nudges, keep day-before + arrival. Simplest: wipe pending
+      // then regenerate — regen skips confirmation-cascade rows when the
+      // invite is already CONFIRMED.
+      await regenerateInviteReminders(invite.id).catch(() => null);
       revalidatePath(`/rsvp/${input.token}`);
       return { ok: true, status: 'CONFIRMED' };
     }
@@ -182,6 +192,7 @@ export async function submitRsvp(input: RsvpInput): Promise<{
           },
         }),
       ]);
+      await cancelPendingReminders(invite.id).catch(() => null);
       await triggerCascade(invite.event.id, releasedTypes);
       revalidatePath(`/rsvp/${input.token}`);
       return { ok: true, status: 'CANCELED' };

@@ -15,6 +15,7 @@ import { googleCalendarSyncOnConnect, googleCalendarSyncCron } from './jobs/goog
 import { stormRevenueSyncCron, stormRevenueSyncOnDemand } from './jobs/storm-revenue-sync';
 import { cadenceEnrollOnStageChange, cadenceDispatchCron } from './jobs/cadence-worker';
 import { eventTicketReleased, eventExpireTick } from './jobs/event-cascade';
+import { eventReminderTick } from './jobs/event-reminders';
 
 export const functions = [
   ping,
@@ -26,4 +27,5 @@ export const functions = [
   cadenceDispatchCron,
   eventTicketReleased,
   eventExpireTick,
+  eventReminderTick,
 ];
