@@ -37,8 +37,14 @@ export default async function EventsPage({
   const role = session.user.role;
   const markets = session.user.markets ?? [];
 
-  // Scope: admin sees all; manager sees their markets; rep sees events
-  // they host or created (still restricted to their markets).
+  // Scope:
+  //   Admin  → everything
+  //   Manager → in-market, except HOST_ONLY events they aren't on
+  //   Rep    → in-market AND (creator OR host) — unchanged
+  //
+  // HOST_ONLY is an extra tightening on top of market visibility:
+  // even managers lose access unless they're the creator or a host,
+  // which lets a rep run an event without their manager seeing it.
   const marketScope =
     role === 'ADMIN' ? {} : { marketId: { in: markets.length > 0 ? markets : ['__none__'] } };
   const repScope =
@@ -47,6 +53,18 @@ export default async function EventsPage({
           OR: [{ createdBy: userId }, { hosts: { some: { userId } } }],
         }
       : {};
+  const visibilityScope =
+    role === 'ADMIN'
+      ? {}
+      : role === 'MANAGER'
+        ? {
+            OR: [
+              { visibility: { not: 'HOST_ONLY' as const } },
+              { createdBy: userId },
+              { hosts: { some: { userId } } },
+            ],
+          }
+        : {}; // REPs already get the repScope filter, which is stricter.
 
   const now = new Date();
 
@@ -56,6 +74,7 @@ export default async function EventsPage({
         where: {
           ...marketScope,
           ...repScope,
+          ...visibilityScope,
           status: { not: 'CANCELED' },
           startsAt: { gte: now },
         },
@@ -73,6 +92,7 @@ export default async function EventsPage({
         where: {
           ...marketScope,
           ...repScope,
+          ...visibilityScope,
           OR: [{ status: 'CANCELED' }, { startsAt: { lt: now } }],
         },
         orderBy: { startsAt: 'desc' },
@@ -95,8 +115,16 @@ export default async function EventsPage({
 
   // For Past tab: enrich with attendance counts + 90-day revenue from
   // attributed partners. Kept in this same file because the shape is
-  // only used here and we want one SQL pass.
-  const pastRows: PastEventRow[] = tab === 'past' ? await buildPastRows(past) : [];
+  // only used here and we want one SQL pass. Wrapped in try/catch so a
+  // query against a drift'd schema (e.g. RevenueAttribution missing)
+  // doesn't 500 the entire list page.
+  const pastRows: PastEventRow[] =
+    tab === 'past'
+      ? await buildPastRows(past).catch((err) => {
+          console.warn('[events] buildPastRows failed', err);
+          return [];
+        })
+      : [];
 
   return (
     <div className="flex h-full flex-col">

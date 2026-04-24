@@ -18,7 +18,7 @@ import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
 
 export type EventStatus = 'DRAFT' | 'SCHEDULED' | 'LIVE' | 'COMPLETED' | 'CANCELED';
-export type EventVisibility = 'PRIVATE' | 'MARKET_WIDE' | 'PUBLIC';
+export type EventVisibility = 'PRIVATE' | 'MARKET_WIDE' | 'PUBLIC' | 'HOST_ONLY';
 
 export interface CreateEventInput {
   name: string;
@@ -113,75 +113,85 @@ export async function createEvent(
   }
   if (end <= start) throw new Error('End must be after start');
 
-  const created = await prisma.$transaction(async (tx) => {
-    const row = await tx.evEvent.create({
-      data: {
-        publicId: '__tmp__', // replaced below
-        marketId: input.marketId,
-        name: input.name.trim(),
-        description: input.description?.trim() || null,
-        venueName: input.venueName?.trim() || null,
-        venueAddress: input.venueAddress?.trim() || null,
-        venueLat: input.venueLat ?? null,
-        venueLng: input.venueLng ?? null,
-        startsAt: start,
-        endsAt: end,
-        timezone: input.timezone,
-        status: 'DRAFT',
-        visibility: input.visibility ?? 'PRIVATE',
-        defaultPlusOnesAllowed: input.defaultPlusOnesAllowed ?? false,
-        createdBy: session.user.id,
-      },
-      select: { id: true },
-    });
-    const finalPublicId = makePublicId(row.id);
-    await tx.evEvent.update({
-      where: { id: row.id },
-      data: { publicId: finalPublicId },
-    });
+  const created = await prisma
+    .$transaction(async (tx) => {
+      const row = await tx.evEvent.create({
+        data: {
+          publicId: '__tmp__', // replaced below
+          marketId: input.marketId,
+          name: input.name.trim(),
+          description: input.description?.trim() || null,
+          venueName: input.venueName?.trim() || null,
+          venueAddress: input.venueAddress?.trim() || null,
+          venueLat: input.venueLat ?? null,
+          venueLng: input.venueLng ?? null,
+          startsAt: start,
+          endsAt: end,
+          timezone: input.timezone,
+          status: 'DRAFT',
+          visibility: input.visibility ?? 'PRIVATE',
+          defaultPlusOnesAllowed: input.defaultPlusOnesAllowed ?? false,
+          createdBy: session.user.id,
+        },
+        select: { id: true },
+      });
+      const finalPublicId = makePublicId(row.id);
+      await tx.evEvent.update({
+        where: { id: row.id },
+        data: { publicId: finalPublicId },
+      });
 
-    // Optional primary ticket — nobody wants to click through a sub-form
-    // just to add one row that will always exist.
-    if (input.primaryTicketName && (input.primaryTicketCapacity ?? 0) > 0) {
-      await tx.evTicketType.create({
+      // Optional primary ticket — nobody wants to click through a sub-form
+      // just to add one row that will always exist.
+      if (input.primaryTicketName && (input.primaryTicketCapacity ?? 0) > 0) {
+        await tx.evTicketType.create({
+          data: {
+            eventId: row.id,
+            name: input.primaryTicketName.trim(),
+            kind: 'PRIMARY',
+            capacity: input.primaryTicketCapacity!,
+            isPrimary: true,
+          },
+        });
+      }
+
+      await tx.evActivityLogEntry.create({
         data: {
           eventId: row.id,
-          name: input.primaryTicketName.trim(),
-          kind: 'PRIMARY',
-          capacity: input.primaryTicketCapacity!,
-          isPrimary: true,
+          userId: session.user.id,
+          kind: 'created',
+          summary: `${session.user.name ?? session.user.email} created "${input.name.trim()}"`,
+          metadata: {
+            startsAt: start.toISOString(),
+            marketId: input.marketId,
+          } as Prisma.InputJsonValue,
         },
       });
-    }
+      await tx.auditLog.create({
+        data: {
+          userId: session.user.id,
+          entityType: 'ev_event',
+          entityId: row.id,
+          action: 'create',
+          diff: {
+            name: input.name,
+            marketId: input.marketId,
+            startsAt: start.toISOString(),
+          } as Prisma.InputJsonValue,
+        },
+      });
 
-    await tx.evActivityLogEntry.create({
-      data: {
-        eventId: row.id,
-        userId: session.user.id,
-        kind: 'created',
-        summary: `${session.user.name ?? session.user.email} created "${input.name.trim()}"`,
-        metadata: {
-          startsAt: start.toISOString(),
-          marketId: input.marketId,
-        } as Prisma.InputJsonValue,
-      },
+      return { id: row.id, publicId: finalPublicId };
+    })
+    // Surface a clean message back to the client instead of a naked
+    // "500 Internal Server Error" — the UI drawer shows this text.
+    .catch((err) => {
+      console.error('[createEvent] failed', err);
+      if (err instanceof Error) {
+        throw new Error(`Couldn't create event: ${err.message}`);
+      }
+      throw new Error("Couldn't create event (server error).");
     });
-    await tx.auditLog.create({
-      data: {
-        userId: session.user.id,
-        entityType: 'ev_event',
-        entityId: row.id,
-        action: 'create',
-        diff: {
-          name: input.name,
-          marketId: input.marketId,
-          startsAt: start.toISOString(),
-        } as Prisma.InputJsonValue,
-      },
-    });
-
-    return { id: row.id, publicId: finalPublicId };
-  });
 
   revalidatePath('/events');
   return created;

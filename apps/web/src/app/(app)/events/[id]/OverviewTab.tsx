@@ -27,7 +27,7 @@ interface Event {
   startsAt: Date;
   endsAt: Date;
   timezone: string;
-  visibility: 'PRIVATE' | 'MARKET_WIDE' | 'PUBLIC';
+  visibility: 'PRIVATE' | 'MARKET_WIDE' | 'PUBLIC' | 'HOST_ONLY';
   defaultPlusOnesAllowed: boolean;
   emailSubject: string | null;
   smsBodyTemplate: string | null;
@@ -55,7 +55,7 @@ export function OverviewTab({
   const [venueAddress, setVenueAddress] = useState(event.venueAddress ?? '');
   const [startsAt, setStartsAt] = useState(toLocalInput(event.startsAt));
   const [endsAt, setEndsAt] = useState(toLocalInput(event.endsAt));
-  const [visibility, setVisibility] = useState<'PRIVATE' | 'MARKET_WIDE' | 'PUBLIC'>(
+  const [visibility, setVisibility] = useState<'PRIVATE' | 'MARKET_WIDE' | 'PUBLIC' | 'HOST_ONLY'>(
     event.visibility,
   );
   const [defaultPlusOnes, setDefaultPlusOnes] = useState(event.defaultPlusOnesAllowed);
@@ -232,6 +232,7 @@ export function OverviewTab({
                 >
                   <option value="PRIVATE">Private</option>
                   <option value="MARKET_WIDE">Market-wide</option>
+                  <option value="HOST_ONLY">Host-only</option>
                 </select>
               </Field>
               <Field label="Default plus-ones">

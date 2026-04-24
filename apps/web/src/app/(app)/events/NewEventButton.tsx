@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button, DrawerModal } from '@partnerradar/ui';
 import { Plus } from 'lucide-react';
 import { createEvent } from './actions';
+import { VenueAutocomplete } from './VenueAutocomplete';
 
 interface Market {
   id: string;
@@ -23,11 +24,17 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
   const [description, setDescription] = useState('');
   const [venueName, setVenueName] = useState('');
   const [venueAddress, setVenueAddress] = useState('');
-  const [startsAt, setStartsAt] = useState(defaultStart());
-  const [endsAt, setEndsAt] = useState(defaultEnd());
-  const [visibility, setVisibility] = useState<'PRIVATE' | 'MARKET_WIDE'>('PRIVATE');
+  const [venueLat, setVenueLat] = useState<number | null>(null);
+  const [venueLng, setVenueLng] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState<string>(defaultDate());
+  const [startTime, setStartTime] = useState<string>('19:00');
+  const [endDate, setEndDate] = useState<string>(defaultDate());
+  const [endTime, setEndTime] = useState<string>('22:00');
+  const [visibility, setVisibility] = useState<'PRIVATE' | 'MARKET_WIDE' | 'HOST_ONLY'>('PRIVATE');
   const [primaryTicketName, setPrimaryTicketName] = useState('General Admission');
-  const [primaryTicketCapacity, setPrimaryTicketCapacity] = useState(20);
+  // Blank by default — Kirk fills in capacity per-event. An empty string keeps
+  // the input placeholder visible instead of a misleading pre-populated number.
+  const [primaryTicketCapacity, setPrimaryTicketCapacity] = useState<string>('');
 
   const selectedMarket = markets.find((m) => m.id === marketId);
 
@@ -38,13 +45,22 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
     setDescription('');
     setVenueName('');
     setVenueAddress('');
-    setStartsAt(defaultStart());
-    setEndsAt(defaultEnd());
+    setVenueLat(null);
+    setVenueLng(null);
+    const today = defaultDate();
+    setStartDate(today);
+    setStartTime('19:00');
+    setEndDate(today);
+    setEndTime('22:00');
     setVisibility('PRIVATE');
     setPrimaryTicketName('General Admission');
-    setPrimaryTicketCapacity(20);
+    setPrimaryTicketCapacity('');
     setError(null);
     setOpen(true);
+  }
+
+  function combine(date: string, time: string): string {
+    return `${date}T${time}`;
   }
 
   function onSubmit(e?: React.FormEvent) {
@@ -58,6 +74,17 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
       setError('Pick a market');
       return;
     }
+    if (!startDate || !startTime || !endDate || !endTime) {
+      setError('Start and end date/time required');
+      return;
+    }
+    const startsAt = new Date(combine(startDate, startTime));
+    const endsAt = new Date(combine(endDate, endTime));
+    if (endsAt <= startsAt) {
+      setError('End must be after start');
+      return;
+    }
+    const capacityNum = Number(primaryTicketCapacity);
     startTransition(async () => {
       try {
         const result = await createEvent({
@@ -65,18 +92,25 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
           description: description.trim() || undefined,
           venueName: venueName.trim() || undefined,
           venueAddress: venueAddress.trim() || undefined,
-          startsAt: new Date(startsAt).toISOString(),
-          endsAt: new Date(endsAt).toISOString(),
+          venueLat,
+          venueLng,
+          startsAt: startsAt.toISOString(),
+          endsAt: endsAt.toISOString(),
           timezone: selectedMarket?.timezone ?? 'America/Denver',
           marketId,
           visibility,
           primaryTicketName: primaryTicketName.trim() || undefined,
-          primaryTicketCapacity: primaryTicketCapacity > 0 ? primaryTicketCapacity : undefined,
+          primaryTicketCapacity:
+            Number.isFinite(capacityNum) && capacityNum > 0 ? capacityNum : undefined,
         });
         setOpen(false);
         router.push(`/events/${result.id}`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to create event');
+        // Surface the server-side error — createEvent throws with a
+        // meaningful message (UNAUTHORIZED / FORBIDDEN / validation).
+        const msg = err instanceof Error ? err.message : 'Failed to create event';
+        console.warn('[new-event] createEvent failed', err);
+        setError(msg);
       }
     });
   }
@@ -131,42 +165,61 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
             )}
           </Field>
 
+          {/* Split date + time avoids the chunky Chrome datetime-local
+              widget that pops a clock + scrolling hour/minute/AMPM column.
+              Native date + time pickers separately render as a tight
+              calendar and a simple HH:MM field. */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Starts" required>
-              <input
-                type="datetime-local"
-                value={startsAt}
-                onChange={(e) => setStartsAt(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    if (!endDate || new Date(endDate) < new Date(e.target.value))
+                      setEndDate(e.target.value);
+                  }}
+                  className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  step={300}
+                  className="w-28 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
             </Field>
             <Field label="Ends" required>
-              <input
-                type="datetime-local"
-                value={endsAt}
-                onChange={(e) => setEndsAt(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+                <input
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  step={300}
+                  className="w-28 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
             </Field>
           </div>
 
-          <Field label="Venue name (optional)">
-            <input
-              type="text"
-              value={venueName}
-              onChange={(e) => setVenueName(e.target.value)}
-              placeholder="Ball Arena, The Chop House"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </Field>
-
-          <Field label="Venue address (optional)">
-            <input
-              type="text"
-              value={venueAddress}
-              onChange={(e) => setVenueAddress(e.target.value)}
-              placeholder="1000 Chopper Cir, Denver, CO 80204"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+          <Field label="Venue (optional)">
+            <VenueAutocomplete
+              valueName={venueName}
+              valueAddress={venueAddress}
+              onChange={({ name: n, address, lat, lng }) => {
+                setVenueName(n);
+                setVenueAddress(address);
+                setVenueLat(lat ?? null);
+                setVenueLng(lng ?? null);
+              }}
             />
           </Field>
 
@@ -199,8 +252,9 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
               <input
                 type="number"
                 min={1}
+                inputMode="numeric"
                 value={primaryTicketCapacity}
-                onChange={(e) => setPrimaryTicketCapacity(Number(e.target.value) || 0)}
+                onChange={(e) => setPrimaryTicketCapacity(e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                 placeholder="Capacity"
               />
@@ -210,12 +264,19 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
           <Field label="Visibility">
             <select
               value={visibility}
-              onChange={(e) => setVisibility(e.target.value as 'PRIVATE' | 'MARKET_WIDE')}
+              onChange={(e) =>
+                setVisibility(e.target.value as 'PRIVATE' | 'MARKET_WIDE' | 'HOST_ONLY')
+              }
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             >
-              <option value="PRIVATE">Private — just the hosts and market managers</option>
+              <option value="PRIVATE">Private — market managers + hosts</option>
               <option value="MARKET_WIDE">Market-wide — any rep in this market can see it</option>
+              <option value="HOST_ONLY">Host-only — just you and assigned hosts (+ admins)</option>
             </select>
+            <p className="mt-1 text-[11px] text-gray-500">
+              Host-only hides the event from coworkers who aren't assigned. Admins still see
+              everything for oversight.
+            </p>
           </Field>
 
           {error && (
@@ -229,22 +290,13 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
   );
 }
 
-function defaultStart(): string {
-  // Tomorrow at 7pm — easy to nudge.
+function defaultDate(): string {
+  // Tomorrow — easy to nudge forward from here. Kept in YYYY-MM-DD so
+  // both <input type="date"> and the ISO combine later are clean.
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  d.setHours(19, 0, 0, 0);
-  return toLocalInput(d);
-}
-function defaultEnd(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(22, 0, 0, 0);
-  return toLocalInput(d);
-}
-function toLocalInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function Field({

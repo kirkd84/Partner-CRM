@@ -810,6 +810,11 @@ enum EvEventVisibility {
   PRIVATE
   MARKET_WIDE
   PUBLIC
+  /// HOST_ONLY = only the event creator + assigned hosts can see/manage it.
+  /// Admins + managers can still see it (they see everything in their market)
+  /// but reps in the same market who AREN'T hosts get no visibility at all.
+  /// Useful when Janessa wants to run her event without John seeing it.
+  HOST_ONLY
 }
 
 model EvTicketType {

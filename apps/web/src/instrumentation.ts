@@ -260,6 +260,16 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       label: 'add EvEvent.shareToken',
       sql: `ALTER TABLE "EvEvent" ADD COLUMN IF NOT EXISTS "shareToken" TEXT`,
     },
+    // EV-11 UX pass: HOST_ONLY visibility so a rep can run a private
+    // event without other reps in the same market seeing it.
+    {
+      label: 'EvEventVisibility +HOST_ONLY',
+      sql: `
+        DO $$ BEGIN
+          ALTER TYPE "EvEventVisibility" ADD VALUE IF NOT EXISTS 'HOST_ONLY';
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `,
+    },
     {
       label: 'EvEvent.shareToken unique index',
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS "EvEvent_shareToken_key" ON "EvEvent"("shareToken") WHERE "shareToken" IS NOT NULL`,
@@ -1414,7 +1424,7 @@ async function provisionMarketingWorkspaces(prisma: unknown) {
 function evEnumStatements(): Array<{ label: string; sql: string }> {
   const ENUMS: Array<{ name: string; values: string[] }> = [
     { name: 'EvEventStatus', values: ['DRAFT', 'SCHEDULED', 'LIVE', 'COMPLETED', 'CANCELED'] },
-    { name: 'EvEventVisibility', values: ['PRIVATE', 'MARKET_WIDE', 'PUBLIC'] },
+    { name: 'EvEventVisibility', values: ['PRIVATE', 'MARKET_WIDE', 'PUBLIC', 'HOST_ONLY'] },
     { name: 'EvTicketKind', values: ['PRIMARY', 'DEPENDENT'] },
     {
       name: 'EvSubEventKind',

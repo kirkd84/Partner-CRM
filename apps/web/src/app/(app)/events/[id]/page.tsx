@@ -73,10 +73,16 @@ export default async function EventDetailPage({
   const markets = session.user.markets ?? [];
   const role = session.user.role;
   if (role !== 'ADMIN' && !markets.includes(event.marketId)) redirect('/events');
+  const isCreator = event.createdBy === session.user.id;
+  const isHost = event.hosts.some((h) => h.userId === session.user.id);
   if (role === 'REP') {
-    const isCreator = event.createdBy === session.user.id;
-    const isHost = event.hosts.some((h) => h.userId === session.user.id);
     if (!isCreator && !isHost) redirect('/events');
+  }
+  // HOST_ONLY tightens visibility past the market boundary — even
+  // managers in the same market need to be the creator or a host.
+  // Admins still see everything (oversight).
+  if (role !== 'ADMIN' && event.visibility === 'HOST_ONLY' && !isCreator && !isHost) {
+    redirect('/events');
   }
 
   const canEdit =
