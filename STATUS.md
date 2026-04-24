@@ -4,6 +4,68 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 (overnight pass) — ✅ Phase 8 automation, reports, compliance
+
+Kirk said "cram as much as you can — I am going home, you have all
+night!" Everything below shipped as atomic commits to `main` between
+evening and morning. All graceful-without-creds: drop the right env
+var on Railway and the feature lights up with no code change.
+
+| Commit  | Scope                                                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2f16629 | `/admin/budget-rules` + `/admin/templates` + `/admin/cadences` CRUD (with variable substitution tests, step editor, execution settings)    |
+| b002072 | Radar financial pulse strip (Spent MTD / Budget / Revenue MTD with progress bar + over-budget banner) + Storm 6-hour revenue sync          |
+| d79be24 | `/reports` rebuilt with Activity / Funnel / ROI / Expenses tabs + URL-driven range picker (7d/30d/90d/YTD); Resend expense emails          |
+| eb4a98c | AI tone training first-login modal + /settings retrain card. Samples persist even if `ANTHROPIC_API_KEY` is missing                        |
+| 4593f5d | Cadence automation wired end-to-end: consent + quiet hours + dispatcher + Inngest enrollment on stage change + 5-min dispatch cron         |
+| 3c2094f | Seed 5 message templates + 3 starter cadences on first boot (only when tables empty); execution stats pills on /admin/cadences             |
+| f97c405 | CAN-SPAM compliance: HMAC-signed /unsubscribe + RFC 8058 one-click POST + List-Unsubscribe headers + legal footer on every automated email |
+| f43ce06 | `/admin/cadence-queue` — approve-and-send or drop cadence steps marked requireApproval, with audit log                                     |
+
+**What this means practically — flip these env vars and the whole
+automation stack comes alive:**
+
+1. Add `RESEND_API_KEY` + `RESEND_FROM_EMAIL` → expense approval
+   emails + cadence email sends start going out.
+2. Add `ANTHROPIC_API_KEY` → rep tone extraction + AI draft drawer
+   start using Haiku 4.5 / Sonnet 4.6.
+3. Add Inngest signing keys → 6-hour Storm revenue sync + 5-minute
+   cadence dispatch start firing.
+4. Add `TWILIO_AUTH_TOKEN` (Phase 8.1 still) → cadence SMS sends
+   light up. Today they dry-run with a clear "twilio_not_configured"
+   outcome.
+
+**New surfaces Kirk can click through this morning:**
+
+- `/admin/budget-rules` — tenant-wide default auto-seeded; add
+  per-market or per-rep overrides.
+- `/admin/templates` — 5 canonical templates pre-seeded. Variable
+  palette + live preview + SMS char meter.
+- `/admin/cadences` — 3 cadences pre-seeded. Step editor with offset
+  presets, per-step approval toggle, timeline preview. Per-row
+  execution pills (scheduled / sent / blocked / pending).
+- `/admin/cadence-queue` — any step marked "requires approval" lands
+  here with Approve & Send or Drop buttons.
+- `/reports` — four tabs with real data. Works with zero data shown
+  gracefully; lights up as activity accumulates.
+- `/settings` right column — "AI tone" card shows status + summary
+  - Retrain button. First-login modal still triggers for fresh REPs.
+- `/unsubscribe` — public, no-auth. One-click kill for any emailed
+  contact. Audit-logged.
+
+**Compliance note (CAN-SPAM §7.5):** every automated email now ships
+with the tenant legal name + physical address + a working unsubscribe
+link. `List-Unsubscribe` and `List-Unsubscribe-Post` headers mean
+Gmail / Apple Mail render their native unsubscribe button. One-click
+unsubscribe flips `Contact.emailConsent=false` when the last
+subscribed address is removed.
+
+**Schema touch-ups that auto-applied:** none — everything above reused
+existing tables. `instrumentation.ts` only added idempotent data
+seeding (no DDL), so the deploy came up clean.
+
+---
+
 ## 2026-04-23 (autonomous pass #2) — 🚧 Phase 4 foundations landed
 
 Kirk fired a 4-hour autonomous build on top of the freshly-shipped
