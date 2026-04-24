@@ -4,7 +4,6 @@ import { Button } from '@partnerradar/ui';
 import { changePassword } from './actions';
 
 export function PasswordForm() {
-  const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -22,8 +21,10 @@ export function PasswordForm() {
     }
     startTransition(async () => {
       try {
-        await changePassword(current, next);
-        setCurrent('');
+        // Kirk asked to drop the "current password" field — users are
+        // already authenticated to reach this page, and the server
+        // action bumps tokenVersion to sign out other sessions.
+        await changePassword(next);
         setNext('');
         setConfirm('');
         setStatus('saved');
@@ -37,16 +38,6 @@ export function PasswordForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
-      <Field label="Current password">
-        <input
-          type="password"
-          value={current}
-          onChange={(e) => setCurrent(e.target.value)}
-          autoComplete="current-password"
-          required
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-        />
-      </Field>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label="New password">
           <input
@@ -72,14 +63,14 @@ export function PasswordForm() {
         </Field>
       </div>
       <div className="flex items-center gap-3">
-        <Button type="submit" loading={isPending} disabled={!current || !next || !confirm}>
+        <Button type="submit" loading={isPending} disabled={!next || !confirm}>
           Change password
         </Button>
         {status === 'saved' && <span className="text-sm text-green-700">Password updated.</span>}
         {error && <span className="text-sm text-red-700">{error}</span>}
       </div>
       <p className="text-[11px] text-gray-400">
-        Other active sessions will be signed out immediately.
+        At least 8 characters. Other devices you're signed in on will be logged out.
       </p>
     </form>
   );

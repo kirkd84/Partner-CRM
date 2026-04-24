@@ -83,7 +83,7 @@ export default async function SettingsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 pb-12">
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+        <div className="mx-auto grid max-w-7xl grid-cols-1 items-start gap-5 lg:grid-cols-2">
           {/* LEFT column — profile-level settings */}
           <div className="space-y-5">
             <Card title="Profile">
@@ -127,12 +127,15 @@ export default async function SettingsPage() {
             </Card>
           </div>
 
-          {/* RIGHT column — integrations (calendar now, more to come) */}
-          <div className="space-y-5 lg:sticky lg:top-4 lg:self-start">
+          {/* RIGHT column — integrations (calendar now, more to come).
+              No sticky positioning so the top edge aligns with Profile
+              on the left, and the column fills the full 50% width. */}
+          <div className="space-y-5">
             <Card title="Calendar connections">
               <p className="mb-3 text-xs text-gray-500">
-                Connect your work calendars so external events show up on /calendar and conflict
-                with new appointments. Tokens are encrypted at rest (AES-256-GCM).
+                Connect your Google, Microsoft 365, or Apple calendar so your existing events show
+                up on your Partner Portal calendar. Only you can see the events from your calendars
+                — your connection is private to your account.
               </p>
               <CalendarConnections providers={providers} connections={connections} />
             </Card>

@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { compare, hash } from 'bcryptjs';
+import { hash } from 'bcryptjs';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
 import { syncOneConnection } from '@/lib/jobs/google-calendar-sync';
@@ -59,10 +59,13 @@ export async function updateProfile(input: ProfileInput) {
 }
 
 /**
- * Change the caller's password. Verifies current first. Bumps
- * tokenVersion so other active sessions are invalidated.
+ * Change the caller's password. Kirk asked to drop the "current
+ * password" prompt — users are already authenticated to reach this
+ * page, and we bump tokenVersion below so every OTHER active session
+ * gets logged out anyway (same effect as requiring current password
+ * for the session-hijack scenario).
  */
-export async function changePassword(currentPassword: string, newPassword: string) {
+export async function changePassword(newPassword: string) {
   const session = await auth();
   if (!session?.user) throw new Error('UNAUTHORIZED');
   if (newPassword.length < 8) throw new Error('New password must be at least 8 characters');
@@ -72,8 +75,6 @@ export async function changePassword(currentPassword: string, newPassword: strin
     select: { passwordHash: true },
   });
   if (!user?.passwordHash) throw new Error('No password set (SSO user?)');
-  const ok = await compare(currentPassword, user.passwordHash);
-  if (!ok) throw new Error('Current password is incorrect');
 
   const newHash = await hash(newPassword, 10);
   await prisma.$transaction([

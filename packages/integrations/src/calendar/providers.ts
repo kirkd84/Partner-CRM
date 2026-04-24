@@ -26,29 +26,28 @@ export function listCalendarProviders(): CalendarProviderInfo[] {
     {
       id: 'google',
       label: 'Google Calendar',
-      description: 'Two-way sync with any Google calendar the rep has access to.',
+      description:
+        'Pull in your events from any Google Calendar you use — personal, work, shared team calendars, all optional.',
       configured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      unconfiguredHint:
-        'Admin: set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in Railway. Scope: calendar.readonly.',
+      unconfiguredHint: 'Your admin needs to turn this on before you can connect.',
     },
     {
       id: 'microsoft',
       label: 'Microsoft 365',
       description:
-        'Works with Outlook.com, Microsoft 365 Business, and any Azure-AD organisation calendar.',
+        'Works with Outlook.com and any work Microsoft 365 calendar. Same idea as Google — pick which calendars sync.',
       configured: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
-      unconfiguredHint:
-        'Admin: register a multi-tenant app in Azure AD. Scopes: Calendars.Read + offline_access.',
+      unconfiguredHint: 'Your admin needs to turn this on before you can connect.',
     },
     {
       id: 'apple',
       label: 'Apple iCloud',
       description:
-        'Per-rep CalDAV connection using an Apple ID + app-specific password. No tenant cred required.',
-      configured: true, // no tenant cred to check — but still gated per user
+        'Use your Apple ID with an app-specific password. You set it up right here — no admin needed.',
+      configured: true,
       perUserOnly: true,
       unconfiguredHint:
-        'Per-rep flow. Each rep generates an app-specific password at appleid.apple.com and pastes it in /settings.',
+        'Generate an app-specific password at appleid.apple.com → "Sign-In and Security" → then paste it here.',
     },
   ];
 }
