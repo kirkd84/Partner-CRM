@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useRef, useState, useTransition } from 'react';
-import { Search, QrCode, UserPlus, X, Check } from 'lucide-react';
+import { Search, QrCode, UserPlus, X, Check, Volume2, VolumeX } from 'lucide-react';
 import {
   scanCheckIn,
   manualCheckIn,
@@ -62,6 +62,7 @@ export function CheckInClient(props: Props) {
   const [rows, setRows] = useState<Attendee[]>(props.attendees);
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'warn' | 'err' } | null>(null);
+  const [soundOn, setSoundOn] = useState(true);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -69,6 +70,60 @@ export function CheckInClient(props: Props) {
     const id = setTimeout(() => setToast(null), 2800);
     return () => clearTimeout(id);
   }, [toast]);
+
+  // Restore sound preference from localStorage so hosts don't have to
+  // re-toggle it every time they open the page mid-event.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pr:check-in:sound');
+      if (saved === '0') setSoundOn(false);
+    } catch {
+      /* localStorage may be blocked in some browsers */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('pr:check-in:sound', soundOn ? '1' : '0');
+    } catch {
+      /* noop */
+    }
+  }, [soundOn]);
+
+  // Feedback on a successful check-in — vibrate (mobile only) + short
+  // "bloop" via WebAudio. Kept deliberately lightweight; no audio file
+  // fetch, no external lib.
+  function signalFeedback(kind: 'ok' | 'warn' | 'err') {
+    try {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        const pattern = kind === 'ok' ? 40 : kind === 'warn' ? [20, 30, 20] : [60, 40, 60];
+        navigator.vibrate(pattern);
+      }
+    } catch {
+      /* vibration API can throw on desktop Firefox — ignore */
+    }
+    if (!soundOn || kind !== 'ok') return;
+    try {
+      const Ctor =
+        (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      const ctx = new Ctor();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880; // A5 — bright, unambiguously "success"
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.18);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.2);
+      // Close the context after playback so it doesn't leak.
+      setTimeout(() => ctx.close().catch(() => null), 500);
+    } catch {
+      /* WebAudio not available — silently skip */
+    }
+  }
 
   const filtered = rows
     .filter((r) => {
@@ -91,6 +146,7 @@ export function CheckInClient(props: Props) {
               ? "That ticket isn't confirmed."
               : 'Check-in failed.';
       setToast({ text: msg, kind: 'err' });
+      signalFeedback('err');
       return;
     }
     if (result.status === 'already') {
@@ -98,12 +154,14 @@ export function CheckInClient(props: Props) {
         text: `${result.inviteeName} already checked in · ${result.ticketName}`,
         kind: 'warn',
       });
+      signalFeedback('warn');
       return;
     }
     setToast({
       text: `${result.inviteeName} · ${result.ticketName} ✓`,
       kind: 'ok',
     });
+    signalFeedback('ok');
     setRows((prev) =>
       prev.map((r) => {
         if (r.inviteId !== result.inviteId) return r;
@@ -238,6 +296,15 @@ export function CheckInClient(props: Props) {
               className="flex h-11 items-center gap-1 rounded-full border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
             >
               <UserPlus className="h-4 w-4" /> Walk-in
+            </button>
+            <button
+              type="button"
+              onClick={() => setSoundOn((v) => !v)}
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+              title={soundOn ? 'Sound on' : 'Sound off'}
+              aria-label={soundOn ? 'Turn sound off' : 'Turn sound on'}
+            >
+              {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </button>
           </div>
 

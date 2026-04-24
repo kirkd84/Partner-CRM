@@ -255,6 +255,15 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       label: 'add Partner.reliabilityScore',
       sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "reliabilityScore" DOUBLE PRECISION`,
     },
+    // EV-11: shareable read-only event link (lazy-generated).
+    {
+      label: 'add EvEvent.shareToken',
+      sql: `ALTER TABLE "EvEvent" ADD COLUMN IF NOT EXISTS "shareToken" TEXT`,
+    },
+    {
+      label: 'EvEvent.shareToken unique index',
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "EvEvent_shareToken_key" ON "EvEvent"("shareToken") WHERE "shareToken" IS NOT NULL`,
+    },
     // EV-8: extend ActivityType with post-event outcomes.
     {
       label: 'ActivityType +EVENT_ATTENDED/NO_SHOW/WALKED_IN',

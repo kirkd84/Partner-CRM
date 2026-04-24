@@ -4,6 +4,44 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #7 — ✅ EV-11 web slice (share link + check-in haptics)
+
+Full EV-11 is a native mobile rebuild + Expo push notifications that
+deserves its own session. This pass ships the web-side pieces that
+deliver the most immediate value:
+
+**Shareable read-only event view** (SPEC_EVENTS §13):
+
+- New `/share/[token]` public page — schedule, hosts, ticket counts,
+  confirmed guest list (names only — no emails, phones, or RSVP
+  tokens leak). Organizer hands the URL to the venue contact,
+  caterer, or AV vendor.
+- `EvEvent.shareToken` field (nullable, unique) + auto-migrate DDL.
+  Lazy-generated via `ensureShareToken` server action the first time
+  the organizer clicks Share.
+- Event header now has Share / Check-in / Cancel pills. Share popup
+  has copy-to-clipboard + rotate + disable controls.
+- Rotations + disables log to `EvActivityLogEntry` so there's an
+  audit trail of who shared what when.
+
+**Check-in haptics + sound** (SPEC_EVENTS §13 / EV-11):
+
+- Successful scan fires `navigator.vibrate(40)` on mobile + a short
+  WebAudio sine "bloop" at 880 Hz. Warn and err states get their own
+  vibration patterns (pulse, long).
+- Sound toggle in the check-in header (Volume2 / VolumeX icon);
+  preference persists via `localStorage` so hosts don't re-toggle
+  every time.
+- No audio file fetch, no external lib — pure WebAudio, ~40 lines.
+
+**Deferred** (needs its own session):
+
+- Full `apps/mobile` Event screens (React Native / Expo)
+- Expo push notifications (Expo credentials + server push)
+- Service-worker web push (VAPID keys still pending from Kirk)
+
+---
+
 ## 2026-04-24 pass #6 — ✅ EV-9 (analytics + per-partner history + reliability report)
 
 **New surface:**

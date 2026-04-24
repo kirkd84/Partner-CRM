@@ -781,6 +781,10 @@ model EvEvent {
   updatedAt                   DateTime          @updatedAt
   canceledAt                  DateTime?
   canceledReason              String?
+  /// Public read-only share token (SPEC_EVENTS §13 / EV-11). Nullable —
+  /// we lazy-generate on first Share click so old events don't get
+  /// spurious tokens.
+  shareToken                  String?           @unique
   ticketTypes                 EvTicketType[]
   invites                     EvInvite[]
   hosts                       EvHost[]

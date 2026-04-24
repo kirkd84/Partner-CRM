@@ -393,3 +393,95 @@ export async function deleteTicketType(eventId: string, ticketTypeId: string): P
   ]);
   revalidatePath(`/events/${eventId}`);
 }
+
+// ─── EV-11: share link ────────────────────────────────────────────────
+//
+// Lazy-generate a read-only share token. The organizer clicks "Share"
+// on the event header; we return the URL + the raw token so the client
+// can copy it to clipboard without another round-trip.
+
+async function loadCanEditEventId(eventId: string): Promise<{ userId: string }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const event = await prisma.evEvent.findUnique({
+    where: { id: eventId },
+    include: { hosts: { select: { userId: true } } },
+  });
+  if (!event) throw new Error('NOT_FOUND');
+  const role = session.user.role;
+  const markets = session.user.markets ?? [];
+  if (role !== 'ADMIN' && !markets.includes(event.marketId)) throw new Error('FORBIDDEN');
+  const isMgrPlus = role === 'MANAGER' || role === 'ADMIN';
+  const isHost = event.hosts.some((h) => h.userId === session.user.id);
+  const isCreator = event.createdBy === session.user.id;
+  if (!isMgrPlus && !isCreator && !isHost) throw new Error('FORBIDDEN');
+  return { userId: session.user.id };
+}
+
+export async function ensureShareToken(
+  eventId: string,
+): Promise<{ token: string; rotated: boolean }> {
+  await loadCanEditEventId(eventId);
+  const existing = await prisma.evEvent.findUnique({
+    where: { id: eventId },
+    select: { shareToken: true },
+  });
+  if (existing?.shareToken) return { token: existing.shareToken, rotated: false };
+  const token = generateShareToken();
+  await prisma.evEvent.update({
+    where: { id: eventId },
+    data: { shareToken: token },
+  });
+  return { token, rotated: true };
+}
+
+export async function rotateShareToken(eventId: string): Promise<{ token: string }> {
+  const { userId } = await loadCanEditEventId(eventId);
+  const token = generateShareToken();
+  await prisma.$transaction([
+    prisma.evEvent.update({
+      where: { id: eventId },
+      data: { shareToken: token },
+    }),
+    prisma.evActivityLogEntry.create({
+      data: {
+        eventId,
+        userId,
+        kind: 'share-token-rotated',
+        summary: 'Share link regenerated — old link now invalid',
+      },
+    }),
+  ]);
+  return { token };
+}
+
+export async function disableShareToken(eventId: string): Promise<void> {
+  const { userId } = await loadCanEditEventId(eventId);
+  await prisma.$transaction([
+    prisma.evEvent.update({
+      where: { id: eventId },
+      data: { shareToken: null },
+    }),
+    prisma.evActivityLogEntry.create({
+      data: {
+        eventId,
+        userId,
+        kind: 'share-token-disabled',
+        summary: 'Share link disabled — URL no longer works',
+      },
+    }),
+  ]);
+}
+
+function generateShareToken(): string {
+  // 16 random bytes = 22 base64url chars. Enough entropy to stay
+  // unguessable; tokens don't need timing-safe verify because we
+  // look them up by value in the DB (no comparison oracle).
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
