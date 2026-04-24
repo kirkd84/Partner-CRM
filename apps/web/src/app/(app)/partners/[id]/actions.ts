@@ -435,6 +435,20 @@ export async function activatePartner(partnerId: string) {
   revalidatePath('/radar');
   revalidatePath('/partners');
 
+  // Kick off a first revenue sync so the partner's financial panel has
+  // something to show the moment activation completes — instead of
+  // waiting up to 6 hours for the cron to pick them up. Fire-and-forget;
+  // failure here must not block activation.
+  try {
+    const { inngest } = await import('@/lib/inngest-client');
+    await inngest.send({
+      name: 'partner-portal/storm-revenue.sync',
+      data: { partnerId },
+    });
+  } catch (err) {
+    console.warn('[activate] failed to enqueue storm-revenue sync', err);
+  }
+
   return { alreadyActivated: false, stormCloudId };
 }
 

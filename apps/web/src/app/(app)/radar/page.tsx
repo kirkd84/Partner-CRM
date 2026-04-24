@@ -4,6 +4,7 @@ import { Card, StatusTile, StatCard, ActivityItem, Avatar } from '@partnerradar/
 import { ORDERED_STAGES, STAGE_COLORS, STAGE_LABELS } from '@partnerradar/types';
 import { tenant } from '@partnerradar/config';
 import { PhoneCall, Coffee, Sparkles, ArrowUpRight, LayoutGrid, Trophy } from 'lucide-react';
+import { FinancialPulse } from './FinancialPulse';
 
 export const dynamic = 'force-dynamic';
 
@@ -154,6 +155,9 @@ export default async function RadarPage() {
             {t.brandName} for {t.legalName} · {t.services.join(' · ').toLowerCase()}
           </p>
         </div>
+
+        {/* Financial pulse — spent MTD / budget / revenue MTD */}
+        <FinancialPulse session={session} />
 
         {/* Pipeline statuses */}
         <section>

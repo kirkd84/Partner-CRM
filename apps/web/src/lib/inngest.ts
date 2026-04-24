@@ -12,5 +12,12 @@
 export { inngest } from './inngest-client';
 import { ping } from './jobs/ping';
 import { googleCalendarSyncOnConnect, googleCalendarSyncCron } from './jobs/google-calendar-sync';
+import { stormRevenueSyncCron, stormRevenueSyncOnDemand } from './jobs/storm-revenue-sync';
 
-export const functions = [ping, googleCalendarSyncOnConnect, googleCalendarSyncCron];
+export const functions = [
+  ping,
+  googleCalendarSyncOnConnect,
+  googleCalendarSyncCron,
+  stormRevenueSyncCron,
+  stormRevenueSyncOnDemand,
+];
