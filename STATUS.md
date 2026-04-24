@@ -4,6 +4,67 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 (pivot — Kirk's second "all night") — ✅ Event Tracking EV-1..4 + Marketing Wizard MW-1
+
+After the Phase 8 automation push, Kirk dropped two new specs
+(SPEC_EVENTS.md, SPEC_MARKETING.md) and said "Pivot time. Do as much
+as you can tonight." One monster commit covers all four early Event
+Tracking phases + the Marketing Wizard foundation.
+
+| Commit  | Scope                                                                                                                |
+| ------- | -------------------------------------------------------------------------------------------------------------------- |
+| 880e064 | EV-1..4 (Events: schema + /events shell + detail + hosts/sub-events + invite queue + batch send + public RSVP + ICS) |
+|         | MW-1 (Marketing Wizard: 12 Mw\* tables + 5 package scaffolds + /studio embedded shell + auto-workspace provision)    |
+
+**Event Tracking — what works end-to-end today:**
+
+- Create an event at `/events` with a primary ticket. Permission-
+  scoped per SPEC §12 (reps see their hosted-or-created events,
+  managers see markets, admins see all).
+- Add dependent ticket types (Dinner, Parking) from the Overview tab.
+- Add hosts with per-ticket consumption — their tickets auto-confirm,
+  eating into capacity immediately.
+- Add sub-events (Setup / Pre-Event / Dinner / Teardown) with
+  invitation-scope options (INTERNAL_ONLY / ALL_CONFIRMED /
+  DEPENDENT_TICKET_HOLDERS / CUSTOM).
+- Queue partners (multi-select with search) + ad-hoc invitees (name
+  - email/phone). Toggle plus-ones per row. Drag to reorder.
+- "Send batch" fires a proximity-aware response window (§2.5) and
+  dispatches email invites via Resend (SMS dry-runs without Twilio).
+- Public `/rsvp/[token]` — no login, mobile-first. Accept, decline,
+  accept-with-changes (partial drop), quick-confirm (cascade stage),
+  cancel with reason. Add-to-calendar buttons for Google + ICS.
+- On decline/cancel/expire, Inngest `event.ticket-released` event
+  fires; cascade worker promotes next QUEUED invite with compressed
+  response window. `event-expire-tick` cron (every 5 min) flips stale
+  SENT → EXPIRED.
+
+**Marketing Wizard — what's there today:**
+
+- 12 `Mw*` tables seeded through auto-migrate, every market gets an
+  auto-provisioned workspace with plan=EMBEDDED.
+- /studio placeholder page (manager+ gate) shows the caller's
+  workspace, member count, brand/design counts, and a roadmap to MW-2
+  (brand training), MW-3 (template catalog), MW-4+ (publish + print).
+- `packages/marketing-{api,ui,engine,templates,billing}` scaffolded
+  with extraction-safe architecture. `MARKETING_MODE=embedded|standalone`
+  env flag is the single switch for the future split.
+
+**Still to ship per EV spec:**
+
+- EV-5 confirmation cascade reminders (T-5d re-confirm → nudge → auto-cancel)
+- EV-6 batch-offer for freed dependent tickets (the parking scenario)
+- EV-7 day-before + arrival details reminders with QR codes
+- EV-8 mobile `/check-in` UI with QR scanner + walk-in add
+- EV-9 analytics (funnel, per-partner history, ROI leaderboard)
+- EV-10 Marketing Wizard integration on events (design-from-event)
+- EV-11 mobile polish + push notifs
+
+**Config:** `QUIET_HOURS_START/END` (defaults 8/20) drives the
+consent module; `MARKETING_MODE` defaults to `embedded`.
+
+---
+
 ## 2026-04-24 (overnight pass) — ✅ Phase 8 automation, reports, compliance
 
 Kirk said "cram as much as you can — I am going home, you have all
