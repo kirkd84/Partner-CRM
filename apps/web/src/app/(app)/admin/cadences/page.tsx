@@ -53,6 +53,42 @@ export default async function AdminCadencesPage() {
     steps: coerceSteps(c.steps),
   }));
 
+  // Pull per-cadence execution stats in one shot. Group by cadenceId
+  // + bucketed outcome so the table can surface "12 scheduled · 8
+  // sent · 2 blocked" per row. Graceful fallback keeps the table
+  // rendering even if CadenceExecution hasn't been migrated yet.
+  type ExecRow = { cadenceId: string; executedAt: Date | null; outcome: string | null };
+  let executions: ExecRow[] = [];
+  try {
+    executions = await prisma.cadenceExecution.findMany({
+      where: { cadenceId: { in: cadences.map((c) => c.id) } },
+      select: { cadenceId: true, executedAt: true, outcome: true },
+    });
+  } catch {
+    executions = [];
+  }
+
+  const statsByCadence = new Map<
+    string,
+    { scheduled: number; sent: number; blocked: number; failed: number; pending: number }
+  >();
+  for (const c of cadences) {
+    statsByCadence.set(c.id, { scheduled: 0, sent: 0, blocked: 0, failed: 0, pending: 0 });
+  }
+  for (const e of executions) {
+    const s = statsByCadence.get(e.cadenceId);
+    if (!s) continue;
+    if (!e.executedAt) {
+      s.scheduled += 1;
+      continue;
+    }
+    const outcome = (e.outcome ?? '').toLowerCase();
+    if (outcome === 'sent' || outcome.startsWith('sent:')) s.sent += 1;
+    else if (outcome.startsWith('blocked')) s.blocked += 1;
+    else if (outcome.startsWith('pending_approval')) s.pending += 1;
+    else s.failed += 1;
+  }
+
   // Template picker source. Pull active + kind so the cadence editor
   // can scope the template dropdown by kind.
   type TemplateRow = {
@@ -114,54 +150,100 @@ export default async function AdminCadencesPage() {
                 <TH>Triggers on</TH>
                 <TH>Steps</TH>
                 <TH>Timeline</TH>
+                <TH>Execution</TH>
                 <TH>Status</TH>
                 <TH className="text-right">Actions</TH>
               </TR>
             </THead>
             <TBody>
-              {cadences.map((c) => (
-                <TR key={c.id}>
-                  <TD>
-                    <span className="font-medium text-gray-900">{c.name}</span>
-                  </TD>
-                  <TD>
-                    <Pill color="#6366f1" tone="soft">
-                      {humanizeStage(c.triggerStage)}
-                    </Pill>
-                  </TD>
-                  <TD>
-                    <span className="text-xs text-gray-700">
-                      {c.steps.length} step{c.steps.length === 1 ? '' : 's'}
-                    </span>
-                  </TD>
-                  <TD>
-                    <span className="text-xs text-gray-600">{summarizeTimeline(c.steps)}</span>
-                  </TD>
-                  <TD>
-                    {c.active ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-green-700">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Active
+              {cadences.map((c) => {
+                const s = statsByCadence.get(c.id) ?? {
+                  scheduled: 0,
+                  sent: 0,
+                  blocked: 0,
+                  failed: 0,
+                  pending: 0,
+                };
+                return (
+                  <TR key={c.id}>
+                    <TD>
+                      <span className="font-medium text-gray-900">{c.name}</span>
+                    </TD>
+                    <TD>
+                      <Pill color="#6366f1" tone="soft">
+                        {humanizeStage(c.triggerStage)}
+                      </Pill>
+                    </TD>
+                    <TD>
+                      <span className="text-xs text-gray-700">
+                        {c.steps.length} step{c.steps.length === 1 ? '' : 's'}
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                        <span className="h-1.5 w-1.5 rounded-full bg-gray-300" /> Archived
-                      </span>
-                    )}
-                  </TD>
-                  <TD className="text-right">
-                    <CadenceRowActions
-                      cadence={{
-                        id: c.id,
-                        name: c.name,
-                        triggerStage: c.triggerStage,
-                        steps: c.steps,
-                        active: c.active,
-                      }}
-                      templates={templates}
-                    />
-                  </TD>
-                </TR>
-              ))}
+                    </TD>
+                    <TD>
+                      <span className="text-xs text-gray-600">{summarizeTimeline(c.steps)}</span>
+                    </TD>
+                    <TD>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {s.scheduled > 0 && (
+                          <Pill color="#0ea5e9" tone="soft" title="Waiting to fire">
+                            {s.scheduled} scheduled
+                          </Pill>
+                        )}
+                        {s.sent > 0 && (
+                          <Pill color="#10b981" tone="soft">
+                            {s.sent} sent
+                          </Pill>
+                        )}
+                        {s.pending > 0 && (
+                          <Pill color="#f59e0b" tone="soft" title="Waiting on approval">
+                            {s.pending} pending
+                          </Pill>
+                        )}
+                        {s.blocked > 0 && (
+                          <Pill
+                            color="#6b7280"
+                            tone="soft"
+                            title="Blocked — consent, quiet hours, or no address"
+                          >
+                            {s.blocked} blocked
+                          </Pill>
+                        )}
+                        {s.failed > 0 && (
+                          <Pill color="#ef4444" tone="soft">
+                            {s.failed} failed
+                          </Pill>
+                        )}
+                        {s.scheduled + s.sent + s.pending + s.blocked + s.failed === 0 && (
+                          <span className="text-[11px] text-gray-400">No runs yet</span>
+                        )}
+                      </div>
+                    </TD>
+                    <TD>
+                      {c.active ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-green-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                          <span className="h-1.5 w-1.5 rounded-full bg-gray-300" /> Archived
+                        </span>
+                      )}
+                    </TD>
+                    <TD className="text-right">
+                      <CadenceRowActions
+                        cadence={{
+                          id: c.id,
+                          name: c.name,
+                          triggerStage: c.triggerStage,
+                          steps: c.steps,
+                          active: c.active,
+                        }}
+                        templates={templates}
+                      />
+                    </TD>
+                  </TR>
+                );
+              })}
             </TBody>
           </Table>
         )}
