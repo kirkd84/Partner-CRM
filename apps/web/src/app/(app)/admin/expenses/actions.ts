@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
+import { notifyExpenseApproved, notifyExpenseRejected } from '@/lib/notifications/expense-emails';
 
 async function assertManagerPlus() {
   const session = await auth();
@@ -41,6 +42,9 @@ export async function approveExpense(expenseId: string) {
   ]);
   revalidatePath('/admin/expenses');
   revalidatePath(`/partners/${expense.partnerId}`);
+
+  // Fire-and-forget approval email to the submitter.
+  await notifyExpenseApproved(expenseId, session.user.name ?? session.user.email ?? 'Your manager');
 }
 
 export async function rejectExpense(expenseId: string, reason: string) {
@@ -75,4 +79,10 @@ export async function rejectExpense(expenseId: string, reason: string) {
   ]);
   revalidatePath('/admin/expenses');
   revalidatePath(`/partners/${expense.partnerId}`);
+
+  await notifyExpenseRejected(
+    expenseId,
+    session.user.name ?? session.user.email ?? 'Your manager',
+    reason.trim(),
+  );
 }

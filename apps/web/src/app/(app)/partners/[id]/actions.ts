@@ -526,7 +526,7 @@ export async function createExpense(
 
   const dbStatus = decision.status === 'AUTO_APPROVED' ? 'AUTO_APPROVED' : 'PENDING';
 
-  await prisma.expense.create({
+  const created = await prisma.expense.create({
     data: {
       partnerId,
       userId: session.user.id,
@@ -536,11 +536,21 @@ export async function createExpense(
       occurredOn: new Date(input.occurredOn),
       approvalStatus: dbStatus,
     },
+    select: { id: true },
   });
 
   revalidatePath(`/partners/${partnerId}`);
   revalidatePath('/admin/expenses');
   revalidatePath('/radar');
+
+  // Email the approver pool so pending expenses don't languish in a
+  // queue no one's watching. Fire-and-forget — this must never block
+  // submission.
+  if (dbStatus === 'PENDING') {
+    const { notifyExpensePending } = await import('@/lib/notifications/expense-emails');
+    await notifyExpensePending(created.id);
+  }
+
   return { ok: true, status: decision.status, reason: decision.reason };
 }
 
