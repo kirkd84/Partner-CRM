@@ -2,8 +2,9 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, DrawerModal } from '@partnerradar/ui';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Sprout, Loader2 } from 'lucide-react';
 import { createMarket, updateMarket, deleteMarket } from './actions';
+import { seedDemoPartners } from './seed-demo';
 
 interface MarketForm {
   id?: string;
@@ -233,19 +234,66 @@ export function MarketRowActions({
     });
   }
 
+  const [seeding, setSeeding] = useState(false);
+  const [seedMsg, setSeedMsg] = useState<string | null>(null);
+
+  function onSeed() {
+    if (seeding) return;
+    const confirmed = confirm(
+      `Seed 50 demo partners into ${market.name}?\n\nThey'll be scattered around the market center with realistic contact data. Tagged publicId=DEMO-* so they're easy to find later.`,
+    );
+    if (!confirmed) return;
+    setSeeding(true);
+    setSeedMsg(null);
+    startTransition(async () => {
+      try {
+        const result = await seedDemoPartners({ marketId: market.id, count: 50 });
+        setSeedMsg(
+          result.inserted > 0
+            ? `Added ${result.inserted} demo partners${result.skipped ? ` (${result.skipped} already existed)` : ''}`
+            : `No new partners added — ${result.skipped} already existed. Change the seed or nuke the DEMO- set first.`,
+        );
+        router.refresh();
+      } catch (err) {
+        setSeedMsg(err instanceof Error ? err.message : 'Seed failed');
+      } finally {
+        setSeeding(false);
+      }
+    });
+  }
+
   return (
-    <div className="flex items-center justify-end gap-1">
-      <MarketDrawerButton initial={market} triggerStyle="ghost" />
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={!canDelete || isPending}
-        title={canDelete ? 'Delete market' : 'Reassign partners / users first'}
-        className="rounded p-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
-        aria-label="Delete market"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center justify-end gap-1">
+        <MarketDrawerButton initial={market} triggerStyle="ghost" />
+        <button
+          type="button"
+          onClick={onSeed}
+          disabled={seeding || isPending}
+          title="Seed 50 demo partners into this market"
+          className="rounded p-1.5 text-gray-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Seed demo partners"
+        >
+          {seeding ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sprout className="h-3.5 w-3.5" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={!canDelete || isPending}
+          title={canDelete ? 'Delete market' : 'Reassign partners / users first'}
+          className="rounded p-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Delete market"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {seedMsg && (
+        <div className="max-w-[260px] text-right text-[11px] text-gray-500">{seedMsg}</div>
+      )}
     </div>
   );
 }
