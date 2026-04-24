@@ -71,61 +71,74 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 p-6">
-      <header>
+    // Outer flex column fills the viewport; inner body scrolls
+    // independently so we're not trapped under the top nav when the
+    // content grows past the fold.
+    <div className="flex h-full flex-col">
+      <header className="border-b border-card-border bg-white px-6 py-4">
         <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
         <p className="text-xs text-gray-500">
           Profile, defaults, and notifications for {user.email}
         </p>
       </header>
 
-      <Card title="Profile">
-        <SettingsForm
-          initial={{
-            name: user.name,
-            avatarColor: user.avatarColor,
-            homeAddress: user.homeAddress ?? '',
-            officeAddress: user.officeAddress ?? '',
-            defaultStart: user.defaultStart,
-            preferredMapApp: user.preferredMapApp,
-            soundEffects: user.soundEffects,
-            notificationPrefs: {
-              taskDue: prefs.taskDue ?? true,
-              stageChange: prefs.stageChange ?? true,
-              activation: prefs.activation ?? true,
-              mentionInComment: prefs.mentionInComment ?? true,
-            },
-          }}
-        />
-      </Card>
+      <div className="flex-1 overflow-y-auto p-6 pb-12">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+          {/* LEFT column — profile-level settings */}
+          <div className="space-y-5">
+            <Card title="Profile">
+              <SettingsForm
+                initial={{
+                  name: user.name,
+                  avatarColor: user.avatarColor,
+                  homeAddress: user.homeAddress ?? '',
+                  officeAddress: user.officeAddress ?? '',
+                  defaultStart: user.defaultStart,
+                  preferredMapApp: user.preferredMapApp,
+                  soundEffects: user.soundEffects,
+                  notificationPrefs: {
+                    taskDue: prefs.taskDue ?? true,
+                    stageChange: prefs.stageChange ?? true,
+                    activation: prefs.activation ?? true,
+                    mentionInComment: prefs.mentionInComment ?? true,
+                  },
+                }}
+              />
+            </Card>
 
-      {user.passwordHash && (
-        <Card title="Password">
-          <PasswordForm />
-        </Card>
-      )}
+            {user.passwordHash && (
+              <Card title="Password">
+                <PasswordForm />
+              </Card>
+            )}
 
-      <Card title="Calendar connections">
-        <p className="mb-3 text-xs text-gray-500">
-          Connect your work calendars so external events show up on /calendar and conflict with new
-          appointments. Tokens are encrypted at rest (AES-256-GCM).
-        </p>
-        <CalendarConnections providers={providers} connections={connections} />
-      </Card>
+            <Card title="Account">
+              <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">
+                <dt className="text-[11px] uppercase tracking-label text-gray-500">Email</dt>
+                <dd className="text-gray-900">{user.email}</dd>
+                <dt className="text-[11px] uppercase tracking-label text-gray-500">Role</dt>
+                <dd className="text-gray-900">{user.role}</dd>
+                <dt className="text-[11px] uppercase tracking-label text-gray-500">User ID</dt>
+                <dd className="font-mono text-xs text-gray-500">{user.id}</dd>
+              </dl>
+              <p className="mt-3 text-[11px] text-gray-400">
+                To change your email or role, ask an admin.
+              </p>
+            </Card>
+          </div>
 
-      <Card title="Account">
-        <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">
-          <dt className="text-[11px] uppercase tracking-label text-gray-500">Email</dt>
-          <dd className="text-gray-900">{user.email}</dd>
-          <dt className="text-[11px] uppercase tracking-label text-gray-500">Role</dt>
-          <dd className="text-gray-900">{user.role}</dd>
-          <dt className="text-[11px] uppercase tracking-label text-gray-500">User ID</dt>
-          <dd className="font-mono text-xs text-gray-500">{user.id}</dd>
-        </dl>
-        <p className="mt-3 text-[11px] text-gray-400">
-          To change your email or role, ask an admin.
-        </p>
-      </Card>
+          {/* RIGHT column — integrations (calendar now, more to come) */}
+          <div className="space-y-5 lg:sticky lg:top-4 lg:self-start">
+            <Card title="Calendar connections">
+              <p className="mb-3 text-xs text-gray-500">
+                Connect your work calendars so external events show up on /calendar and conflict
+                with new appointments. Tokens are encrypted at rest (AES-256-GCM).
+              </p>
+              <CalendarConnections providers={providers} connections={connections} />
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
