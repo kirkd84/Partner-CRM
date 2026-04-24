@@ -28,12 +28,16 @@ const SUGGESTIONS: Record<ContentType, string[]> = {
   FLYER: [
     'Flyer for realtors showing our same-day roof inspection service',
     "Supporting Your Client's Property — for property managers",
-    'Storm damage assessment flyer, emphasize free 24-hour response',
+    'Storm damage flyer with before / after photos',
+    'Recent projects showcase grid for prospects',
+    'Customer testimonial flyer featuring a five-star review',
   ],
   SOCIAL_POST: [
     'Monday motivation quote from our owner about integrity',
     'Announce a fall roof-check special, 20% off through October',
-    'Celebrate our 5-star Google reviews — testimonial post',
+    'Event teaser for our suite night at Coors Field on April 24',
+    'Behind the scenes — meet our project supervisors',
+    'Before / after square showing a hail-damage repair',
   ],
   BUSINESS_CARD: [
     'Business card for Sarah Jenkins, Senior Claims Specialist',

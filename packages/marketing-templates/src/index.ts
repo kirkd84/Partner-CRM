@@ -38,16 +38,28 @@ import type { TemplateModule, ContentType } from './types';
 import { heroPhotoOverlay } from './catalog/flyers/hero-photo-overlay';
 import { typographyForward } from './catalog/flyers/typography-forward';
 import { splitLayoutPhoto } from './catalog/flyers/split-layout-photo';
+import { photoGrid } from './catalog/flyers/photo-grid';
+import { beforeAfter } from './catalog/flyers/before-after';
+import { testimonialFeatured } from './catalog/flyers/testimonial-featured';
 import { quoteCard } from './catalog/social/quote-card';
 import { serviceHighlight } from './catalog/social/service-highlight';
+import { eventTeaser } from './catalog/social/event-teaser';
+import { beforeAfterSquare } from './catalog/social/before-after-square';
+import { behindTheScenes } from './catalog/social/behind-the-scenes';
 import { classicHorizontal } from './catalog/business-cards/classic-horizontal';
 
 const modules: TemplateModule[] = [
   heroPhotoOverlay,
   typographyForward,
   splitLayoutPhoto,
+  photoGrid,
+  beforeAfter,
+  testimonialFeatured,
   quoteCard,
   serviceHighlight,
+  eventTeaser,
+  beforeAfterSquare,
+  behindTheScenes,
   classicHorizontal,
 ];
 

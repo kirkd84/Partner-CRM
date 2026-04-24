@@ -4,6 +4,44 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #11 — ✅ MW-3 expansion (6 more templates + smarter director)
+
+Catalog grows from 6 → 12. Director now scores templates by keyword
+overlap, not just tone, so the new templates actually get picked when
+the prompt mentions their themes.
+
+**New templates:**
+
+- `flyer-photo-grid` — 2×2 photo grid with banded headline. Falls back
+  to alternating accent panels with "Photo N" labels when no photos
+  are provided, so it never looks broken.
+- `flyer-before-after` — split before/after photos divided by a brand
+  seam, with corner badges and an accent footer.
+- `flyer-testimonial-featured` — oversized quote, attribution row with
+  optional customer photo, accent footer.
+- `social-event-teaser` — square card with a date stamp block, event
+  name, venue, and time. Pairs cleanly with EV-10 when the event
+  integration lands.
+- `social-before-after` — Instagram-friendly square version of the
+  before/after, with banded headline below.
+- `social-behind-the-scenes` — photo column + caption panel. Aimed at
+  team intros and day-in-the-life posts.
+
+**Director improvements** (`pipeline/director.ts`):
+
+- New `keywordMoodTags(purpose)` reads the raw prompt and adds extra
+  mood tags before scoring (transformation, testimonial, event, team,
+  portfolio, offer, urgent, celebration, etc.).
+- Templates are now scored by mood-tag overlap; the highest-scoring
+  candidate wins. Falls back to first candidate when nothing matches.
+
+**UX:**
+
+- `/studio/new` suggestion chips updated to advertise the new variety
+  (event teaser, project showcase, before/after, testimonial).
+
+---
+
 ## 2026-04-24 pass #10 — ✅ MW-3 core (template catalog + generation pipeline + mobile-first Studio UI)
 
 Lays the whole MW-3 stack end-to-end so a manager+ can type a prompt

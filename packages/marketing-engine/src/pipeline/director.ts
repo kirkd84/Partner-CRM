@@ -53,10 +53,17 @@ export function directViaRules(
   intent: DesignIntent,
   brand: BrandProfile,
 ): DirectorOutput {
-  const moodHints = toneToMoodTags(intent.tone);
-  const template =
-    candidates.find((t) => t.manifest.moodTags.some((m) => moodHints.includes(m))) ??
-    candidates[0]!;
+  // Pull mood hints from both the explicit tone AND the prompt body so
+  // picking is grounded in what the user actually wrote, not just the
+  // tone classifier. We pick the candidate with the highest overlap.
+  const moodHints = [...toneToMoodTags(intent.tone), ...keywordMoodTags(intent.purpose)];
+  const scored = candidates
+    .map((t) => ({
+      template: t,
+      score: t.manifest.moodTags.reduce((acc, tag) => acc + (moodHints.includes(tag) ? 1 : 0), 0),
+    }))
+    .sort((a, b) => b.score - a.score);
+  const template = scored[0]?.score && scored[0].score > 0 ? scored[0].template : candidates[0]!;
 
   const copy = composeCopy(intent, brand);
 
@@ -109,6 +116,33 @@ function toneToMoodTags(tone: DesignIntent['tone']): string[] {
     default:
       return ['professional'];
   }
+}
+
+/**
+ * Pull broad mood/category hints from the raw prompt. Conservative —
+ * only matches obvious keywords, otherwise the director falls back to
+ * the tone-derived tags or the first candidate.
+ */
+function keywordMoodTags(purpose: string): string[] {
+  const out: string[] = [];
+  const p = purpose.toLowerCase();
+  if (/\bbefore\b.*\bafter\b|transformation|repair|restore|renovat/.test(p))
+    out.push('transformation', 'showcase', 'results');
+  if (/testimonial|review|quote|client said|five[- ]star/.test(p))
+    out.push('testimonial', 'trust', 'quote');
+  if (/event|invite|invitation|suite|party|gala|dinner/.test(p))
+    out.push('event', 'invite', 'announcement');
+  if (/team|crew|staff|meet the|behind the scenes|day in the life/.test(p))
+    out.push('team', 'lifestyle', 'authentic');
+  if (/portfolio|project|showcase|recent work|gallery|grid/.test(p))
+    out.push('showcase', 'gallery', 'portfolio');
+  if (/special|sale|offer|promo|discount|limited/.test(p))
+    out.push('offer', 'announcement', 'urgent');
+  if (/24[- ]hour|same[- ]day|emergency|now|immediate/.test(p)) out.push('urgent', 'announcement');
+  if (/celebrate|anniversary|milestone|launch|grand opening/.test(p))
+    out.push('celebration', 'announcement', 'social');
+  if (/professional|trust|reliable|dependable/.test(p)) out.push('professional', 'trust');
+  return out;
 }
 
 function composeCopy(intent: DesignIntent, brand: BrandProfile) {
