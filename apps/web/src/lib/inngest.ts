@@ -16,6 +16,7 @@ import { stormRevenueSyncCron, stormRevenueSyncOnDemand } from './jobs/storm-rev
 import { cadenceEnrollOnStageChange, cadenceDispatchCron } from './jobs/cadence-worker';
 import { eventTicketReleased, eventExpireTick } from './jobs/event-cascade';
 import { eventReminderTick } from './jobs/event-reminders';
+import { eventAttendancePostmortem } from './jobs/event-attendance';
 
 export const functions = [
   ping,
@@ -28,4 +29,5 @@ export const functions = [
   eventTicketReleased,
   eventExpireTick,
   eventReminderTick,
+  eventAttendancePostmortem,
 ];

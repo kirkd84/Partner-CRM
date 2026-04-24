@@ -240,6 +240,36 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       label: 'add Partner.waitlistPriority',
       sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "waitlistPriority" INTEGER`,
     },
+    // EV-8: Partner reliability stats populated by the post-event
+    // postmortem. Null until first event; kept as FLOAT (nullable) so
+    // queries that sort on them can put nulls last via ORDER BY.
+    {
+      label: 'add Partner.eventAcceptanceRate',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "eventAcceptanceRate" DOUBLE PRECISION`,
+    },
+    {
+      label: 'add Partner.eventShowRate',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "eventShowRate" DOUBLE PRECISION`,
+    },
+    {
+      label: 'add Partner.reliabilityScore',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "reliabilityScore" DOUBLE PRECISION`,
+    },
+    // EV-8: extend ActivityType with post-event outcomes.
+    {
+      label: 'ActivityType +EVENT_ATTENDED/NO_SHOW/WALKED_IN',
+      sql: `
+        DO $$ BEGIN
+          ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_ATTENDED';
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        DO $$ BEGIN
+          ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_NO_SHOW';
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+        DO $$ BEGIN
+          ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_WALKED_IN';
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `,
+    },
 
     // ═══════════════════════════════════════════════════════════════════
     // EVENT TRACKING TABLES — see SPEC_EVENTS.md

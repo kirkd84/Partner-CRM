@@ -4,6 +4,53 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #5 — ✅ EV-8 (mobile check-in UI + attendance postmortem)
+
+**New surface:**
+
+- `/events/[id]/check-in` mobile-first host page. Sticky header shows
+  `X/Y` primary-ticket check-in count in real time. Three modes:
+  - **List** — searchable attendee cards with per-ticket tap-to-
+    check-in buttons + big primary check-in button.
+  - **Scan** — fullscreen `html5-qrcode` camera viewfinder. On decode,
+    verifies the HMAC ticket token server-side and marks the
+    assignment checkedIn. Debounced repeat scans; graceful fallback
+    when camera is denied.
+  - **Walk-in** — bottom-sheet drawer: name + optional email/phone +
+    ticket selector + soft capacity check with override checkbox.
+    Creates an AD_HOC EvInvite with status CONFIRMED and immediately
+    marks every assignment checked in.
+- `check-in-actions.ts` server actions: `scanCheckIn`, `manualCheckIn`,
+  `walkInAdd`, `undoCheckIn`. Auth matches event detail permissions.
+  Idempotent — re-scanning a checked-in ticket returns `already`.
+- `EventHeaderActions` now shows a prominent "Check-in" pill for
+  anyone who can edit the event.
+- `html5-qrcode@^2.3.8` added; dynamically imported in the client so
+  hosts who never scan don't pay the bundle cost.
+- `lib/jobs/event-attendance.ts` — new Inngest cron (10m) that:
+  - Picks up events that ended >24h ago and aren't yet COMPLETED.
+  - Marks CONFIRMED invites without a primary check-in as NO_SHOW.
+  - Logs Partner `Activity` rows (EVENT_ATTENDED, EVENT_NO_SHOW,
+    EVENT_WALKED_IN) keyed to eventId in metadata so we never
+    double-log.
+  - Recomputes Partner reliability: 90-day
+    `eventAcceptanceRate`, `eventShowRate`, composite
+    `reliabilityScore`.
+  - Emails host + creator a plain-English attendance summary.
+  - Flips event status to COMPLETED so it never re-reconciles.
+- Schema: Partner now carries `eventAcceptanceRate`, `eventShowRate`,
+  `reliabilityScore` (all nullable floats); ActivityType enum gains
+  `EVENT_ATTENDED`, `EVENT_NO_SHOW`, `EVENT_WALKED_IN`. Mirrored in
+  auto-migrate DDL via `ALTER TYPE ... ADD VALUE IF NOT EXISTS`.
+
+**Remaining on the Event Tracking spec:**
+
+- EV-9 analytics + per-partner history dashboards
+- EV-10 Marketing Wizard integration on events
+- EV-11 mobile polish + push notifs
+
+---
+
 ## 2026-04-24 pass #4 — ✅ EV-7 (day-before + arrival reminders with QR codes)
 
 EV-7 layered on top of EV-5's reminder scheduler. The DAY_BEFORE and

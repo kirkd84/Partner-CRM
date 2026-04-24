@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Button } from '@partnerradar/ui';
-import { XCircle } from 'lucide-react';
+import { XCircle, QrCode } from 'lucide-react';
 import { cancelEvent } from '../actions';
 
 export function EventHeaderActions({
@@ -21,7 +22,12 @@ export function EventHeaderActions({
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  if (!canEdit || canceled) return null;
+  if (!canEdit || canceled) {
+    // Hosts still see the check-in link even on canceled events so
+    // they can retroactively fix attendance; but let's hide on
+    // canceled for now to keep it simple.
+    return null;
+  }
 
   function onCancel() {
     if (!reason.trim()) {
@@ -41,7 +47,13 @@ export function EventHeaderActions({
   }
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-2">
+      <Link
+        href={`/events/${eventId}/check-in`}
+        className="flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-900 transition hover:border-indigo-300 hover:bg-indigo-100"
+      >
+        <QrCode className="h-3.5 w-3.5" /> Check-in
+      </Link>
       <button
         type="button"
         onClick={() => setShowConfirm((v) => !v)}

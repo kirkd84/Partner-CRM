@@ -167,6 +167,12 @@ model Partner {
   autoWaitlistEligible Boolean             @default(false)
   waitlistPriority     Int?
   evInvites            EvInvite[]
+  // Reliability stats updated by the post-event attendance postmortem.
+  // All three are moving averages over the last N events; null until
+  // the partner has attended (or no-showed) anything.
+  eventAcceptanceRate  Float?              // % of invites accepted/confirmed
+  eventShowRate        Float?              // % of confirmed that attended
+  reliabilityScore     Float?              // composite 0..100 for sorting the auto-waitlist
 
   @@index([marketId, stage])
   @@index([assignedRepId])
@@ -279,6 +285,9 @@ enum ActivityType {
   ACTIVATION
   ASSIGNMENT
   CLAIM
+  EVENT_ATTENDED
+  EVENT_NO_SHOW
+  EVENT_WALKED_IN
 }
 
 model Task {
