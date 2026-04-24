@@ -122,6 +122,28 @@ body {
   .hover\:bg-green-50:hover { background-color: rgb(5 150 105 / 0.3) !important; }
   .hover\:bg-purple-100:hover { background-color: rgb(124 58 237 / 0.3) !important; }
 
+  /* Tailwind variant selectors that the simple .bg-* / .hover:bg-* flips
+     above don't catch. The shared <TR>/<TD>/<TH> components in
+     packages/ui use these for the sticky first column + table row hover.
+     Without these flips you get white-on-white in any tabular view
+     (Markets, Referral Partners, Reliability, etc.). */
+  .first\:bg-white:first-child { background-color: #111827 !important; }
+  .first\:bg-gray-50:first-child { background-color: #0f172a !important; }
+  .hover\:bg-gray-50\/70:hover { background-color: rgb(31 41 55 / 0.7) !important; }
+  .hover\:bg-gray-50\/40:hover { background-color: rgb(31 41 55 / 0.4) !important; }
+
+  /* Solid white "panels" inside content blocks — these were missing and
+     showed up as the bright white inner cards in dark mode. */
+  .bg-white\/80 { background-color: rgb(17 24 39 / 0.8) !important; }
+  .bg-white\/60 { background-color: rgb(17 24 39 / 0.6) !important; }
+
+  /* Some inputs / pills use bg-gray-200 or bg-gray-300 for fill states. */
+  .bg-gray-200 { background-color: #1f2937 !important; }
+  .bg-gray-300 { background-color: #374151 !important; }
+
+  /* Disabled buttons inside dark surfaces look weak when bg-white. */
+  button:disabled.bg-white { background-color: #0f172a !important; color: #6b7280 !important; }
+
   /* Ring tweaks so the primary focus ring still reads on dark */
   .ring-inset.ring-emerald-100 { --tw-ring-color: rgb(5 150 105 / 0.3) !important; }
 

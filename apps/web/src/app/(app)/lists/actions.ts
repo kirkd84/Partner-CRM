@@ -328,6 +328,104 @@ export async function optimizeHitList(
   };
 }
 
+/**
+ * Phase 4.4 (lasso): create a Hit List in one shot from a list of
+ * partner IDs — used by the Map's lasso flow so the rep can drop
+ * 25 partners into a list with one tap. Idempotent on (userId, date)
+ * so re-lassoing on the same day adds to the existing list rather
+ * than failing.
+ */
+export async function createHitListWithStops(input: {
+  marketId: string;
+  date: string; // YYYY-MM-DD
+  startAddress?: string;
+  startLat?: number;
+  startLng?: number;
+  startMode?: RouteStartMode;
+  partnerIds: string[];
+}): Promise<{ id: string; added: number; skipped: number }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  if (!session.user.markets.includes(input.marketId)) throw new Error('FORBIDDEN: market');
+  if (!input.date) throw new Error('Date required');
+  if (input.partnerIds.length === 0) throw new Error('Select at least one partner');
+
+  const parts = input.date.split('-').map((n) => parseInt(n, 10));
+  const [y, m, d] = parts;
+  if (!y || !m || !d) throw new Error('Invalid date');
+  const dateUtc = new Date(Date.UTC(y, m - 1, d));
+
+  // Find or create the day's list. Reuse so the unique (userId, date)
+  // index doesn't bite, and so a rep can lasso multiple territories
+  // and they aggregate.
+  let list = await prisma.hitList.findUnique({
+    where: { userId_date: { userId: session.user.id, date: dateUtc } },
+  });
+  if (!list) {
+    list = await prisma.hitList.create({
+      data: {
+        userId: session.user.id,
+        marketId: input.marketId,
+        date: dateUtc,
+        startAddress: input.startAddress?.trim() || 'Office',
+        startLat: input.startLat ?? 0,
+        startLng: input.startLng ?? 0,
+        startMode: input.startMode ?? 'OFFICE',
+      },
+    });
+  } else if (list.marketId !== input.marketId) {
+    throw new Error('A list for that date already exists in another market.');
+  }
+
+  // Validate partners belong to this market and are not archived.
+  const partners = await prisma.partner.findMany({
+    where: {
+      id: { in: input.partnerIds },
+      marketId: input.marketId,
+      archivedAt: null,
+    },
+    select: { id: true },
+  });
+  const validIds = new Set(partners.map((p) => p.id));
+
+  const existingStops = await prisma.hitListStop.findMany({
+    where: { hitListId: list.id, partnerId: { in: [...validIds] } },
+    select: { partnerId: true },
+  });
+  const alreadyOnList = new Set(existingStops.map((s) => s.partnerId));
+
+  const maxOrder = await prisma.hitListStop.aggregate({
+    where: { hitListId: list.id },
+    _max: { order: true },
+  });
+  let nextOrder = (maxOrder._max.order ?? -1) + 1;
+  const baseTime = list.date.getTime();
+
+  let added = 0;
+  for (const id of input.partnerIds) {
+    if (!validIds.has(id) || alreadyOnList.has(id)) continue;
+    await prisma.hitListStop.create({
+      data: {
+        hitListId: list.id,
+        partnerId: id,
+        order: nextOrder,
+        plannedArrival: new Date(baseTime + nextOrder * 30 * 60_000),
+        plannedDurationMin: DEFAULT_DURATION_MIN,
+      },
+    });
+    nextOrder++;
+    added++;
+  }
+
+  revalidatePath('/lists');
+  revalidatePath(`/lists/${list.id}`);
+  return {
+    id: list.id,
+    added,
+    skipped: input.partnerIds.length - added,
+  };
+}
+
 function defaultStartedAt(listDate: Date): string {
   // Use 8am Mountain on the list date as the rep's nominal start.
   const d = new Date(listDate);

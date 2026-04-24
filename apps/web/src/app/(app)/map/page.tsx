@@ -65,7 +65,8 @@ export default async function MapPage() {
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Map</h1>
           <p className="text-xs text-gray-500">
-            Partners colored by stage. Draw a lasso to see existing + prospective partners in a territory (Phase 4.4).
+            Partners colored by stage. Click <strong>Lasso a territory</strong> to draw a polygon
+            and turn it into today&apos;s hit list.
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -86,10 +87,14 @@ export default async function MapPage() {
           <div className="flex-1 text-sm">
             <div className="font-semibold text-amber-900">Google Maps key not configured</div>
             <div className="mt-0.5 text-xs text-amber-800">
-              The map is rendering as a list until the <code>GOOGLE_MAPS_API_KEY</code> env var is set on Railway. Enable the Maps JavaScript, Drawing, Places, and Directions APIs when you issue the key.
+              The map is rendering as a list until the <code>GOOGLE_MAPS_API_KEY</code> env var is
+              set on Railway. Enable the Maps JavaScript, Drawing, Places, and Directions APIs when
+              you issue the key.
               {isAdmin && (
-                <span className="block mt-1">
-                  Go to Railway → Variables → add <code>GOOGLE_MAPS_API_KEY</code>, redeploy. The rest of Phase 4 (lasso, prospect pins, deep-link routing) lights up once the key is in place.
+                <span className="mt-1 block">
+                  Go to Railway → Variables → add <code>GOOGLE_MAPS_API_KEY</code>, redeploy. The
+                  rest of Phase 4 (lasso, prospect pins, deep-link routing) lights up once the key
+                  is in place.
                 </span>
               )}
             </div>
@@ -102,6 +107,7 @@ export default async function MapPage() {
           <MapView
             apiKey={apiKey}
             defaultCenter={defaultCenter}
+            marketId={markets[0]?.id ?? null}
             partners={withCoords.map((p) => ({
               id: p.id,
               publicId: p.publicId,
@@ -159,7 +165,7 @@ function FallbackPinList({
         {partners.map((p) => (
           <li key={p.id} className="flex items-start gap-3 py-2">
             <MapPin className="mt-0.5 h-4 w-4 text-gray-400" />
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Link
                   href={`/partners/${p.id}`}
@@ -172,7 +178,7 @@ function FallbackPinList({
                   {STAGE_LABELS[p.stage]}
                 </Pill>
               </div>
-              <div className="text-[11px] text-gray-500 truncate">
+              <div className="truncate text-[11px] text-gray-500">
                 {PARTNER_TYPE_LABELS[p.partnerType]}
                 {p.address ? ` · ${p.address}` : ' · Address unknown'}
               </div>
