@@ -30,7 +30,9 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
   const [startTime, setStartTime] = useState<string>('19:00');
   const [endDate, setEndDate] = useState<string>(defaultDate());
   const [endTime, setEndTime] = useState<string>('22:00');
-  const [visibility, setVisibility] = useState<'PRIVATE' | 'MARKET_WIDE' | 'HOST_ONLY'>('PRIVATE');
+  const [visibility, setVisibility] = useState<'PRIVATE' | 'MARKET_WIDE' | 'HOST_ONLY'>(
+    'MARKET_WIDE',
+  );
   const [primaryTicketName, setPrimaryTicketName] = useState('General Admission');
   // Blank by default — Kirk fills in capacity per-event. An empty string keeps
   // the input placeholder visible instead of a misleading pre-populated number.
@@ -52,7 +54,7 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
     setStartTime('19:00');
     setEndDate(today);
     setEndTime('22:00');
-    setVisibility('PRIVATE');
+    setVisibility('MARKET_WIDE');
     setPrimaryTicketName('General Admission');
     setPrimaryTicketCapacity('');
     setError(null);
@@ -165,48 +167,47 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
             )}
           </Field>
 
-          {/* Split date + time avoids the chunky Chrome datetime-local
-              widget that pops a clock + scrolling hour/minute/AMPM column.
-              Native date + time pickers separately render as a tight
-              calendar and a simple HH:MM field. */}
+          {/* Date + time on separate rows so the time picker doesn't
+              get squished next to the date picker. Date is wide, time
+              gets its own full-width row under it. */}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Starts" required>
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    if (!endDate || new Date(endDate) < new Date(e.target.value))
-                      setEndDate(e.target.value);
-                  }}
-                  className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  step={300}
-                  className="w-28 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-              </div>
+            <Field label="Start date" required>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (!endDate || new Date(endDate) < new Date(e.target.value))
+                    setEndDate(e.target.value);
+                }}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
             </Field>
-            <Field label="Ends" required>
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="min-w-0 flex-1 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  step={300}
-                  className="w-28 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-              </div>
+            <Field label="Start time" required>
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                step={300}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+            <Field label="End date" required>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </Field>
+            <Field label="End time" required>
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                step={300}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
             </Field>
           </div>
 
@@ -269,13 +270,13 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
               }
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             >
-              <option value="PRIVATE">Private — market managers + hosts</option>
               <option value="MARKET_WIDE">Market-wide — any rep in this market can see it</option>
-              <option value="HOST_ONLY">Host-only — just you and assigned hosts (+ admins)</option>
+              <option value="HOST_ONLY">Host and managers only</option>
+              <option value="PRIVATE">Private — market managers and admins</option>
             </select>
             <p className="mt-1 text-[11px] text-gray-500">
-              Host-only hides the event from coworkers who aren't assigned. Admins still see
-              everything for oversight.
+              Host-and-managers: your assigned hosts plus market managers and admins see it.
+              Private: only market managers and admins — not even hosts.
             </p>
           </Field>
 

@@ -54,20 +54,29 @@ export default async function EventDetailPage({
     ? (sp.tab as TabId)
     : 'overview';
 
-  const event = await prisma.evEvent.findUnique({
-    where: { id },
-    include: {
-      market: { select: { id: true, name: true, timezone: true } },
-      ticketTypes: { orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }] },
-      hosts: {
-        include: { user: { select: { id: true, name: true, avatarColor: true, role: true } } },
+  const event = await prisma.evEvent
+    .findUnique({
+      where: { id },
+      include: {
+        market: { select: { id: true, name: true, timezone: true } },
+        ticketTypes: { orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }] },
+        hosts: {
+          include: { user: { select: { id: true, name: true, avatarColor: true, role: true } } },
+        },
+        subEvents: { orderBy: { startsAt: 'asc' } },
+        _count: {
+          select: { invites: true, hosts: true, subEvents: true },
+        },
       },
-      subEvents: { orderBy: { startsAt: 'asc' } },
-      _count: {
-        select: { invites: true, hosts: true, subEvents: true },
-      },
-    },
-  });
+    })
+    .catch((err) => {
+      // If the include fans out into a drift'd table (old Prisma client
+      // vs fresh-migrated DB, typical during a Railway redeploy),
+      // treat as not-found so the user lands on /events instead of
+      // seeing a masked 500.
+      console.warn('[event-detail] event fetch failed', err);
+      return null;
+    });
   if (!event) notFound();
 
   const markets = session.user.markets ?? [];
@@ -75,14 +84,18 @@ export default async function EventDetailPage({
   if (role !== 'ADMIN' && !markets.includes(event.marketId)) redirect('/events');
   const isCreator = event.createdBy === session.user.id;
   const isHost = event.hosts.some((h) => h.userId === session.user.id);
+  // Visibility gate:
+  //   MARKET_WIDE: any rep/manager/admin in the market sees it.
+  //   HOST_ONLY:   admins + managers + creator + hosts.
+  //   PRIVATE:     admins + managers + creator (hosts blocked).
   if (role === 'REP') {
-    if (!isCreator && !isHost) redirect('/events');
-  }
-  // HOST_ONLY tightens visibility past the market boundary — even
-  // managers in the same market need to be the creator or a host.
-  // Admins still see everything (oversight).
-  if (role !== 'ADMIN' && event.visibility === 'HOST_ONLY' && !isCreator && !isHost) {
-    redirect('/events');
+    if (event.visibility === 'MARKET_WIDE') {
+      // open — no extra check
+    } else if (event.visibility === 'HOST_ONLY') {
+      if (!isCreator && !isHost) redirect('/events');
+    } else if (event.visibility === 'PRIVATE') {
+      if (!isCreator) redirect('/events');
+    }
   }
 
   const canEdit =
@@ -105,12 +118,25 @@ export default async function EventDetailPage({
     .reduce((a, b) => a + (b._sum.quantity ?? 0), 0);
   const availableCount = primary ? Math.max(0, primary.capacity - taken) : 0;
 
-  // Reps available in market (for hosts tab).
-  const reps = await prisma.user.findMany({
-    where: { active: true, markets: { some: { marketId: event.marketId } } },
-    select: { id: true, name: true, email: true, avatarColor: true, role: true },
-    orderBy: { name: 'asc' },
-  });
+  // Reps available in market (for hosts tab). Wrapped — if UserMarket
+  // query hiccups (schema drift, deploy-in-flight), the page should
+  // still render with the hosts tab empty rather than 500 outright.
+  const reps = await prisma.user
+    .findMany({
+      where: { active: true, markets: { some: { marketId: event.marketId } } },
+      select: { id: true, name: true, email: true, avatarColor: true, role: true },
+      orderBy: { name: 'asc' },
+    })
+    .catch((err) => {
+      console.warn('[event-detail] reps query failed', err);
+      return [] as Array<{
+        id: string;
+        name: string;
+        email: string;
+        avatarColor: string;
+        role: string;
+      }>;
+    });
 
   // Batch-offer history for the Overview card. Keep it to recent 25 so
   // the row count stays sane on events with heavy cascade activity.

@@ -39,32 +39,35 @@ export default async function EventsPage({
 
   // Scope:
   //   Admin  → everything
-  //   Manager → in-market, except HOST_ONLY events they aren't on
-  //   Rep    → in-market AND (creator OR host) — unchanged
+  //   Manager → in-market, all visibility tiers (market-wide, host-only,
+  //             private) — managers always see their market
+  //   Rep    → in-market AND:
+  //              • visibility=MARKET_WIDE: always OK
+  //              • visibility=HOST_ONLY: only if creator or host
+  //              • visibility=PRIVATE: only if creator (hosts blocked —
+  //                PRIVATE means managers + admins only)
   //
-  // HOST_ONLY is an extra tightening on top of market visibility:
-  // even managers lose access unless they're the creator or a host,
-  // which lets a rep run an event without their manager seeing it.
+  // The per-rep query just fetches what any in-market rep could see,
+  // i.e. MARKET_WIDE + events they're on. Managers see extra tiers.
   const marketScope =
     role === 'ADMIN' ? {} : { marketId: { in: markets.length > 0 ? markets : ['__none__'] } };
   const repScope =
     role === 'REP'
       ? {
-          OR: [{ createdBy: userId }, { hosts: { some: { userId } } }],
+          OR: [
+            // MARKET_WIDE events — open to the whole market.
+            { visibility: 'MARKET_WIDE' as const },
+            // HOST_ONLY events — only if rep is creator or host.
+            {
+              visibility: 'HOST_ONLY' as const,
+              OR: [{ createdBy: userId }, { hosts: { some: { userId } } }],
+            },
+            // PRIVATE events — only if rep is the creator (hosts still blocked).
+            { visibility: 'PRIVATE' as const, createdBy: userId },
+          ],
         }
       : {};
-  const visibilityScope =
-    role === 'ADMIN'
-      ? {}
-      : role === 'MANAGER'
-        ? {
-            OR: [
-              { visibility: { not: 'HOST_ONLY' as const } },
-              { createdBy: userId },
-              { hosts: { some: { userId } } },
-            ],
-          }
-        : {}; // REPs already get the repScope filter, which is stricter.
+  const visibilityScope = {}; // Managers get no extra filter — they see everything in their market.
 
   const now = new Date();
 

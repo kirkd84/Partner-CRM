@@ -230,9 +230,9 @@ export function OverviewTab({
                   onChange={(e) => setVisibility(e.target.value as typeof visibility)}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                 >
-                  <option value="PRIVATE">Private</option>
                   <option value="MARKET_WIDE">Market-wide</option>
-                  <option value="HOST_ONLY">Host-only</option>
+                  <option value="HOST_ONLY">Host and managers only</option>
+                  <option value="PRIVATE">Private (managers + admins)</option>
                 </select>
               </Field>
               <Field label="Default plus-ones">
