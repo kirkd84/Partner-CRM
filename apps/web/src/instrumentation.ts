@@ -275,18 +275,26 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS "EvEvent_shareToken_key" ON "EvEvent"("shareToken") WHERE "shareToken" IS NOT NULL`,
     },
     // EV-8: extend ActivityType with post-event outcomes.
+    // Single DO block — Prisma's $executeRawUnsafe runs as a prepared
+    // statement which forbids multiple commands separated by `;`.
+    // Nested BEGIN/EXCEPTION blocks let each ALTER fail independently.
     {
       label: 'ActivityType +EVENT_ATTENDED/NO_SHOW/WALKED_IN',
       sql: `
         DO $$ BEGIN
-          ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_ATTENDED';
-        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-        DO $$ BEGIN
-          ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_NO_SHOW';
-        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-        DO $$ BEGIN
-          ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_WALKED_IN';
-        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          BEGIN
+            ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_ATTENDED';
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END;
+          BEGIN
+            ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_NO_SHOW';
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END;
+          BEGIN
+            ALTER TYPE "ActivityType" ADD VALUE IF NOT EXISTS 'EVENT_WALKED_IN';
+          EXCEPTION WHEN duplicate_object THEN NULL;
+          END;
+        END $$;
       `,
     },
 
@@ -1529,9 +1537,17 @@ function mwEnumStatements(): Array<{ label: string; sql: string }> {
  * separately when it happens.
  */
 function buildEnumDDL(name: string, values: string[]): string {
+  // `CREATE TYPE "Name"` (quoted) preserves case in pg_type.typname.
+  // The guard compares case-insensitively so it matches regardless of
+  // whether the type was created via this function or via a Prisma
+  // migration. Before this fix we lowercased the needle but the stored
+  // typname was case-preserved, so every boot ran CREATE and errored
+  // with `type "Name" already exists` — harmless but log-noisy and it
+  // poisoned connection state on Railway.
+  const needle = name.toLowerCase();
   return `
     DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '${name.toLowerCase()}') THEN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE LOWER(typname) = '${needle}') THEN
         CREATE TYPE "${name}" AS ENUM (${values.map((v) => `'${v}'`).join(', ')});
       END IF;
     END $$;

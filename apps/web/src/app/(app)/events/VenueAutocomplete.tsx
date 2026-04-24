@@ -49,6 +49,10 @@ export function VenueAutocomplete({ valueName, valueAddress, onChange }: Props) 
   const [focus, setFocus] = useState<Focus>(null);
   const [loading, setLoading] = useState(false);
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
+  // When Google returns a non-200 we surface the reason so Kirk can tell
+  // whether it's "Places API (New) not enabled", a key restriction, or
+  // a quota/referrer problem — instead of a silently-empty dropdown.
+  const [upstreamError, setUpstreamError] = useState<string | null>(null);
   const sessionTokenRef = useRef<string>(crypto.randomUUID());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -91,14 +95,43 @@ export function VenueAutocomplete({ valueName, valueAddress, onChange }: Props) 
       const data = (await res.json()) as {
         ok: boolean;
         reason?: string;
+        status?: number;
+        detail?: string;
         suggestions?: Suggestion[];
       };
       if (data.reason === 'no_key') {
         setApiAvailable(false);
+        setUpstreamError(null);
+        setSuggestions([]);
+        return;
+      }
+      if (data.reason === 'upstream_error') {
+        // Parse Google's JSON error if it looks like JSON so we can
+        // show the status + message inline. Fallback to the raw text.
+        let message = data.detail ?? '';
+        try {
+          const parsed = JSON.parse(message) as { error?: { message?: string; status?: string } };
+          if (parsed?.error?.message) {
+            message = parsed.error.status
+              ? `${parsed.error.status}: ${parsed.error.message}`
+              : parsed.error.message;
+          }
+        } catch {
+          /* leave raw */
+        }
+        setApiAvailable(true);
+        setUpstreamError(`Google Places responded ${data.status ?? ''}: ${message}`.trim());
+        setSuggestions([]);
+        return;
+      }
+      if (data.reason === 'fetch_failed') {
+        setApiAvailable(true);
+        setUpstreamError('Could not reach Google Places (network error).');
         setSuggestions([]);
         return;
       }
       setApiAvailable(true);
+      setUpstreamError(null);
       setSuggestions(data.suggestions ?? []);
     } catch (err) {
       if ((err as { name?: string }).name !== 'AbortError') {
@@ -221,6 +254,16 @@ export function VenueAutocomplete({ valueName, valueAddress, onChange }: Props) 
           Places autocomplete isn't available — add <code>GOOGLE_MAPS_API_KEY</code> on Railway with
           Places API (New) enabled. You can still type venue + address by hand.
         </p>
+      ) : null}
+
+      {upstreamError ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">
+          <strong>Autocomplete paused:</strong> {upstreamError}
+          <br />
+          Check that <em>Places API (New)</em> is enabled on your Google Cloud project and that the
+          key isn't restricted to other APIs/referrers. You can still type the venue and address by
+          hand.
+        </div>
       ) : null}
     </div>
   );
