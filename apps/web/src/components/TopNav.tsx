@@ -104,13 +104,13 @@ export function TopNav() {
           <Search className="h-[18px] w-[18px]" />
         </button>
         {/* Calendar */}
-        <button
-          type="button"
+        <Link
+          href="/calendar"
           className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white/80 hover:bg-white/10 hover:text-white"
           aria-label="Calendar"
         >
           <Calendar className="h-[18px] w-[18px]" />
-        </button>
+        </Link>
         {/* Notifications — prominent red badge with unread count, Storm-style */}
         <button
           type="button"

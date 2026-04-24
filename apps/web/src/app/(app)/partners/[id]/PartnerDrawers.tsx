@@ -316,26 +316,46 @@ export function NewAppointmentButton({
     setEndsAt(local);
   }
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  const [conflicts, setConflicts] = useState<
+    Array<{
+      title: string;
+      startsAt: string;
+      endsAt: string;
+      source: 'internal' | 'external';
+      provider?: string;
+    }>
+  >([]);
+
+  function doSave(force: boolean) {
     if (!title.trim() || !startsAt || !endsAt) return;
     startTransition(async () => {
-      await createAppointment(partnerId, {
+      const result = await createAppointment(partnerId, {
         type: typeName,
         title,
         location,
         startsAt: new Date(startsAt).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
         notes,
+        force,
       });
+      if (result.ok === false) {
+        setConflicts(result.conflicts);
+        return;
+      }
       setTitle('');
       setLocation('');
       setStartsAt('');
       setEndsAt('');
       setNotes('');
+      setConflicts([]);
       setOpen(false);
       router.refresh();
     });
+  }
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doSave(false);
   }
 
   return (
@@ -356,16 +376,62 @@ export function NewAppointmentButton({
             <Button variant="secondary" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={onSubmit}
-              loading={isPending}
-              disabled={!title.trim() || !startsAt || !endsAt}
-            >
-              Save
-            </Button>
+            {conflicts.length > 0 ? (
+              <Button
+                onClick={() => doSave(true)}
+                loading={isPending}
+                disabled={!title.trim() || !startsAt || !endsAt}
+              >
+                Save anyway
+              </Button>
+            ) : (
+              <Button
+                onClick={onSubmit}
+                loading={isPending}
+                disabled={!title.trim() || !startsAt || !endsAt}
+              >
+                Save
+              </Button>
+            )}
           </>
         }
       >
+        {conflicts.length > 0 && (
+          <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p className="font-semibold">
+              {conflicts.length === 1
+                ? 'Overlaps with another event'
+                : `Overlaps with ${conflicts.length} other events`}
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {conflicts.slice(0, 3).map((c, i) => (
+                <li key={i}>
+                  • "{c.title}" —{' '}
+                  {new Date(c.startsAt).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                  –
+                  {new Date(c.endsAt).toLocaleTimeString(undefined, {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                  {c.source === 'external' && c.provider && (
+                    <span className="ml-1 text-amber-700">({c.provider})</span>
+                  )}
+                </li>
+              ))}
+              {conflicts.length > 3 && (
+                <li className="text-amber-700">+{conflicts.length - 3} more</li>
+              )}
+            </ul>
+            <p className="mt-1 text-[11px] text-amber-700">
+              Click "Save anyway" to book on top, or adjust the time.
+            </p>
+          </div>
+        )}
         <form onSubmit={onSubmit} className="space-y-3">
           <Field label="Type">
             {appointmentTypes.length > 0 ? (

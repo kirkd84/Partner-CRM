@@ -4,6 +4,8 @@ import { Card } from '@partnerradar/ui';
 import { redirect } from 'next/navigation';
 import { SettingsForm } from './SettingsForm';
 import { PasswordForm } from './PasswordForm';
+import { CalendarConnections } from './CalendarConnections';
+import { listCalendarProviders } from '@partnerradar/integrations';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +40,35 @@ export default async function SettingsPage() {
   if (!user) redirect('/login');
 
   const prefs = (user.notificationPrefs ?? {}) as NotificationPrefs;
+  const providers = listCalendarProviders();
+
+  // Pull this rep's existing calendar connections (if any). Graceful if
+  // the table hasn't been migrated yet.
+  type Conn = {
+    id: string;
+    provider: string;
+    externalAccountId: string;
+    lastSyncedAt: Date | null;
+    syncStatus: string;
+    syncError: string | null;
+  };
+  let connections: Conn[] = [];
+  try {
+    connections = await prisma.calendarConnection.findMany({
+      where: { userId: user.id },
+      select: {
+        id: true,
+        provider: true,
+        externalAccountId: true,
+        lastSyncedAt: true,
+        syncStatus: true,
+        syncError: true,
+      },
+      orderBy: { provider: 'asc' },
+    });
+  } catch {
+    /* pre-migration, ignore */
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-6">
@@ -73,6 +104,14 @@ export default async function SettingsPage() {
           <PasswordForm />
         </Card>
       )}
+
+      <Card title="Calendar connections">
+        <p className="mb-3 text-xs text-gray-500">
+          Connect your work calendars so external events show up on /calendar and conflict with new
+          appointments. Tokens are encrypted at rest (AES-256-GCM).
+        </p>
+        <CalendarConnections providers={providers} connections={connections} />
+      </Card>
 
       <Card title="Account">
         <dl className="grid grid-cols-[120px_1fr] gap-y-1.5 text-sm">

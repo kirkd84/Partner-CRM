@@ -203,10 +203,25 @@ export async function createAppointment(
     startsAt: string; // ISO
     endsAt: string; // ISO
     notes?: string;
+    /** When true, skip conflict detection (user clicked "Save anyway"). */
+    force?: boolean;
   },
-) {
+): Promise<{ ok: true } | { ok: false; conflicts: ConflictReport[] }> {
   const { session } = await assertCanEdit(partnerId);
   if (!input.title.trim()) throw new Error('Title required');
+
+  const startsAt = new Date(input.startsAt);
+  const endsAt = new Date(input.endsAt);
+
+  // SPEC §6.4 — conflict detection against the rep's other appointments
+  // AND cached external events. The user can bypass with `force:true`
+  // (the drawer surfaces this as the "Save anyway" button).
+  if (!input.force) {
+    const conflicts = await findAppointmentConflicts(session.user.id, startsAt, endsAt);
+    if (conflicts.length > 0) {
+      return { ok: false, conflicts };
+    }
+  }
 
   await prisma.appointment.create({
     data: {
@@ -215,12 +230,66 @@ export async function createAppointment(
       type: input.type,
       title: input.title.trim(),
       location: input.location?.trim() || null,
-      startsAt: new Date(input.startsAt),
-      endsAt: new Date(input.endsAt),
+      startsAt,
+      endsAt,
       notes: input.notes?.trim() || null,
     },
   });
   revalidatePath(`/partners/${partnerId}`);
+  revalidatePath('/calendar');
+  return { ok: true };
+}
+
+export interface ConflictReport {
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  source: 'internal' | 'external';
+  provider?: string;
+}
+
+async function findAppointmentConflicts(
+  userId: string,
+  startsAt: Date,
+  endsAt: Date,
+): Promise<ConflictReport[]> {
+  // Pull overlapping internal appointments + cached externals. We use
+  // half-open comparison on both so back-to-back slots (e.g. 10-11 vs
+  // 11-12) are NOT flagged as a conflict.
+  const hits: ConflictReport[] = [];
+
+  const internalOverlaps = await prisma.appointment.findMany({
+    where: { userId, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } },
+    select: { title: true, startsAt: true, endsAt: true },
+  });
+  for (const a of internalOverlaps) {
+    hits.push({
+      title: a.title,
+      startsAt: a.startsAt.toISOString(),
+      endsAt: a.endsAt.toISOString(),
+      source: 'internal',
+    });
+  }
+
+  try {
+    const externalOverlaps = await prisma.calendarEventCache.findMany({
+      where: { userId, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } },
+      select: { title: true, startsAt: true, endsAt: true, provider: true },
+    });
+    for (const x of externalOverlaps) {
+      hits.push({
+        title: x.title,
+        startsAt: x.startsAt.toISOString(),
+        endsAt: x.endsAt.toISOString(),
+        source: 'external',
+        provider: x.provider,
+      });
+    }
+  } catch {
+    // Cache table may not exist pre-migrate — fall through.
+  }
+
+  return hits;
 }
 
 // ─── Events (Chamber mixers, lunch-and-learns, broker opens) ─────────
