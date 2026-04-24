@@ -208,7 +208,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
       {/* ── Body ───────────────────────────────────────────────────── */}
       <div className="flex-1 space-y-4 overflow-y-auto p-5">
         {/* Outer 2-col grid: LEFT = all data cards, RIGHT = full-height Comments rail */}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(540px,680px)]">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(720px,2fr)]">
           <div className="space-y-4">
             {/* Top row — Contacts | Info */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
