@@ -52,3 +52,7 @@ export async function generateDesign(_intent: DesignIntent): Promise<{
     message: 'Marketing engine generation lands in MW-3 — see SPEC_MARKETING.md §4.',
   };
 }
+
+// MW-2: Brand training surface.
+export * from './brand/types';
+export { extractBrandProfile, type ExtractBrandInput, type ExtractResult } from './brand/extract';

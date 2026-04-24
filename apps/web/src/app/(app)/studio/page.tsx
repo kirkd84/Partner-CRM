@@ -103,6 +103,29 @@ export default async function StudioPage() {
             ))
           )}
 
+          {/* Quick entry to the brand management + setup surfaces. */}
+          <Card title="Brands">
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href="/studio/brands"
+                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Manage brands
+              </a>
+              {session.user.role === 'ADMIN' && workspaces[0] ? (
+                <a
+                  href={`/studio/brand-setup?workspaceId=${workspaces[0].id}`}
+                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+                >
+                  New brand
+                </a>
+              ) : null}
+              <span className="text-[11px] text-gray-500">
+                One ACTIVE brand per workspace drives every generated design.
+              </span>
+            </div>
+          </Card>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <RoadmapCard
               icon={<Paintbrush className="h-5 w-5 text-primary" />}

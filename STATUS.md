@@ -4,6 +4,55 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #8 — ✅ MW-2 foundation (brand training data + CRUD)
+
+First Marketing Wizard phase to leave the scaffold stage. The data
+model and admin surfaces are live; the full Claude-vision extraction
+pipeline lands in a dedicated session once ANTHROPIC_API_KEY and R2
+storage are wired.
+
+**New surface:**
+
+- `packages/marketing-engine/src/brand/types.ts` — `BrandProfile`
+  TypeScript shape matching SPEC_MARKETING §3.2 (identity + logos +
+  colors + typography + layout motifs + voice + training samples +
+  preference weights). `placeholderBrandProfile()` seeds a usable
+  profile from explicit admin inputs when AI extraction is off.
+- `packages/marketing-engine/src/brand/extract.ts` —
+  `extractBrandProfile()` entry point. Graceful without
+  `ANTHROPIC_API_KEY` (returns the placeholder with a note); never
+  throws so the UI can always move forward. Anthropic SDK + vision
+  prompt wiring deferred.
+- `/studio/brands` — manager+ list grouped by workspace, with color
+  swatches, status pills (TRAINING / ACTIVE / ARCHIVED), and admin
+  controls for approve, set-default, archive.
+- `/studio/brand-setup?workspaceId=…` — admin-only new-brand form
+  with identity + colors + voice descriptors + dos/don'ts. Seeds
+  from tenant defaults (Roof Tech's orange / navy / cyan) so Kirk
+  doesn't retype. Sample-upload step is surfaced as a "coming soon"
+  banner pending R2.
+- `brand-actions.ts` — `createBrand`, `approveBrand`, `archiveBrand`,
+  `setDefaultBrand`, `loadBrandProfile`. All mutations write
+  `AuditLog` rows.
+- `/studio` landing page now has a Brands card with direct links.
+
+**Unblocks:**
+
+- MW-3 template catalog (needs an ACTIVE BrandProfile to render
+  variants from).
+- EV-10 Marketing Wizard event integration (needs a brand to source
+  colors + typography for event invite designs).
+
+**Still deferred for MW-2 completeness:**
+
+- Claude Opus 4.7 vision-based extraction (structured-output prompt
+  - parser) — needs ANTHROPIC_API_KEY.
+- R2-backed sample upload — needs Cloudflare R2 credentials.
+- 3 auto-generated sample designs in the review step — needs MW-3
+  template primitives.
+
+---
+
 ## 2026-04-24 pass #7 — ✅ EV-11 web slice (share link + check-in haptics)
 
 Full EV-11 is a native mobile rebuild + Expo push notifications that
