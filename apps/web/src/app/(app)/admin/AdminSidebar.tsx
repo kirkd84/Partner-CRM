@@ -30,6 +30,7 @@ const ITEMS = [
   { href: '/admin/budget-rules', label: 'Budget rules', icon: ShieldCheck, adminOnly: false },
   { href: '/admin/templates', label: 'Message templates', icon: Mail, adminOnly: false },
   { href: '/admin/cadences', label: 'Cadences', icon: Workflow, adminOnly: false },
+  { href: '/admin/cadence-queue', label: 'Cadence queue', icon: Sparkles, adminOnly: false },
   { href: '/admin/scraped-leads', label: 'Prospect queue', icon: Inbox, adminOnly: false },
   { href: '/admin/integrations', label: 'Integrations', icon: Plug, adminOnly: true },
   { href: '/admin/audit-log', label: 'Audit log', icon: ScrollText, adminOnly: true },
