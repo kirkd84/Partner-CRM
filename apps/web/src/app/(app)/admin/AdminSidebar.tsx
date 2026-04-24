@@ -9,6 +9,7 @@ import {
   Sparkles,
   Inbox,
   CalendarClock,
+  Plug,
 } from 'lucide-react';
 
 const ITEMS = [
@@ -22,6 +23,7 @@ const ITEMS = [
     adminOnly: false,
   },
   { href: '/admin/scraped-leads', label: 'Prospect queue', icon: Inbox, adminOnly: false },
+  { href: '/admin/integrations', label: 'Integrations', icon: Plug, adminOnly: true },
   { href: '/admin/audit-log', label: 'Audit log', icon: ScrollText, adminOnly: true },
 ];
 

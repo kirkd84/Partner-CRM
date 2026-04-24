@@ -6,3 +6,4 @@
 export * from './types';
 export * from './client';
 export { MockStormCloudClient } from './mock';
+export { ResilientStormClient, type ResilienceOptions } from './resilience';

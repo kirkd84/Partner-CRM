@@ -1,5 +1,6 @@
 import type { StormCloudClient } from './types';
 import { MockStormCloudClient } from './mock';
+import { ResilientStormClient } from './resilience';
 
 // Real client skeleton. Phase 5 fills this in once Kirk has API docs.
 class RealStormCloudClient implements StormCloudClient {
@@ -41,20 +42,28 @@ class RealStormCloudClient implements StormCloudClient {
   }
 }
 
-let singleton: StormCloudClient | null = null;
+let singleton: ResilientStormClient | null = null;
 
-export function stormClient(): StormCloudClient {
+export function stormClient(): ResilientStormClient {
   if (singleton) return singleton;
   const mode = process.env.STORM_API_MODE ?? 'mock';
+  let inner: StormCloudClient;
   if (mode === 'real') {
     const url = process.env.STORM_API_URL ?? '';
     const key = process.env.STORM_API_KEY ?? '';
     if (!url || !key) {
       throw new Error('STORM_API_MODE=real but STORM_API_URL / STORM_API_KEY missing');
     }
-    singleton = new RealStormCloudClient(url, key);
+    inner = new RealStormCloudClient(url, key);
   } else {
-    singleton = new MockStormCloudClient();
+    inner = new MockStormCloudClient();
   }
+  // Every call goes through retry + circuit breaker + rate limit, even
+  // in mock mode, so staging surfaces prod-shaped failure behaviour.
+  singleton = new ResilientStormClient(inner);
   return singleton;
+}
+
+export function stormClientMode(): 'mock' | 'real' {
+  return (process.env.STORM_API_MODE as 'mock' | 'real') ?? 'mock';
 }

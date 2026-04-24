@@ -196,6 +196,37 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
         END $$;
       `,
     },
+
+    // ── WebhookEvent table (Phase 5 — Storm webhook receiver) ──
+    {
+      label: 'create WebhookEvent',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "WebhookEvent" (
+          "id" TEXT NOT NULL,
+          "source" TEXT NOT NULL,
+          "externalEventId" TEXT NOT NULL,
+          "eventType" TEXT NOT NULL,
+          "verified" BOOLEAN NOT NULL DEFAULT false,
+          "payload" JSONB NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "WebhookEvent_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'unique index on WebhookEvent.externalEventId',
+      sql: `
+        CREATE UNIQUE INDEX IF NOT EXISTS "WebhookEvent_externalEventId_key"
+          ON "WebhookEvent"("externalEventId")
+      `,
+    },
+    {
+      label: 'index on WebhookEvent(source, createdAt)',
+      sql: `
+        CREATE INDEX IF NOT EXISTS "WebhookEvent_source_createdAt_idx"
+          ON "WebhookEvent"("source", "createdAt")
+      `,
+    },
   ];
 
   for (const { label, sql } of statements) {

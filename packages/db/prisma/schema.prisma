@@ -707,3 +707,24 @@ model FeatureFlag {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ─── Phase 5 — Storm webhook log ─────────────────────────────────────
+// (CalendarConnection + CalendarEventCache already exist above — they
+// use a string `provider` column; Microsoft is just the string "microsoft".)
+
+/// Raw log of inbound webhook deliveries (Storm for now). Kept for
+/// forensics + replay; the admin Integrations page shows the last 20.
+model WebhookEvent {
+  id              String   @id @default(cuid())
+  source          String // "STORM" / "RESEND" / "TWILIO" / ...
+  externalEventId String   @unique
+  eventType       String
+  /// True when we validated the HMAC signature against the configured
+  /// secret for this source; false when the secret was missing or the
+  /// signature didn't match.
+  verified        Boolean  @default(false)
+  payload         Json
+  createdAt       DateTime @default(now())
+
+  @@index([source, createdAt])
+}
