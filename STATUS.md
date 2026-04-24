@@ -4,6 +4,33 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #9 — ✅ MW-2 polish (BrandPreview component)
+
+Closes out MW-2's "3 sample designs" review step from SPEC_MARKETING
+§3.1 and lays the first MW-3 template primitive.
+
+**New surface:**
+
+- `packages/marketing-ui/src/BrandPreview.tsx` — pure SVG + React
+  component that takes a `BrandProfile` and renders one of three
+  sample variants (`flyer`, `social`, `email-header`). No Satori,
+  no server calls, zero latency. Colors, typography, headline case,
+  footer address all pull directly from the profile.
+- `/studio/brands` — every row now shows a 72px social preview tile
+  so admins can glance at the brand palette in-place.
+- `/studio/brand-setup` — adds a sticky right-rail live preview
+  (flyer + social + email-header) that updates as the admin tweaks
+  colors, fonts, or company name. Submits without a round-trip.
+- `@partnerradar/marketing-ui` now depends on `marketing-engine`
+  for the `BrandProfile` type + `placeholderBrandProfile` helper.
+  Preserves the extraction contract: `marketing-ui` still has no
+  PartnerRadar-internal peer deps.
+
+Why it matters: Kirk can now see a brand before committing, and
+MW-3 template registry already has its first working template.
+
+---
+
 ## 2026-04-24 pass #8 — ✅ MW-2 foundation (brand training data + CRUD)
 
 First Marketing Wizard phase to leave the scaffold stage. The data

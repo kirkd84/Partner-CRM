@@ -19,6 +19,8 @@
     "@partnerradar/types": "workspace:*",
     "@partnerradar/ui": "workspace:*",
     "@partnerradar/integrations": "workspace:*",
+    "@partnerradar/marketing-engine": "workspace:*",
+    "@partnerradar/marketing-ui": "workspace:*",
     "@hookform/resolvers": "^3.10.0",
     "inngest": "^3.27.0",
     "@tanstack/react-query": "^5.62.11",

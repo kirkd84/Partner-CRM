@@ -8,6 +8,8 @@
 
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
+import { BrandPreview } from '@partnerradar/marketing-ui';
+import type { BrandProfile } from '@partnerradar/marketing-engine';
 import { approveBrand, archiveBrand, setDefaultBrand } from '../brand-actions';
 
 interface BrandRow {
@@ -21,6 +23,7 @@ interface BrandRow {
   secondaryHex: string | null;
   sampleCount: number;
   designCount: number;
+  profile: BrandProfile | null;
 }
 interface WorkspaceRow {
   workspaceId: string;
@@ -109,17 +112,31 @@ export function BrandsClient({
                   {ws.brands.map((b) => (
                     <tr key={b.id} className="border-t border-gray-100">
                       <td className="px-5 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">{b.name}</span>
-                          {b.isDefault ? (
-                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              Default
-                            </span>
+                        <div className="flex items-center gap-3">
+                          {b.profile ? (
+                            <div className="shrink-0 overflow-hidden rounded-md border border-gray-200 shadow-sm">
+                              <BrandPreview
+                                profile={b.profile}
+                                variant="social"
+                                width={72}
+                                showSampleBadge={false}
+                              />
+                            </div>
                           ) : null}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-900">{b.name}</span>
+                              {b.isDefault ? (
+                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                  Default
+                                </span>
+                              ) : null}
+                            </div>
+                            {b.companyName ? (
+                              <p className="mt-0.5 text-[11px] text-gray-500">{b.companyName}</p>
+                            ) : null}
+                          </div>
                         </div>
-                        {b.companyName ? (
-                          <p className="mt-0.5 text-[11px] text-gray-500">{b.companyName}</p>
-                        ) : null}
                       </td>
                       <td className="px-5 py-2">
                         <div className="flex items-center gap-1">

@@ -51,21 +51,23 @@ export default async function BrandsPage() {
     workspaceName: ws.name,
     marketName: ws.market?.name ?? 'No market',
     brands: ws.brands.map((b) => {
-      const profile = (b.profile ?? {}) as {
-        companyName?: string;
-        colors?: { primary?: { hex?: string }; secondary?: { hex?: string } };
-      };
+      // Pass the full profile JSON through — BrandsClient uses it to
+      // render a live BrandPreview tile per row.
+      const profile = b.profile as unknown as
+        | import('@partnerradar/marketing-engine').BrandProfile
+        | null;
       return {
         id: b.id,
         name: b.name,
         status: b.status,
         isDefault: b.isDefault,
         createdAt: b.createdAt.toISOString(),
-        companyName: profile.companyName ?? null,
-        primaryHex: profile.colors?.primary?.hex ?? null,
-        secondaryHex: profile.colors?.secondary?.hex ?? null,
+        companyName: profile?.companyName ?? null,
+        primaryHex: profile?.colors?.primary?.hex ?? null,
+        secondaryHex: profile?.colors?.secondary?.hex ?? null,
         sampleCount: b._count.trainingSamples,
         designCount: b._count.designs,
+        profile,
       };
     }),
   }));

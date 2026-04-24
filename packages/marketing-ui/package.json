@@ -11,7 +11,14 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"
   },
+  "dependencies": {
+    "@partnerradar/marketing-engine": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
   "devDependencies": {
+    "@types/react": "^19.0.2",
     "typescript": "^5.7.2"
   }
 }

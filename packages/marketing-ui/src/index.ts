@@ -17,3 +17,7 @@
  */
 
 export const MARKETING_UI_VERSION = '0.1.0-scaffold';
+
+// MW-2 polish / MW-3 template primitive.
+export { BrandPreview } from './BrandPreview';
+export type { BrandPreviewVariant, BrandPreviewProps } from './BrandPreview';

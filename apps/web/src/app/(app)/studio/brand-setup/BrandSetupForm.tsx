@@ -16,6 +16,8 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { BrandPreview } from '@partnerradar/marketing-ui';
+import { placeholderBrandProfile } from '@partnerradar/marketing-engine';
 import { createBrand } from '../brand-actions';
 
 interface Defaults {
@@ -107,180 +109,215 @@ export function BrandSetupForm({
     );
   }
 
+  // Preview profile reflects the live form state so the admin can see
+  // color and voice tweaks land as they type. Runs client-side with the
+  // same `placeholderBrandProfile` the server uses — no round-trip.
+  const previewProfile = placeholderBrandProfile({
+    id: 'preview',
+    workspaceId,
+    name: form.name || 'New brand',
+    companyName: form.companyName || 'Your company',
+    primaryHex: form.primaryHex,
+    secondaryHex: form.secondaryHex,
+    accentHex: form.accentHex,
+    physicalAddress: form.physicalAddress || undefined,
+    phone: form.phone || undefined,
+    email: form.email || undefined,
+    website: form.website || undefined,
+    industry: form.industry || undefined,
+  });
+
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <section className="rounded-md border border-card-border bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-900">Identity</h2>
-        <p className="mt-1 text-[11px] text-gray-500">
-          The name the team sees in the brand picker. Company name is the legal name used on
-          CAN-SPAM email footers + flyer bylines.
-        </p>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Brand name">
-            <input
-              value={form.name}
-              onChange={(e) => update('name', e.target.value)}
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
-          <Field label="Company name (legal)">
-            <input
-              value={form.companyName}
-              onChange={(e) => update('companyName', e.target.value)}
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
-          <Field label="Industry">
-            <input
-              value={form.industry}
-              onChange={(e) => update('industry', e.target.value)}
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
-          <Field label="Website">
-            <input
-              value={form.website}
-              onChange={(e) => update('website', e.target.value)}
-              placeholder="https://…"
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
-          <Field label="Phone">
-            <input
-              value={form.phone}
-              onChange={(e) => update('phone', e.target.value)}
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
-          <Field label="Email">
-            <input
-              value={form.email}
-              onChange={(e) => update('email', e.target.value)}
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
-          <Field label="Physical address (for email footers)" span={2}>
-            <input
-              value={form.physicalAddress}
-              onChange={(e) => update('physicalAddress', e.target.value)}
-              className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-            />
-          </Field>
+    <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <aside className="order-first lg:order-last">
+        <div className="space-y-3 lg:sticky lg:top-6">
+          <p className="text-[11px] uppercase tracking-label text-gray-500">Live preview</p>
+          <div className="overflow-hidden rounded-md border border-card-border bg-white shadow-sm">
+            <BrandPreview profile={previewProfile} variant="flyer" width={260} />
+          </div>
+          <div className="overflow-hidden rounded-md border border-card-border bg-white shadow-sm">
+            <BrandPreview profile={previewProfile} variant="social" width={260} />
+          </div>
+          <div className="overflow-hidden rounded-md border border-card-border bg-white shadow-sm">
+            <BrandPreview profile={previewProfile} variant="email-header" width={260} />
+          </div>
         </div>
-      </section>
+      </aside>
 
-      <section className="rounded-md border border-card-border bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-900">Colors</h2>
-        <p className="mt-1 text-[11px] text-gray-500">
-          Admin picks are the source of truth. AI extraction (when enabled) can suggest additions
-          from uploaded samples.
-        </p>
-        <div className="mt-3 grid grid-cols-3 gap-3">
-          <ColorField
-            label="Primary"
-            value={form.primaryHex}
-            onChange={(v) => update('primaryHex', v)}
-          />
-          <ColorField
-            label="Secondary"
-            value={form.secondaryHex}
-            onChange={(v) => update('secondaryHex', v)}
-          />
-          <ColorField
-            label="Accent"
-            value={form.accentHex}
-            onChange={(v) => update('accentHex', v)}
-          />
-        </div>
-      </section>
+      <div className="space-y-5">
+        <section className="rounded-md border border-card-border bg-white p-5">
+          <h2 className="text-sm font-semibold text-gray-900">Identity</h2>
+          <p className="mt-1 text-[11px] text-gray-500">
+            The name the team sees in the brand picker. Company name is the legal name used on
+            CAN-SPAM email footers + flyer bylines.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <Field label="Brand name">
+              <input
+                value={form.name}
+                onChange={(e) => update('name', e.target.value)}
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+            <Field label="Company name (legal)">
+              <input
+                value={form.companyName}
+                onChange={(e) => update('companyName', e.target.value)}
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+            <Field label="Industry">
+              <input
+                value={form.industry}
+                onChange={(e) => update('industry', e.target.value)}
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+            <Field label="Website">
+              <input
+                value={form.website}
+                onChange={(e) => update('website', e.target.value)}
+                placeholder="https://…"
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+            <Field label="Phone">
+              <input
+                value={form.phone}
+                onChange={(e) => update('phone', e.target.value)}
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                value={form.email}
+                onChange={(e) => update('email', e.target.value)}
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+            <Field label="Physical address (for email footers)" span={2}>
+              <input
+                value={form.physicalAddress}
+                onChange={(e) => update('physicalAddress', e.target.value)}
+                className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+              />
+            </Field>
+          </div>
+        </section>
 
-      <section className="rounded-md border border-card-border bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-900">Voice</h2>
-        <p className="mt-1 text-[11px] text-gray-500">
-          Pick descriptors the AI should match. Dos and don'ts steer every generated headline.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {voiceOptions.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => toggleVoice(d)}
-              className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
-                form.voiceDescriptors.includes(d)
-                  ? 'bg-indigo-600 text-white'
-                  : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Do">
-            <textarea
-              rows={4}
-              value={form.dos}
-              onChange={(e) => update('dos', e.target.value)}
-              placeholder={'One per line:\nUse active voice\nLead with the customer outcome'}
-              className="w-full rounded-md border border-gray-200 p-2 text-sm"
+        <section className="rounded-md border border-card-border bg-white p-5">
+          <h2 className="text-sm font-semibold text-gray-900">Colors</h2>
+          <p className="mt-1 text-[11px] text-gray-500">
+            Admin picks are the source of truth. AI extraction (when enabled) can suggest additions
+            from uploaded samples.
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            <ColorField
+              label="Primary"
+              value={form.primaryHex}
+              onChange={(v) => update('primaryHex', v)}
             />
-          </Field>
-          <Field label="Don't">
-            <textarea
-              rows={4}
-              value={form.donts}
-              onChange={(e) => update('donts', e.target.value)}
-              placeholder={'One per line:\nNo exclamation-point headlines\nNever say "cheap"'}
-              className="w-full rounded-md border border-gray-200 p-2 text-sm"
+            <ColorField
+              label="Secondary"
+              value={form.secondaryHex}
+              onChange={(v) => update('secondaryHex', v)}
             />
-          </Field>
-        </div>
-      </section>
+            <ColorField
+              label="Accent"
+              value={form.accentHex}
+              onChange={(v) => update('accentHex', v)}
+            />
+          </div>
+        </section>
 
-      <section className="rounded-md border border-dashed border-gray-300 bg-white p-5 text-[12px] text-gray-500">
-        <p className="font-semibold text-gray-700">Sample upload (coming soon)</p>
-        <p className="mt-1">
-          Drag-drop training samples (flyers, social posts) lands in the MW-2 polish pass once R2
-          storage + Claude Opus vision are wired. For now the profile is derived from the explicit
-          inputs above — still usable by MW-3 template generation.
-        </p>
-      </section>
+        <section className="rounded-md border border-card-border bg-white p-5">
+          <h2 className="text-sm font-semibold text-gray-900">Voice</h2>
+          <p className="mt-1 text-[11px] text-gray-500">
+            Pick descriptors the AI should match. Dos and don'ts steer every generated headline.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {voiceOptions.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => toggleVoice(d)}
+                className={`rounded-full px-3 py-1 text-[11px] font-semibold transition ${
+                  form.voiceDescriptors.includes(d)
+                    ? 'bg-indigo-600 text-white'
+                    : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <Field label="Do">
+              <textarea
+                rows={4}
+                value={form.dos}
+                onChange={(e) => update('dos', e.target.value)}
+                placeholder={'One per line:\nUse active voice\nLead with the customer outcome'}
+                className="w-full rounded-md border border-gray-200 p-2 text-sm"
+              />
+            </Field>
+            <Field label="Don't">
+              <textarea
+                rows={4}
+                value={form.donts}
+                onChange={(e) => update('donts', e.target.value)}
+                placeholder={'One per line:\nNo exclamation-point headlines\nNever say "cheap"'}
+                className="w-full rounded-md border border-gray-200 p-2 text-sm"
+              />
+            </Field>
+          </div>
+        </section>
 
-      {err ? (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-          {err}
-        </div>
-      ) : null}
-      {result ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-          Brand created — {result.usedAi ? 'AI extraction ran' : 'explicit inputs only'}.
-          Redirecting to /studio/brands…
-          {result.notes.length > 0 ? (
-            <ul className="mt-1 list-disc pl-4">
-              {result.notes.map((n, i) => (
-                <li key={i}>{n}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+        <section className="rounded-md border border-dashed border-gray-300 bg-white p-5 text-[12px] text-gray-500">
+          <p className="font-semibold text-gray-700">Sample upload (coming soon)</p>
+          <p className="mt-1">
+            Drag-drop training samples (flyers, social posts) lands in the MW-2 polish pass once R2
+            storage + Claude Opus vision are wired. For now the profile is derived from the explicit
+            inputs above — still usable by MW-3 template generation.
+          </p>
+        </section>
 
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          disabled={pending || !form.name.trim() || !form.companyName.trim()}
-          onClick={submit}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60"
-        >
-          {pending ? 'Creating…' : 'Create brand'}
-        </button>
+        {err ? (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {err}
+          </div>
+        ) : null}
+        {result ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+            Brand created — {result.usedAi ? 'AI extraction ran' : 'explicit inputs only'}.
+            Redirecting to /studio/brands…
+            {result.notes.length > 0 ? (
+              <ul className="mt-1 list-disc pl-4">
+                {result.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending || !form.name.trim() || !form.companyName.trim()}
+            onClick={submit}
+            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60"
+          >
+            {pending ? 'Creating…' : 'Create brand'}
+          </button>
+        </div>
       </div>
     </div>
   );
