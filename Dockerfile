@@ -25,6 +25,14 @@ COPY packages/types/package.json ./packages/types/
 COPY packages/ai/package.json ./packages/ai/
 COPY packages/config/package.json ./packages/config/
 COPY packages/integrations/package.json ./packages/integrations/
+# Marketing Wizard packages (scaffolded MW-1). Listed individually so
+# adding new workspace packages doesn't silently break the deps layer
+# the way `COPY packages/*/package.json` would hide.
+COPY packages/marketing-api/package.json ./packages/marketing-api/
+COPY packages/marketing-ui/package.json ./packages/marketing-ui/
+COPY packages/marketing-engine/package.json ./packages/marketing-engine/
+COPY packages/marketing-templates/package.json ./packages/marketing-templates/
+COPY packages/marketing-billing/package.json ./packages/marketing-billing/
 RUN pnpm install --no-frozen-lockfile
 
 # ── build: generate Prisma client + build web ──
