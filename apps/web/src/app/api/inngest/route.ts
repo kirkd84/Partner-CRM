@@ -22,4 +22,11 @@ export const runtime = 'nodejs';
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions,
+  // Force the public canonical URL — Railway sits behind a proxy so
+  // Next.js's automatic host detection can pick up an internal-only
+  // hostname that Inngest Cloud can't reach. Hardcoding it to the
+  // public domain fixes the "We could not reach your URL" sync error.
+  // Override via `INNGEST_SERVE_ORIGIN` env if we ever need to point
+  // Inngest at a staging URL.
+  serveHost: process.env.INNGEST_SERVE_ORIGIN ?? 'https://partner-crm-production.up.railway.app',
 });
