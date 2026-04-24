@@ -253,13 +253,14 @@ export function CalendarShell({
         {scope === 'me' ? (
           <>
             <LegendSwatch color="#3b82f6" label="Appointment" />
-            <LegendSwatch color="#8b5cf6" label="Event" />
-            <LegendSwatch color="#d1d5db" striped label="External (read-only)" />
+            <LegendSwatch color="#8b5cf6" label="Partner event" />
+            <LegendSwatch color="#d1d5db" striped label="From your calendar (read-only)" />
           </>
         ) : (
           <>
-            <LegendSwatch color="#3b82f6" label="Your stuff" />
-            <LegendSwatch color="#94a3b8" striped label="Teammate busy (details hidden)" />
+            <LegendSwatch color="#94a3b8" label="Solid = Partner Portal appointment" />
+            <LegendSwatch color="#94a3b8" striped label="Striped = from their personal calendar" />
+            <span className="text-gray-500">· each rep has their own color</span>
           </>
         )}
         <span className="ml-auto text-gray-500">
@@ -409,9 +410,14 @@ function EventBlock({
   const offsetMin = item.startsAt.getMinutes();
   const h = (durationMin / 60) * hourHeight;
   const t = (offsetMin / 60) * hourHeight;
-  // Redacted team events are coloured with the OWNER's avatar tint so
-  // you can tell at a glance whose block you're looking at, with a
-  // diagonal-stripe pattern to signal "details hidden".
+  // Color = who owns it (in team view, the rep's avatar color).
+  // Pattern = what kind it is:
+  //   • solid  → Partner Portal stuff (work appointment or event)
+  //   • striped → external calendar sync (Google/Outlook/iCloud —
+  //              likely personal or at least outside Partner Portal)
+  // So Kirk can glance at a teammate's busy block and know
+  // "striped means personal-ish, solid means a Partner Portal
+  // appointment I can assume is work-related."
   const color = item.redacted
     ? (item.ownerColor ?? '#94a3b8')
     : item.kind === 'external'
@@ -419,7 +425,7 @@ function EventBlock({
       : item.kind === 'event'
         ? '#8b5cf6'
         : '#3b82f6';
-  const striped = item.redacted || item.kind === 'external';
+  const striped = item.kind === 'external';
   const tooltip = item.redacted
     ? `${item.title} · ${fmtTime(item.startsAt.toISOString())}–${fmtTime(item.endsAt.toISOString())} · details hidden`
     : `${item.title} · ${fmtTime(item.startsAt.toISOString())}–${fmtTime(item.endsAt.toISOString())}`;
