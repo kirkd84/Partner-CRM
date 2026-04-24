@@ -30,7 +30,13 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 
 // ─── Shared worker logic ─────────────────────────────────────────────
-async function syncOneConnection(connectionId: string): Promise<{
+/**
+ * Exported so the /settings "Sync now" button can call it directly
+ * via a server action. The Inngest cron + on-connect event wrappers
+ * below use this same function under the hood, so there's one code
+ * path to maintain regardless of what triggered the sync.
+ */
+export async function syncOneConnection(connectionId: string): Promise<{
   ok: boolean;
   synced: number;
   error?: string;

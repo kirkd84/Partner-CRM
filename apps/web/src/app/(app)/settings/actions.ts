@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { compare, hash } from 'bcryptjs';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
+import { syncOneConnection } from '@/lib/jobs/google-calendar-sync';
 
 interface ProfileInput {
   name: string;
@@ -90,4 +91,66 @@ export async function changePassword(currentPassword: string, newPassword: strin
       },
     }),
   ]);
+}
+
+// ─── Calendar connection actions ─────────────────────────────────────
+
+/**
+ * Manual "Sync now" — bypasses Inngest entirely and runs the sync
+ * synchronously. Handy for debugging (tells you the error inline),
+ * and for the moment right after connecting when Inngest may not have
+ * picked up the new functions yet.
+ */
+export async function syncCalendarConnectionNow(
+  connectionId: string,
+): Promise<{ ok: boolean; synced: number; error?: string }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+
+  // Only the owner can trigger their own sync.
+  const conn = await prisma.calendarConnection.findUnique({
+    where: { id: connectionId },
+    select: { userId: true },
+  });
+  if (!conn) throw new Error('NOT_FOUND');
+  if (conn.userId !== session.user.id) throw new Error('FORBIDDEN');
+
+  const result = await syncOneConnection(connectionId);
+  revalidatePath('/settings');
+  revalidatePath('/calendar');
+  return result;
+}
+
+export async function disconnectCalendarConnection(connectionId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const conn = await prisma.calendarConnection.findUnique({
+    where: { id: connectionId },
+    select: { userId: true, provider: true, externalAccountId: true },
+  });
+  if (!conn) throw new Error('NOT_FOUND');
+  if (conn.userId !== session.user.id) throw new Error('FORBIDDEN');
+
+  // Hard-delete the connection and its cached events. Tokens go with it.
+  await prisma.$transaction([
+    prisma.calendarEventCache.deleteMany({
+      where: { connectionId },
+    }),
+    prisma.calendarConnection.delete({ where: { id: connectionId } }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        entityType: 'calendar_connection',
+        entityId: connectionId,
+        action: 'disconnect',
+        diff: {
+          provider: conn.provider,
+          account: conn.externalAccountId,
+        } as Prisma.InputJsonValue,
+      },
+    }),
+  ]);
+
+  revalidatePath('/settings');
+  revalidatePath('/calendar');
 }

@@ -1,7 +1,10 @@
 'use client';
-import { Calendar, CheckCircle2, ExternalLink, AlertTriangle, X } from 'lucide-react';
+import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { Calendar, CheckCircle2, ExternalLink, AlertTriangle, X, RefreshCw } from 'lucide-react';
 import { Pill } from '@partnerradar/ui';
 import type { CalendarProviderInfo } from '@partnerradar/integrations';
+import { syncCalendarConnectionNow, disconnectCalendarConnection } from './actions';
 
 interface Connection {
   id: string;
@@ -55,31 +58,7 @@ export function CalendarConnections({
                 {mine.length > 0 && (
                   <ul className="mt-2 space-y-1">
                     {mine.map((c) => (
-                      <li
-                        key={c.id}
-                        className="flex items-center gap-2 rounded-sm bg-gray-50 px-2 py-1 text-xs"
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                        <span className="font-medium text-gray-900">{c.externalAccountId}</span>
-                        <span className="text-gray-500">·</span>
-                        <span className="text-gray-500">
-                          {c.lastSyncedAt ? `synced ${timeAgo(c.lastSyncedAt)}` : 'not yet synced'}
-                        </span>
-                        {c.syncStatus === 'error' && c.syncError && (
-                          <span className="inline-flex items-center gap-1 text-amber-700">
-                            <AlertTriangle className="h-3 w-3" />
-                            {c.syncError}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          className="ml-auto text-gray-400 hover:text-red-600"
-                          title="Disconnect"
-                          disabled
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </li>
+                      <ConnectionRow key={c.id} connection={c} />
                     ))}
                   </ul>
                 )}
@@ -135,4 +114,85 @@ function timeAgo(d: Date): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
   return `${days}d ago`;
+}
+
+function ConnectionRow({ connection }: { connection: Connection }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+
+  function onSync() {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const res = await syncCalendarConnectionNow(connection.id);
+        if (res.ok) {
+          setMessage(`Synced ${res.synced} events`);
+        } else {
+          setMessage(`Sync failed: ${res.error ?? 'unknown error'}`);
+        }
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : 'Failed');
+      }
+    });
+  }
+
+  function onDisconnect() {
+    if (
+      !confirm(
+        `Disconnect ${connection.externalAccountId}? Cached events will be removed and you'll need to reconnect to sync again.`,
+      )
+    )
+      return;
+    startTransition(async () => {
+      try {
+        await disconnectCalendarConnection(connection.id);
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : 'Failed');
+      }
+    });
+  }
+
+  return (
+    <li className="flex flex-col gap-1 rounded-sm bg-gray-50 px-2 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+        <span className="truncate font-medium text-gray-900">{connection.externalAccountId}</span>
+        <span className="text-gray-500">·</span>
+        <span className="text-gray-500">
+          {connection.lastSyncedAt
+            ? `synced ${timeAgo(connection.lastSyncedAt)}`
+            : 'not yet synced'}
+        </span>
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={isPending}
+          title="Sync now"
+          className="ml-auto inline-flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:border-primary hover:text-primary disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${isPending ? 'animate-spin' : ''}`} />
+          {isPending ? 'Syncing…' : 'Sync now'}
+        </button>
+        <button
+          type="button"
+          onClick={onDisconnect}
+          disabled={isPending}
+          title="Disconnect"
+          className="rounded p-1 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {connection.syncStatus === 'error' && connection.syncError && (
+        <div className="flex items-start gap-1 text-amber-700">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="break-all">{connection.syncError}</span>
+        </div>
+      )}
+      {message && <div className="text-[11px] text-gray-600">{message}</div>}
+    </li>
+  );
 }
