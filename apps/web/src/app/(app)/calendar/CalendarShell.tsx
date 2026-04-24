@@ -23,6 +23,13 @@ export interface CalendarItem {
   endsAt: string;
   allDay?: boolean;
   partner: { id: string; name: string; publicId?: string } | null;
+  // Team-view metadata. When redacted=true the caller doesn't own
+  // the event, title/location are already stripped server-side, and
+  // we render the block in the rep's avatar color with a "Busy" label.
+  ownerId?: string;
+  ownerFirstName?: string | null;
+  ownerColor?: string | null;
+  redacted?: boolean;
 }
 
 export interface ExternalItem {
@@ -33,18 +40,25 @@ export interface ExternalItem {
   location: string | null;
   startsAt: string;
   endsAt: string;
+  ownerId?: string;
+  ownerFirstName?: string | null;
+  ownerColor?: string | null;
+  redacted?: boolean;
 }
 
 type View = 'week' | 'day' | 'list';
+type Scope = 'me' | 'team';
 
 export function CalendarShell({
   view,
+  scope,
   anchorISO,
   appointments,
   events,
   externals,
 }: {
   view: View;
+  scope: Scope;
   anchorISO: string;
   appointments: CalendarItem[];
   events: CalendarItem[];
@@ -65,6 +79,9 @@ export function CalendarShell({
     startsAt: Date;
     endsAt: Date;
     partner: { id: string; name: string; publicId?: string } | null;
+    ownerFirstName?: string | null;
+    ownerColor?: string | null;
+    redacted?: boolean;
   };
   const merged: Merged[] = useMemo(
     () => [
@@ -95,6 +112,9 @@ export function CalendarShell({
           startsAt: new Date(x.startsAt),
           endsAt: new Date(x.endsAt),
           partner: null,
+          ownerFirstName: x.ownerFirstName ?? null,
+          ownerColor: x.ownerColor ?? null,
+          redacted: x.redacted ?? false,
         }),
       ),
     ],
@@ -113,6 +133,14 @@ export function CalendarShell({
     const qs = new URLSearchParams(params.toString());
     qs.set('view', v);
     qs.set('date', anchor.toISOString());
+    router.push(`/calendar?${qs.toString()}`);
+  };
+
+  const setScope = (s: Scope) => {
+    const qs = new URLSearchParams(params.toString());
+    qs.set('scope', s);
+    qs.set('date', anchor.toISOString());
+    qs.set('view', view);
     router.push(`/calendar?${qs.toString()}`);
   };
 
@@ -185,6 +213,36 @@ export function CalendarShell({
           ))}
         </div>
 
+        {/* Scope toggle — My calendar vs Team calendar. Team view
+            shows everyone in your markets as "Busy · {name}" blocks
+            so you can schedule around them without seeing details. */}
+        <div className="ml-2 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5">
+          {(
+            [
+              ['me', 'Mine'],
+              ['team', 'Team'],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setScope(key)}
+              title={
+                key === 'me'
+                  ? 'Your own calendar'
+                  : "Your team — other reps' time shows as Busy blocks with no details"
+              }
+              className={`rounded px-2.5 py-1 text-xs font-semibold transition ${
+                scope === key
+                  ? 'bg-primary text-white'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <NewEventButton anchorISO={anchor.toISOString()} />
         </div>
@@ -192,9 +250,18 @@ export function CalendarShell({
 
       {/* Legend */}
       <div className="flex items-center gap-3 border-b border-card-border bg-white px-6 py-2 text-[11px]">
-        <LegendSwatch color="#3b82f6" label="Appointment" />
-        <LegendSwatch color="#8b5cf6" label="Event" />
-        <LegendSwatch color="#d1d5db" striped label="External (read-only)" />
+        {scope === 'me' ? (
+          <>
+            <LegendSwatch color="#3b82f6" label="Appointment" />
+            <LegendSwatch color="#8b5cf6" label="Event" />
+            <LegendSwatch color="#d1d5db" striped label="External (read-only)" />
+          </>
+        ) : (
+          <>
+            <LegendSwatch color="#3b82f6" label="Your stuff" />
+            <LegendSwatch color="#94a3b8" striped label="Teammate busy (details hidden)" />
+          </>
+        )}
         <span className="ml-auto text-gray-500">
           {appointments.length} appt · {events.length} event · {externals.length} external
         </span>
@@ -330,6 +397,8 @@ function EventBlock({
     startsAt: Date;
     endsAt: Date;
     partner: { id: string; name: string; publicId?: string } | null;
+    ownerColor?: string | null;
+    redacted?: boolean;
   };
   hourHeight: number;
 }) {
@@ -340,9 +409,20 @@ function EventBlock({
   const offsetMin = item.startsAt.getMinutes();
   const h = (durationMin / 60) * hourHeight;
   const t = (offsetMin / 60) * hourHeight;
-  const color =
-    item.kind === 'external' ? '#d1d5db' : item.kind === 'event' ? '#8b5cf6' : '#3b82f6';
-  const striped = item.kind === 'external';
+  // Redacted team events are coloured with the OWNER's avatar tint so
+  // you can tell at a glance whose block you're looking at, with a
+  // diagonal-stripe pattern to signal "details hidden".
+  const color = item.redacted
+    ? (item.ownerColor ?? '#94a3b8')
+    : item.kind === 'external'
+      ? '#d1d5db'
+      : item.kind === 'event'
+        ? '#8b5cf6'
+        : '#3b82f6';
+  const striped = item.redacted || item.kind === 'external';
+  const tooltip = item.redacted
+    ? `${item.title} · ${fmtTime(item.startsAt.toISOString())}–${fmtTime(item.endsAt.toISOString())} · details hidden`
+    : `${item.title} · ${fmtTime(item.startsAt.toISOString())}–${fmtTime(item.endsAt.toISOString())}`;
 
   const content = (
     <div
@@ -354,16 +434,18 @@ function EventBlock({
         backgroundImage: striped
           ? 'repeating-linear-gradient(45deg, rgba(0,0,0,0.18), rgba(0,0,0,0.18) 4px, transparent 4px, transparent 8px)'
           : undefined,
-        color: item.kind === 'external' ? '#374151' : 'white',
+        color: item.kind === 'external' && !item.redacted ? '#374151' : 'white',
       }}
-      title={`${item.title} · ${fmtTime(item.startsAt.toISOString())}–${fmtTime(item.endsAt.toISOString())}`}
+      title={tooltip}
     >
       <div className="truncate font-semibold">{item.title}</div>
       <div className="truncate opacity-90">{fmtTime(item.startsAt.toISOString())}</div>
     </div>
   );
 
-  if (item.kind === 'appointment' && item.partner?.publicId) {
+  // Only link to the partner when the caller actually owns the event;
+  // redacted rows have no partner context and should feel inert.
+  if (!item.redacted && item.kind === 'appointment' && item.partner?.publicId) {
     return <Link href={`/partners/${item.partner.id}`}>{content}</Link>;
   }
   return content;
@@ -484,16 +566,25 @@ function ListRow({
     startsAt: Date;
     endsAt: Date;
     partner: { id: string; name: string; publicId?: string } | null;
+    ownerColor?: string | null;
+    redacted?: boolean;
   };
 }) {
-  const dotColor =
-    item.kind === 'external' ? '#9ca3af' : item.kind === 'event' ? '#8b5cf6' : '#3b82f6';
+  const dotColor = item.redacted
+    ? (item.ownerColor ?? '#9ca3af')
+    : item.kind === 'external'
+      ? '#9ca3af'
+      : item.kind === 'event'
+        ? '#8b5cf6'
+        : '#3b82f6';
   const body = (
     <div
       className={`flex items-center gap-3 rounded-md border px-3 py-2 text-sm transition ${
-        item.kind === 'external'
-          ? 'border-dashed border-gray-300 bg-gray-50'
-          : 'border-card-border bg-white hover:border-primary/50 hover:bg-blue-50/40'
+        item.redacted
+          ? 'border-dashed border-gray-300 bg-gray-50 opacity-90'
+          : item.kind === 'external'
+            ? 'border-dashed border-gray-300 bg-gray-50'
+            : 'border-card-border bg-white hover:border-primary/50 hover:bg-blue-50/40'
       }`}
     >
       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
@@ -501,19 +592,20 @@ function ListRow({
         <div className="truncate font-medium text-gray-900">{item.title}</div>
         <div className="truncate text-[11px] text-gray-500">
           {fmtTime(item.startsAt.toISOString())}–{fmtTime(item.endsAt.toISOString())}
-          {item.type && <span className="ml-2">· {item.type}</span>}
-          {item.partner && <span className="ml-2">· {item.partner.name}</span>}
-          {item.location && <span className="ml-2">· {item.location}</span>}
+          {!item.redacted && item.type && <span className="ml-2">· {item.type}</span>}
+          {!item.redacted && item.partner && <span className="ml-2">· {item.partner.name}</span>}
+          {!item.redacted && item.location && <span className="ml-2">· {item.location}</span>}
+          {item.redacted && <span className="ml-2">· details hidden</span>}
         </div>
       </div>
-      {item.kind === 'external' && item.provider && (
+      {item.kind === 'external' && !item.redacted && item.provider && (
         <Pill color="#6b7280" tone="soft">
           from {item.provider}
         </Pill>
       )}
     </div>
   );
-  if (item.kind === 'appointment' && item.partner?.id) {
+  if (!item.redacted && item.kind === 'appointment' && item.partner?.id) {
     return <Link href={`/partners/${item.partner.id}`}>{body}</Link>;
   }
   return body;
