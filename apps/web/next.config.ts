@@ -41,7 +41,7 @@ const nextConfig: NextConfig = {
   },
   // Prisma + bcrypt stay external (not bundled) for the server.
   // Renamed in Next 15: was `experimental.serverComponentsExternalPackages`.
-  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@anthropic-ai/sdk'],
+  serverExternalPackages: ['@prisma/client', 'bcryptjs', '@anthropic-ai/sdk', 'inngest'],
 };
 
 export default nextConfig;
