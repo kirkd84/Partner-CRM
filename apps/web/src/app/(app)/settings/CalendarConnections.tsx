@@ -93,6 +93,17 @@ export function CalendarConnections({
                   >
                     Add iCloud password
                   </button>
+                ) : p.id === 'google' && p.configured ? (
+                  // Live Google OAuth flow — /api/auth/google/authorize
+                  // generates the Google consent URL and redirects us
+                  // there. Callback stores encrypted tokens and fires
+                  // an Inngest event to trigger the first sync.
+                  <a
+                    href="/api/auth/google/authorize"
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-primary hover:text-primary"
+                  >
+                    Connect <ExternalLink className="h-3 w-3" />
+                  </a>
                 ) : (
                   <button
                     type="button"

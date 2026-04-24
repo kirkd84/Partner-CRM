@@ -11,5 +11,6 @@
  */
 export { inngest } from './inngest-client';
 import { ping } from './jobs/ping';
+import { googleCalendarSyncOnConnect, googleCalendarSyncCron } from './jobs/google-calendar-sync';
 
-export const functions = [ping];
+export const functions = [ping, googleCalendarSyncOnConnect, googleCalendarSyncCron];

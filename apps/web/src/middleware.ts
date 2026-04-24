@@ -26,6 +26,11 @@ export const config = {
     //                         "Sync app" handshake in the Inngest
     //                         dashboard (responses came back as the
     //                         prerendered login HTML).
-    '/((?!_next/static|_next/image|favicon.ico|api/webhooks|api/inngest|.*\\..*).*)',
+    //   • /api/auth/google/* — Google OAuth callback carries state we
+    //                         verify ourselves; the authorize route
+    //                         reads the session directly. Keeping
+    //                         middleware off the path avoids double
+    //                         redirects during the Google hop.
+    '/((?!_next/static|_next/image|favicon.ico|api/webhooks|api/inngest|api/auth/google|.*\\..*).*)',
   ],
 };
