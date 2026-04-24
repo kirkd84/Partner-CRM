@@ -33,10 +33,19 @@ export default async function ListsPage() {
     }),
     prisma.market.findMany({
       where: { id: { in: session.user.markets } },
-      select: { id: true, name: true, address: true, timezone: true },
+      // Market model calls this column `physicalAddress` (CAN-SPAM
+      // footer); the HitListToolbar expects a plain `address` prop,
+      // so we alias it on the server to avoid touching the client.
+      select: { id: true, name: true, physicalAddress: true, timezone: true },
       orderBy: { name: 'asc' },
     }),
   ]);
+  const marketsForToolbar = markets.map((m) => ({
+    id: m.id,
+    name: m.name,
+    address: m.physicalAddress,
+    timezone: m.timezone,
+  }));
 
   return (
     <div className="mx-auto max-w-[1400px] p-6">
@@ -48,7 +57,7 @@ export default async function ListsPage() {
           </p>
         </div>
         <div className="ml-auto">
-          <HitListToolbar markets={markets} />
+          <HitListToolbar markets={marketsForToolbar} />
         </div>
       </header>
 
@@ -57,7 +66,9 @@ export default async function ListsPage() {
           <Card>
             <EmptyState
               title="No hit lists yet"
-              description={'Plan your day: pick a start address, then add partners to visit. Use "+ New hit list" above.'}
+              description={
+                'Plan your day: pick a start address, then add partners to visit. Use "+ New hit list" above.'
+              }
             />
           </Card>
         ) : (
@@ -83,14 +94,14 @@ export default async function ListsPage() {
                     <span className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
                       <MapPinned className="h-4.5 w-4.5" />
                     </span>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <div className="text-sm font-semibold text-gray-900">{dateLabel}</div>
                         <Pill tone="soft" color={pct === 100 ? 'green' : 'blue'}>
                           {completed}/{total} stops
                         </Pill>
                       </div>
-                      <div className="mt-0.5 text-[11px] text-gray-500 truncate">
+                      <div className="mt-0.5 truncate text-[11px] text-gray-500">
                         {list.market.name} · Start: {list.startAddress}
                       </div>
                       {isManagerPlus && list.userId !== session.user.id && (
