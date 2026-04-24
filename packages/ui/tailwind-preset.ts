@@ -14,9 +14,13 @@ const preset: Partial<Config> = {
     extend: {
       colors: {
         nav: colors.nav,
-        canvas: colors.canvas,
-        card: colors.card,
-        'card-border': colors['card-border'],
+        // Surface tokens use CSS variables so they flip automatically in
+        // `prefers-color-scheme: dark` — the variables are defined in
+        // apps/web/src/app/globals.css. Tailwind's `<alpha-value>`
+        // placeholder lets classes like `bg-canvas/50` keep working.
+        canvas: 'rgb(var(--pr-canvas) / <alpha-value>)',
+        card: 'rgb(var(--pr-card) / <alpha-value>)',
+        'card-border': 'rgb(var(--pr-card-border) / <alpha-value>)',
         primary: colors.primary,
         success: colors.success,
         danger: colors.danger,

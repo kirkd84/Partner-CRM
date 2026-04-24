@@ -4,6 +4,14 @@
 
 :root {
   color-scheme: light dark;
+  /* Surface tokens — referenced by the Tailwind preset as
+     `rgb(var(--pr-canvas) / <alpha-value>)`. Flipped under
+     prefers-color-scheme: dark below. R G B channels only, no comma —
+     that's the modern `rgb()` syntax Tailwind's alpha-channel support
+     expects. */
+  --pr-canvas: 245 246 248;       /* #f5f6f8 */
+  --pr-card: 255 255 255;         /* #ffffff */
+  --pr-card-border: 229 231 235;  /* #e5e7eb */
 }
 
 html,
@@ -12,7 +20,7 @@ body {
 }
 
 body {
-  background: #f5f6f8;
+  background: rgb(var(--pr-canvas));
   color: #111827;
   font-family: var(--font-inter), 'Inter', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
@@ -45,8 +53,18 @@ body {
    own `dark:` overrides where this pass doesn't land right.
    ────────────────────────────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
+  :root {
+    /* Flip the shared surface tokens — this catches every use of
+       `bg-canvas`, `bg-card`, and `border-card-border` across the
+       app without any component-level changes. This is what fixed
+       the "everything stayed white" regression Kirk caught in the
+       first dark-mode screenshots. */
+    --pr-canvas: 11 18 32;         /* deep slate, same as old body bg */
+    --pr-card: 17 24 39;           /* gray-900 */
+    --pr-card-border: 31 41 55;    /* gray-800 */
+  }
+
   body {
-    background: #0b1220;
     color: #e5e7eb;
   }
 
