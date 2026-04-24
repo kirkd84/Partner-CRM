@@ -14,6 +14,13 @@
 
 export { h, type SatoriNode } from './h';
 export {
+  PLATFORM_SIZES,
+  SIZES_BY_GROUP,
+  getPlatformSize,
+  sizesForContentType,
+  type PlatformSize,
+} from './size-catalog';
+export {
   resolvePalette,
   type ColorVariant,
   type ResolvedPalette,

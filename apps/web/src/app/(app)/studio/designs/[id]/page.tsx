@@ -12,12 +12,19 @@ import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@partnerradar/db';
 import { ArrowLeft, Check } from 'lucide-react';
 import { Pill } from '@partnerradar/ui';
-import { getTemplate } from '@partnerradar/marketing-templates';
+import {
+  getTemplate,
+  sizesForContentType,
+  PLATFORM_SIZES,
+} from '@partnerradar/marketing-templates';
 import { DesignPreview } from './DesignPreview';
 import { DesignActions } from './DesignActions';
 import { DesignEditor } from './DesignEditor';
 import { DesignImageSlots } from './DesignImageSlots';
 import { DesignRefinement } from './DesignRefinement';
+import { DesignVersions } from './DesignVersions';
+import { DesignSizes } from './DesignSizes';
+import { DesignPersonalize } from './DesignPersonalize';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +65,68 @@ export default async function DesignPage({ params }: { params: Promise<{ id: str
     reasoning: string;
   };
   const template = getTemplate(doc.templateKey);
+
+  // MW-4: pull recent version history for the timeline.
+  const versionRows = await prisma.mwDesignVersion
+    .findMany({
+      where: { designId: design.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, changeLog: true, createdAt: true, createdBy: true },
+      take: 30,
+    })
+    .catch(() => []);
+
+  // MW-5: filter the platform catalog to sizes that fit this content
+  // type best, plus the design's own template-declared sizes (some
+  // templates have unique sizes — e.g. business-card-vertical).
+  const contentTypeSizes = sizesForContentType(design.contentType as never);
+  const templateExtraSizes = (template?.manifest.sizes ?? []).filter(
+    (s) => !PLATFORM_SIZES.some((p) => p.key === s.key),
+  );
+  const combinedSizes = [
+    ...contentTypeSizes,
+    ...templateExtraSizes.map((s) => ({
+      key: s.key,
+      label: s.key,
+      description: `${s.width}×${s.height}${s.dpi ? ` @ ${s.dpi} DPI` : ''}`,
+      width: s.width,
+      height: s.height,
+      group: 'print' as const,
+    })),
+  ];
+
+  // MW-6: load partners visible to this caller for the personalize picker.
+  // Manager+ → all partners in their markets; admin → everywhere.
+  const role = session.user.role;
+  const userMarkets = session.user.markets ?? [];
+  const partnersRaw = await prisma.partner
+    .findMany({
+      where:
+        role === 'ADMIN'
+          ? {}
+          : userMarkets.length > 0
+            ? { marketId: { in: userMarkets } }
+            : { id: '__none__' },
+      select: {
+        id: true,
+        companyName: true,
+        contacts: {
+          where: { isPrimary: true },
+          select: { name: true },
+          take: 1,
+        },
+      },
+      orderBy: { companyName: 'asc' },
+      take: 200,
+    })
+    .catch(
+      () => [] as Array<{ id: string; companyName: string; contacts: Array<{ name: string }> }>,
+    );
+  const partners = partnersRaw.map((p) => ({
+    id: p.id,
+    companyName: p.companyName,
+    primaryContactName: p.contacts[0]?.name ?? null,
+  }));
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -119,6 +188,24 @@ export default async function DesignPage({ params }: { params: Promise<{ id: str
               designId={design.id}
               imageSlots={(template?.manifest.slots ?? []).filter((s) => s.kind === 'image')}
               values={doc.slots.image}
+            />
+
+            <DesignSizes designId={design.id} sizes={combinedSizes} variant={doc.variant} />
+
+            <DesignPersonalize
+              designId={design.id}
+              partners={partners}
+              variant={doc.variant}
+              width={doc.width}
+              height={doc.height}
+            />
+
+            <DesignVersions
+              designId={design.id}
+              versions={versionRows.map((v) => ({
+                ...v,
+                createdAt: v.createdAt.toISOString(),
+              }))}
             />
 
             <div className="rounded-xl border border-card-border bg-white p-4 text-xs text-gray-600">

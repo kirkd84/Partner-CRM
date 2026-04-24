@@ -52,6 +52,12 @@ export { renderDesign, type RenderDesignInput, type RenderedDesign } from './pip
 export { generateDesignFull, type GenerateArgs, type GenerateResult } from './pipeline/generate';
 export { toBrandRenderProfile } from './pipeline/adapt-brand';
 export {
+  mergeTokens,
+  mergeSlotsText,
+  AVAILABLE_TOKENS,
+  type MergeContext,
+} from './pipeline/merge-tokens';
+export {
   routeDirector,
   routeIntentParse,
   routeImageGen,

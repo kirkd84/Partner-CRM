@@ -227,6 +227,81 @@ export async function updateDesignStatus(
   revalidatePath(`/studio/designs/${designId}`);
 }
 
+/**
+ * MW-4: revert the design back to the document recorded in a prior
+ * MwDesignVersion. Logs a fresh version capturing the revert (so
+ * "undo the undo" still works).
+ */
+export async function revertDesignToVersion(designId: string, versionId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const existing = await prisma.mwDesign.findUnique({ where: { id: designId } });
+  if (!existing) throw new Error('NOT_FOUND');
+  await assertAccess(existing.workspaceId);
+  const version = await prisma.mwDesignVersion.findUnique({ where: { id: versionId } });
+  if (!version || version.designId !== designId) throw new Error('VERSION_NOT_FOUND');
+
+  await prisma.mwDesign.update({
+    where: { id: designId },
+    data: { document: version.document as unknown as Prisma.InputJsonValue },
+  });
+  await prisma.mwDesignVersion.create({
+    data: {
+      designId,
+      createdBy: session.user.id,
+      changeLog: `Reverted to version from ${version.createdAt.toISOString().slice(0, 16).replace('T', ' ')}`,
+      document: version.document as unknown as Prisma.InputJsonValue,
+    },
+  });
+  revalidatePath(`/studio/designs/${designId}`);
+}
+
+/**
+ * MW-5: log a multi-channel export. We're not persisting bytes —
+ * the PNG is regenerated on demand via /api/studio/designs/[id]/png
+ * — but we keep MwExport rows so the user has a download history
+ * and we can later add R2-backed cached bytes here.
+ */
+export async function recordDesignExport(
+  designId: string,
+  args: { sizeKey: string; format?: 'png' | 'pdf'; targetChannel?: string | null },
+): Promise<{ id: string }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const design = await prisma.mwDesign.findUnique({ where: { id: designId } });
+  if (!design) throw new Error('NOT_FOUND');
+  await assertAccess(design.workspaceId);
+
+  // Resolve the size from either the template manifest or the global
+  // platform catalog. We do a lightweight import here — keeps the
+  // hot path of createDesign untouched.
+  const { getTemplate, getPlatformSize } = await import('@partnerradar/marketing-templates');
+  const tmpl = getTemplate((design.document as { templateKey?: string } | null)?.templateKey ?? '');
+  const size =
+    tmpl?.manifest.sizes.find((s) => s.key === args.sizeKey) ?? getPlatformSize(args.sizeKey);
+  if (!size) throw new Error('Unknown size');
+
+  const created = await prisma.mwExport.create({
+    data: {
+      designId,
+      format: args.format ?? 'png',
+      targetChannel: args.targetChannel ?? null,
+      width: size.width,
+      height: size.height,
+      dpi: size.dpi ?? null,
+      colorMode: 'RGB',
+      // Until R2 lands we store a relative URL; the bytes are produced
+      // on-the-fly by the PNG route. The fileId column lets us swap to
+      // an R2 key with no schema change later.
+      fileId: `inline:/api/studio/designs/${designId}/png?sizeKey=${size.key}`,
+      sizeBytes: 0,
+    },
+    select: { id: true },
+  });
+  revalidatePath(`/studio/designs/${designId}`);
+  return { id: created.id };
+}
+
 export async function updateDesignSlots(
   designId: string,
   overrides: {

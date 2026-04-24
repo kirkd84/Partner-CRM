@@ -17,6 +17,7 @@ import type {
   SlotValues,
   ColorVariant,
 } from '@partnerradar/marketing-templates';
+import { mergeSlotsText, type MergeContext } from './merge-tokens';
 
 let fontCache: Array<{ name: string; data: ArrayBuffer; weight: number; style: 'normal' }> | null =
   null;
@@ -58,6 +59,8 @@ export interface RenderDesignInput {
   slots: SlotValues;
   size?: TemplateSize;
   variant?: ColorVariant;
+  /** MW-6: mail-merge context applied to text slots before render. */
+  merge?: MergeContext;
 }
 
 export interface RenderedDesign {
@@ -73,7 +76,12 @@ export async function renderDesign(input: RenderDesignInput): Promise<RenderedDe
   const { template, brand, slots } = input;
   const size = input.size ?? template.manifest.sizes[0]!;
   const variant = input.variant ?? 'light';
-  const tree = template.render({ slots, brand, size, variant });
+  // Apply mail-merge tokens just before handing slots to the template
+  // so every template benefits without each one re-implementing it.
+  const mergedSlots: SlotValues = input.merge
+    ? { text: mergeSlotsText(slots.text, input.merge), image: { ...slots.image } }
+    : slots;
+  const tree = template.render({ slots: mergedSlots, brand, size, variant });
 
   let satoriFn: (node: unknown, opts: unknown) => Promise<string>;
   try {

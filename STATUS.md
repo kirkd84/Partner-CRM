@@ -4,6 +4,70 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #13 — ✅ MW-4 full + MW-5 multi-size + MW-6 mail-merge
+
+Three of the remaining MW phases land in one push. After this Studio
+covers the full creative loop: brief → generate → iterate → personalize
+→ resize → export. Only MW-7 (scheduling/publishing to social
+platforms) is still untouched among the user-facing phases.
+
+**MW-4 full (version history with revert):**
+
+- `DesignVersions.tsx` — newest-first timeline of every regenerate /
+  refine / slot edit. Each row shows the change log + timestamp +
+  Revert button.
+- `revertDesignToVersion(designId, versionId)` action — copies the
+  recorded document back into MwDesign and logs the revert as a fresh
+  version, so undo-the-undo just works.
+- Up to 30 versions loaded; UI shows 12 with "N older hidden" footer.
+
+**MW-5 multi-size:**
+
+- `packages/marketing-templates/src/size-catalog.ts` — shared
+  PLATFORM_SIZES registry with IG square/story, FB feed, LinkedIn,
+  Twitter card, US Letter, A4, half-letter, BC horizontal/vertical,
+  email header. Each entry has group + label + bestFor[].
+- `DesignSizes.tsx` panel groups sizes by Social / Print / Business
+  cards / Email. One tap renders + downloads the design at that size
+  via `/api/studio/designs/[id]/png?sizeKey=…` and writes an MwExport
+  row for the audit trail.
+- Renderer accepts a `sizeKey` URL override; falls back to the
+  template's declared sizes, then the platform catalog. Templates
+  built around percentage layouts scale gracefully; aspect-clashing
+  sizes still render so the user always has a fallback.
+
+**MW-6 mail-merge:**
+
+- `pipeline/merge-tokens.ts` — pure helper. Tokens like
+  `{{firstName}}`, `{{partner.companyName}}`, `{{event.date}}` resolve
+  from a MergeContext shaped around (recipient, partner, event, brand).
+  Unknown tokens are left visible so missing context is obvious instead
+  of silently blank.
+- `renderDesign()` accepts an optional `merge` field; when present we
+  swap text slots through `mergeSlotsText` before handing them to the
+  template — every template benefits with zero per-template changes.
+- `DesignPersonalize.tsx` — partner combobox on the design detail.
+  Picking a partner re-renders the preview via
+  `/api/studio/designs/[id]/png?partnerId=…` with their data merged in
+  (recipient pulls from the partner's primary Contact row; partner
+  fields from the Partner record itself). Download button delivers
+  the personalized PNG.
+- Recipient pulls from Contact.{name, title, emails, phones} preferring
+  primary entries.
+
+**Module surface additions:**
+
+- `@partnerradar/marketing-engine` exports `mergeTokens`,
+  `mergeSlotsText`, `AVAILABLE_TOKENS`, `MergeContext`.
+- `@partnerradar/marketing-templates` exports `PLATFORM_SIZES`,
+  `SIZES_BY_GROUP`, `getPlatformSize`, `sizesForContentType`.
+
+**Net:** the MW phases left to ship are MW-7 (publishing to
+LinkedIn/Twitter/Buffer/etc. — needs OAuth from Kirk), MW-8 approval
+workflow polish, and the long tail of templates (16 → 35).
+
+---
+
 ## 2026-04-24 pass #12 — ✅ MW-3/4 image upload + refinement chat + 4 more templates
 
 Catalog 12 → 16. Designs are now genuinely testable end-to-end: upload
