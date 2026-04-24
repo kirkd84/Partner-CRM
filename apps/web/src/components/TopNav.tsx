@@ -2,7 +2,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { useEffect, useRef, useState } from 'react';
 import { BrandLogo } from '@/components/BrandLogo';
 import {
   Bell,
@@ -50,30 +49,6 @@ export function TopNav() {
   const role = session?.user.role ?? 'REP';
   const isManagerPlus = role === 'MANAGER' || role === 'ADMIN';
   const t = tenant();
-
-  // User-menu is click-controlled (not hover) so clicking Settings is
-  // reliable on trackpads + touch. Previous hover implementation had
-  // a 4px dead-gap between the avatar and the dropdown — the menu
-  // closed when your mouse crossed it mid-flight.
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    function onDocClick(e: MouseEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setUserMenuOpen(false);
-    }
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [userMenuOpen]);
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-black/30 bg-nav-bg px-4">
@@ -149,14 +124,15 @@ export function TopNav() {
             </span>
           )}
         </button>
-        {/* User menu — click to toggle. Outside-click + Esc both close. */}
+        {/* User menu — hover-controlled. The wrapper panel uses `pt-1`
+            instead of `mt-1` so the gap between the avatar button and
+            the visible menu is part of the hoverable area (otherwise
+            moving the mouse across it closed the menu prematurely). */}
         {session?.user && (
-          <div className="relative ml-1" ref={userMenuRef}>
+          <div className="group relative ml-1">
             <button
               type="button"
-              onClick={() => setUserMenuOpen((v) => !v)}
               aria-haspopup="menu"
-              aria-expanded={userMenuOpen}
               className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-white/10"
             >
               <Avatar
@@ -167,40 +143,35 @@ export function TopNav() {
               <span className="hidden text-[13px] font-semibold text-white md:inline">
                 {session.user.name}
               </span>
-              <ChevronDown
-                className={cn(
-                  'h-3 w-3 text-white/70 transition-transform',
-                  userMenuOpen && 'rotate-180',
-                )}
-              />
+              <ChevronDown className="h-3 w-3 text-white/70 transition-transform group-hover:rotate-180" />
             </button>
-            {userMenuOpen && (
+            {/* Wrapper uses pt-1 (padding, not margin) so the 4px gap
+                between the trigger and the visible panel is part of
+                the hover area — crossing it with the mouse keeps the
+                menu open. */}
+            <div className="invisible absolute right-0 top-full pt-1 opacity-0 transition group-hover:visible group-hover:opacity-100">
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1 w-52 rounded-md border border-gray-200 bg-white shadow-lg"
+                className="w-52 rounded-md border border-gray-200 bg-white shadow-lg"
               >
                 <div className="border-b border-gray-100 p-2.5 text-xs text-gray-500">
                   Signed in as <strong className="text-gray-900">{session.user.email}</strong>
                 </div>
                 <Link
                   href="/settings"
-                  onClick={() => setUserMenuOpen(false)}
                   className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                 >
                   Settings
                 </Link>
                 <button
                   type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    signOut({ redirectTo: '/login' });
-                  }}
+                  onClick={() => signOut({ redirectTo: '/login' })}
                   className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                 >
                   Sign out
                 </button>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
