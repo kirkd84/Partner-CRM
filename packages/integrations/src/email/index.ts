@@ -29,6 +29,13 @@ export interface SendEmailInput {
   fromEmail?: string;
   /** Tag for Resend analytics — e.g. "expense-pending-approver". */
   tag?: string;
+  /**
+   * Extra RFC 5322 headers. Used for List-Unsubscribe + the RFC 8058
+   * one-click header that makes Gmail/Apple Mail show the native
+   * unsubscribe button. Providers tolerate duplicates; we only set
+   * these when the caller passes them through.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface SendEmailResult {
@@ -74,6 +81,9 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   if (input.text) body.text = input.text;
   if (input.replyTo) body.reply_to = input.replyTo;
   if (input.tag) body.tags = [{ name: 'category', value: input.tag }];
+  if (input.headers && Object.keys(input.headers).length > 0) {
+    body.headers = input.headers;
+  }
 
   try {
     const res = await fetch('https://api.resend.com/emails', {

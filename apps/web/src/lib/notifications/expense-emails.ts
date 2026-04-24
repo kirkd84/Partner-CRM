@@ -19,6 +19,7 @@
 
 import { prisma } from '@partnerradar/db';
 import { sendEmail, renderEmailLayout } from '@partnerradar/integrations';
+import { tenant } from '@partnerradar/config';
 
 /** Base URL for links in emails. Prefer the public Railway URL; fall back in dev. */
 function appBaseUrl(): string {
@@ -27,6 +28,17 @@ function appBaseUrl(): string {
     process.env.NEXTAUTH_URL ||
     'https://partner-crm-production.up.railway.app'
   );
+}
+
+/**
+ * Standard compliance footer for internal transactional emails.
+ * Not strictly required for transactional messages under CAN-SPAM, but
+ * every production mail stack ships a footer — it signals to spam
+ * filters that the sender is legitimate and keeps auditors happy.
+ */
+function transactionalFooter(): string {
+  const t = tenant();
+  return `${escapeHtml(t.legalName)} · ${escapeHtml(t.physicalAddress)}<br>Sent automatically by Partner Portal — replies are monitored.`;
 }
 
 function formatMoney(n: number): string {
@@ -112,6 +124,7 @@ export async function notifyExpensePending(expenseId: string): Promise<void> {
       bodyHtml: body,
       ctaLabel: 'Review in Partner Portal',
       ctaHref: `${appBaseUrl()}/admin/expenses?status=PENDING`,
+      footerHtml: transactionalFooter(),
     });
 
     await sendEmail({
@@ -158,6 +171,7 @@ export async function notifyExpenseApproved(
       `,
       ctaLabel: 'Open in Partner Portal',
       ctaHref: `${appBaseUrl()}/partners/${expense.partner.id}`,
+      footerHtml: transactionalFooter(),
     });
     await sendEmail({
       to: expense.user.email,
@@ -202,6 +216,7 @@ export async function notifyExpenseRejected(
       `,
       ctaLabel: 'Open in Partner Portal',
       ctaHref: `${appBaseUrl()}/partners/${expense.partner.id}`,
+      footerHtml: transactionalFooter(),
     });
     await sendEmail({
       to: expense.user.email,

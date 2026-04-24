@@ -21,6 +21,7 @@ import { sendEmail } from '@partnerradar/integrations';
 import { checkSendAllowed, type Channel } from './consent';
 import { substitute, type TemplateContext } from '@/app/(app)/admin/templates/substitute';
 import { tenant } from '@partnerradar/config';
+import { unsubscribeUrl } from './unsubscribe-token';
 
 export type DispatchOutcome =
   | 'sent'
@@ -165,14 +166,26 @@ export async function dispatchAutomatedSend(args: DispatchArgs): Promise<Dispatc
   // 3. Actual send
   let messageId: string | undefined;
   if (args.channel === 'email') {
+    const unsubUrl = unsubscribeUrl(allowed.contactId, allowed.address);
+    const textBody = `${bodyOut.output}\n\n---\n${t.legalName}\n${t.physicalAddress}\n\nTo stop these messages, click: ${unsubUrl}`;
     const res = await sendEmail({
       to: allowed.address,
       subject: subjectOut.output || `A message from ${t.brandName}`,
-      html: toEmailHtml(bodyOut.output, rep.name),
-      text: bodyOut.output,
+      html: toEmailHtml(bodyOut.output, rep.name, {
+        legalName: t.legalName,
+        physicalAddress: t.physicalAddress,
+        unsubscribeUrl: unsubUrl,
+      }),
+      text: textBody,
       fromName: rep.name,
       replyTo: rep.email ?? undefined,
       tag: `cadence-${template.id}`,
+      headers: {
+        // RFC 2369 — enable Gmail/Apple Mail native unsubscribe.
+        'List-Unsubscribe': `<${unsubUrl}>, <mailto:${t.replyToAddress}?subject=unsubscribe>`,
+        // RFC 8058 — POST-based one-click (Gmail needs this too).
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
     });
     if (!res.ok) {
       return {
@@ -234,13 +247,33 @@ export async function dispatchAutomatedSend(args: DispatchArgs): Promise<Dispatc
   };
 }
 
-/** Minimal plain-text → HTML conversion: paragraphs from double newlines, sig block. */
-function toEmailHtml(body: string, repName: string): string {
+/**
+ * Minimal plain-text → HTML conversion plus CAN-SPAM footer.
+ *
+ * CAN-SPAM §7.5 requires every commercial email to include:
+ *   1. A physical postal address.
+ *   2. A clear, functional opt-out mechanism.
+ *
+ * Both are rendered at the bottom of the HTML + baked into the text
+ * body higher in the stack.
+ */
+function toEmailHtml(
+  body: string,
+  repName: string,
+  compliance: { legalName: string; physicalAddress: string; unsubscribeUrl: string },
+): string {
   const paras = body.split(/\n{2,}/).map((p) => escapeHtml(p).replace(/\n/g, '<br>'));
   const wrapped = paras.map((p) => `<p style="margin:0 0 12px;">${p}</p>`).join('');
   return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.55;color:#111827;">
     ${wrapped}
     <p style="margin:24px 0 0;color:#6b7280;font-size:12px;">— ${escapeHtml(repName)}</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0 12px;">
+    <p style="margin:0 0 6px;color:#9ca3af;font-size:11px;line-height:1.55;">
+      ${escapeHtml(compliance.legalName)} · ${escapeHtml(compliance.physicalAddress)}
+    </p>
+    <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.55;">
+      Prefer not to hear from us? <a href="${compliance.unsubscribeUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>.
+    </p>
   </div>`;
 }
 
