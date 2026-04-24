@@ -15,7 +15,17 @@ export default middleware;
 
 export const config = {
   matcher: [
-    // Run on everything except static assets, favicon, and Next internals
-    '/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)',
+    // Run on everything except:
+    //   • Static assets (_next/static, _next/image, favicon, any file
+    //     extension like .png/.js/.css).
+    //   • /api/webhooks/*   — HMAC-signed, own auth (Storm, etc.)
+    //   • /api/inngest      — Inngest signs PUT/POST with its own
+    //                         signing key; the serve() adapter
+    //                         verifies. Middleware must NOT redirect
+    //                         these to /login, which was breaking the
+    //                         "Sync app" handshake in the Inngest
+    //                         dashboard (responses came back as the
+    //                         prerendered login HTML).
+    '/((?!_next/static|_next/image|favicon.ico|api/webhooks|api/inngest|.*\\..*).*)',
   ],
 };
