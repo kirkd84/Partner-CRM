@@ -1068,13 +1068,50 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
 
   for (const { label, sql } of statements) {
     try {
-      await prisma.$executeRawUnsafe(sql);
+      // Prisma's $executeRawUnsafe runs as a prepared statement and Postgres
+      // refuses multi-command inputs there. Split each DDL blob at top-level
+      // `;` (respecting $$...$$ dollar-quoting so bodies of DO blocks stay
+      // intact) and execute the pieces one at a time.
+      for (const piece of splitSqlStatements(sql)) {
+        await prisma.$executeRawUnsafe(piece);
+      }
       console.log(`[auto-migrate]   ✓ ${label}`);
     } catch (err) {
       console.error(`[auto-migrate]   ✗ ${label}:`, err);
       // Keep going — one failure shouldn't block the rest.
     }
   }
+}
+
+/**
+ * Split a SQL blob into individual statements on top-level `;`. Semicolons
+ * inside a `$$ ... $$` dollar-quoted string (which is how Postgres DO blocks
+ * delimit their body) are preserved. We don't try to be a full parser — we
+ * only need to handle the shapes produced in this file (CREATE ..., ALTER
+ * ..., DO $$ ... END $$;). Comments are passed through untouched.
+ */
+function splitSqlStatements(sql: string): string[] {
+  const out: string[] = [];
+  let buf = '';
+  let inDollar = false;
+  for (let i = 0; i < sql.length; i++) {
+    if (sql[i] === '$' && sql[i + 1] === '$') {
+      inDollar = !inDollar;
+      buf += '$$';
+      i += 1;
+      continue;
+    }
+    if (sql[i] === ';' && !inDollar) {
+      const trimmed = buf.trim();
+      if (trimmed) out.push(trimmed);
+      buf = '';
+      continue;
+    }
+    buf += sql[i];
+  }
+  const tail = buf.trim();
+  if (tail) out.push(tail);
+  return out;
 }
 
 async function seedAppointmentTypes(prisma: {
