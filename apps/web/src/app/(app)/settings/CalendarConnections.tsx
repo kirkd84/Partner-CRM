@@ -1,10 +1,34 @@
 'use client';
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, CheckCircle2, ExternalLink, AlertTriangle, X, RefreshCw } from 'lucide-react';
+import {
+  Calendar,
+  CheckCircle2,
+  ExternalLink,
+  AlertTriangle,
+  X,
+  RefreshCw,
+  ListChecks,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
 import { Pill } from '@partnerradar/ui';
 import type { CalendarProviderInfo } from '@partnerradar/integrations';
-import { syncCalendarConnectionNow, disconnectCalendarConnection } from './actions';
+import {
+  syncCalendarConnectionNow,
+  disconnectCalendarConnection,
+  listGoogleCalendarsForConnection,
+  updateCalendarSelection,
+} from './actions';
+
+type RemoteCalendar = {
+  id: string;
+  summary: string;
+  primary: boolean;
+  backgroundColor?: string;
+  accessRole: string;
+  selected: boolean;
+};
 
 interface Connection {
   id: string;
@@ -121,6 +145,71 @@ function ConnectionRow({ connection }: { connection: Connection }) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
 
+  // Calendar picker state — lazy-loaded on first expand so we're not
+  // hitting Google's calendarList API for every row on page render.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [remoteCalendars, setRemoteCalendars] = useState<RemoteCalendar[] | null>(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [pickerLoading, setPickerLoading] = useState(false);
+
+  async function loadCalendars() {
+    setPickerLoading(true);
+    setPickerError(null);
+    try {
+      const res = await listGoogleCalendarsForConnection(connection.id);
+      if (!res.ok) {
+        setPickerError(res.error ?? 'Failed to load');
+        setRemoteCalendars([]);
+      } else {
+        setRemoteCalendars(res.calendars);
+      }
+    } catch (err) {
+      setPickerError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setPickerLoading(false);
+    }
+  }
+
+  function togglePicker() {
+    const next = !pickerOpen;
+    setPickerOpen(next);
+    if (next && remoteCalendars === null) {
+      void loadCalendars();
+    }
+  }
+
+  function toggleCalendar(id: string) {
+    if (!remoteCalendars) return;
+    setRemoteCalendars(
+      remoteCalendars.map((c) => (c.id === id ? { ...c, selected: !c.selected } : c)),
+    );
+  }
+
+  function saveSelection() {
+    if (!remoteCalendars) return;
+    const selected = remoteCalendars.filter((c) => c.selected).map((c) => c.id);
+    if (selected.length === 0) {
+      setPickerError('Pick at least one calendar — otherwise nothing will sync.');
+      return;
+    }
+    setPickerError(null);
+    startTransition(async () => {
+      try {
+        await updateCalendarSelection(connection.id, selected);
+        // Kick an immediate sync so the new selection takes effect now.
+        const res = await syncCalendarConnectionNow(connection.id);
+        setMessage(
+          res.ok
+            ? `Saved · synced ${res.synced} events from ${selected.length} calendar${selected.length === 1 ? '' : 's'}`
+            : `Saved, but sync failed: ${res.error ?? 'unknown'}`,
+        );
+        router.refresh();
+      } catch (err) {
+        setMessage(err instanceof Error ? err.message : 'Failed to save');
+      }
+    });
+  }
+
   function onSync() {
     setMessage(null);
     startTransition(async () => {
@@ -166,12 +255,23 @@ function ConnectionRow({ connection }: { connection: Connection }) {
             ? `synced ${timeAgo(connection.lastSyncedAt)}`
             : 'not yet synced'}
         </span>
+        {connection.provider === 'google' && (
+          <button
+            type="button"
+            onClick={togglePicker}
+            title="Pick which calendars to sync"
+            className="ml-auto inline-flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:border-primary hover:text-primary"
+          >
+            <ListChecks className="h-3 w-3" /> Calendars
+            {pickerOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        )}
         <button
           type="button"
           onClick={onSync}
           disabled={isPending}
           title="Sync now"
-          className="ml-auto inline-flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:border-primary hover:text-primary disabled:opacity-50"
+          className={`inline-flex items-center gap-1 rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:border-primary hover:text-primary disabled:opacity-50 ${connection.provider !== 'google' ? 'ml-auto' : ''}`}
         >
           <RefreshCw className={`h-3 w-3 ${isPending ? 'animate-spin' : ''}`} />
           {isPending ? 'Syncing…' : 'Sync now'}
@@ -193,6 +293,84 @@ function ConnectionRow({ connection }: { connection: Connection }) {
         </div>
       )}
       {message && <div className="text-[11px] text-gray-600">{message}</div>}
+
+      {/* Expandable calendar picker — lazy-loaded on open */}
+      {pickerOpen && (
+        <div className="mt-2 rounded border border-card-border bg-white p-2">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-label text-gray-600">
+              Calendars to sync
+            </span>
+            {remoteCalendars && (
+              <span className="text-[10px] text-gray-400">
+                {remoteCalendars.filter((c) => c.selected).length} of {remoteCalendars.length}{' '}
+                selected
+              </span>
+            )}
+          </div>
+          {pickerLoading && (
+            <div className="py-2 text-center text-[11px] text-gray-500">
+              Loading your Google calendars…
+            </div>
+          )}
+          {pickerError && (
+            <div className="flex items-start gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="break-all">{pickerError}</span>
+            </div>
+          )}
+          {remoteCalendars && remoteCalendars.length > 0 && (
+            <>
+              <ul className="max-h-64 space-y-0.5 overflow-y-auto">
+                {remoteCalendars.map((c) => (
+                  <li key={c.id}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={c.selected}
+                        onChange={() => toggleCalendar(c.id)}
+                        className="rounded"
+                      />
+                      {c.backgroundColor && (
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: c.backgroundColor }}
+                        />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">{c.summary}</span>
+                      {c.primary && (
+                        <span className="rounded bg-blue-50 px-1 py-0.5 text-[9px] font-semibold text-blue-700">
+                          PRIMARY
+                        </span>
+                      )}
+                      {c.accessRole === 'reader' && (
+                        <span className="text-[9px] text-gray-400">read-only</span>
+                      )}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(false)}
+                  className="rounded border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:border-gray-300"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={saveSelection}
+                  disabled={isPending}
+                  className="rounded bg-primary px-3 py-1 text-[11px] font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
+                >
+                  {isPending ? 'Saving…' : 'Save + sync'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </li>
   );
 }
