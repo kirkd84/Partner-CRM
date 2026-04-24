@@ -4,6 +4,43 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #6 — ✅ EV-9 (analytics + per-partner history + reliability report)
+
+**New surface:**
+
+- Event detail Dashboard tab now renders a real dashboard instead of
+  the placeholder — funnel cards (Invited → Accepted → Confirmed →
+  Attended with conversion %), response-time histogram buckets
+  (<1h / 1-6h / 6-24h / 1-3d / >3d), message performance table per
+  reminder kind (scheduled / sent / canceled / failed), cost
+  estimate (SMS + email + flat staff hours), and ticket utilization
+  table.
+- `lib/events/analytics.ts` — `computeEventAnalytics(eventId)` and
+  `partnerEventHistory(partnerId)` aggregators; single place to
+  compute all of the above.
+- `/api/events/[id]/export?view=funnel|invites|attendance` — CSV
+  download route (manager+/host/creator) with three views.
+- `/events?tab=past` now renders a rich table: invited / confirmed /
+  attended counts + 90-day revenue (from RevenueAttribution on
+  attended partners) + ROI ratio. Placeholder cost model until real
+  Twilio/Resend billing plugs in.
+- Partner detail page gains a server-rendered Event history card at
+  the bottom with acceptance/show/score chips + table of every invite
+  this partner has received, linked back to its event.
+- Admin → **Partner reliability** (new nav item) — ranked list of
+  partners by `reliabilityScore`, filterable by market + min show
+  rate + eligibility. Admins can bulk-flip `autoWaitlistEligible`;
+  managers get read-only. CSV export at
+  `/api/admin/reliability/export`.
+
+**Remaining on the Event Tracking spec:**
+
+- EV-10 Marketing Wizard integration (design-from-event, post-event
+  thank-you campaign) — blocked on MW-2..6 shipping first.
+- EV-11 mobile polish + push notifs.
+
+---
+
 ## 2026-04-24 pass #5 — ✅ EV-8 (mobile check-in UI + attendance postmortem)
 
 **New surface:**

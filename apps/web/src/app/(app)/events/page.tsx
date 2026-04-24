@@ -14,10 +14,11 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
-import { prisma } from '@partnerradar/db';
+import { prisma, Prisma } from '@partnerradar/db';
 import { Pill } from '@partnerradar/ui';
 import { Calendar, MapPin, Ticket, Users, Clock } from 'lucide-react';
 import { NewEventButton } from './NewEventButton';
+import { PastEventsTable, type PastEventRow } from './PastEventsTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,6 +93,11 @@ export default async function EventsPage({
 
   const rows = tab === 'upcoming' ? upcoming : past;
 
+  // For Past tab: enrich with attendance counts + 90-day revenue from
+  // attributed partners. Kept in this same file because the shape is
+  // only used here and we want one SQL pass.
+  const pastRows: PastEventRow[] = tab === 'past' ? await buildPastRows(past) : [];
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-card-border bg-white px-6 py-4">
@@ -116,7 +122,9 @@ export default async function EventsPage({
       </div>
 
       <div className="flex-1 overflow-auto bg-canvas p-6">
-        {rows.length === 0 ? (
+        {tab === 'past' ? (
+          <PastEventsTable rows={pastRows} />
+        ) : rows.length === 0 ? (
           <div className="mx-auto max-w-lg rounded-lg border border-card-border bg-white p-10 text-center">
             <Calendar className="mx-auto h-8 w-8 text-gray-300" />
             <h3 className="mt-2 text-sm font-semibold text-gray-900">
@@ -227,4 +235,114 @@ function formatWhen(d: Date, tz: string): string {
   } catch {
     return d.toLocaleString();
   }
+}
+
+type PastEventInput = Array<{
+  id: string;
+  publicId: string;
+  name: string;
+  startsAt: Date;
+  timezone: string;
+  status: string;
+  endsAt: Date;
+  market: { id: string; name: string };
+}>;
+
+/**
+ * Enrich past events with invited/confirmed/attended counts + a rough
+ * 90-day revenue figure from RevenueAttribution on any attended
+ * partner. Cost is a flat 1% of invites × $0.01 placeholder (we use
+ * the same estimator as the dashboard) so numbers stay consistent.
+ */
+async function buildPastRows(events: PastEventInput): Promise<PastEventRow[]> {
+  if (events.length === 0) return [];
+  const eventIds = events.map((e) => e.id);
+  const [inviteCounts, confirmedCounts, attendedAssignments, revenue] = await Promise.all([
+    prisma.evInvite.groupBy({
+      by: ['eventId'],
+      where: { eventId: { in: eventIds } },
+      _count: { _all: true },
+    }),
+    prisma.evInvite.groupBy({
+      by: ['eventId'],
+      where: {
+        eventId: { in: eventIds },
+        status: { in: ['CONFIRMED', 'NO_SHOW'] },
+      },
+      _count: { _all: true },
+    }),
+    prisma.evTicketAssignment.findMany({
+      where: {
+        checkedInAt: { not: null },
+        ticketType: { eventId: { in: eventIds }, isPrimary: true },
+      },
+      select: {
+        invite: {
+          select: { eventId: true, partnerId: true, confirmedAt: true },
+        },
+      },
+    }),
+    prisma.revenueAttribution
+      .findMany({
+        where: { earnedOn: { gte: new Date(Date.now() - 180 * 24 * 3600 * 1000) } },
+        select: { partnerId: true, amount: true, earnedOn: true },
+      })
+      .catch(
+        () =>
+          [] as Array<{
+            partnerId: string;
+            amount: Prisma.Decimal;
+            earnedOn: Date;
+          }>,
+      ),
+  ]);
+
+  const invitedByEvent = new Map<string, number>();
+  for (const r of inviteCounts) invitedByEvent.set(r.eventId, r._count._all);
+  const confirmedByEvent = new Map<string, number>();
+  for (const r of confirmedCounts) confirmedByEvent.set(r.eventId, r._count._all);
+  const attendedByEvent = new Map<string, Set<string>>(); // set of partnerIds
+  const attendedRawByEvent = new Map<string, number>();
+  for (const row of attendedAssignments) {
+    const eid = row.invite.eventId;
+    attendedRawByEvent.set(eid, (attendedRawByEvent.get(eid) ?? 0) + 1);
+    if (row.invite.partnerId) {
+      const set = attendedByEvent.get(eid) ?? new Set<string>();
+      set.add(row.invite.partnerId);
+      attendedByEvent.set(eid, set);
+    }
+  }
+
+  return events.map((e) => {
+    const invited = invitedByEvent.get(e.id) ?? 0;
+    const confirmed = confirmedByEvent.get(e.id) ?? 0;
+    const attended = attendedRawByEvent.get(e.id) ?? 0;
+    // 90-day revenue window STARTS at the event end.
+    const windowStart = e.endsAt.getTime();
+    const windowEnd = windowStart + 90 * 24 * 3600 * 1000;
+    const partners = attendedByEvent.get(e.id) ?? new Set<string>();
+    let revenueDollars = 0;
+    for (const r of revenue) {
+      if (!partners.has(r.partnerId)) continue;
+      const at = r.earnedOn.getTime();
+      if (at >= windowStart && at <= windowEnd) {
+        revenueDollars += Number(r.amount);
+      }
+    }
+    const cost = Math.max(invited * 0.02, 1); // placeholder until real billing plugs in
+    return {
+      id: e.id,
+      publicId: e.publicId,
+      name: e.name,
+      startsAt: e.startsAt.toISOString(),
+      timezone: e.timezone,
+      marketName: e.market.name,
+      status: e.status,
+      invited,
+      confirmed,
+      attended,
+      cost,
+      revenue: revenueDollars,
+    };
+  });
 }

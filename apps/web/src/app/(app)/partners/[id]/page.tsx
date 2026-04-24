@@ -32,6 +32,7 @@ import { isAIConfigured } from '@partnerradar/ai';
 import { ActivityRail } from './ActivityRail';
 import { PartnerStatsRow } from './PartnerStatsRow';
 import { LinkedProjectsTable } from './LinkedProjectsTable';
+import { PartnerEventsCard } from './PartnerEventsCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -522,6 +523,9 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
 
         {/* Linked projects — Storm-style roster at the bottom */}
         <LinkedProjectsTable projects={stormProjects} activated={Boolean(partner.stormCloudId)} />
+
+        {/* Event history — only renders if this partner has been invited to anything. */}
+        <PartnerEventsCard partnerId={partner.id} />
       </div>
     </div>
   );

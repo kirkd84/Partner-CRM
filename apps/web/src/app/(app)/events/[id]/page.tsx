@@ -24,6 +24,8 @@ import { SubEventsTab } from './SubEventsTab';
 import { InvitesTab } from './InvitesTab';
 import { ActivityTab } from './ActivityTab';
 import { BatchOffersCard } from './BatchOffersCard';
+import { DashboardTab } from './DashboardTab';
+import { computeEventAnalytics } from '@/lib/events/analytics';
 
 export const dynamic = 'force-dynamic';
 
@@ -227,18 +229,16 @@ export default async function EventDetailPage({
         {tab === 'invites' && <InvitesTab event={event} canEdit={canEdit} />}
         {tab === 'subevents' && <SubEventsTab event={event} canEdit={canEdit} />}
         {tab === 'hosts' && <HostsTab event={event} reps={reps} canEdit={canEdit} />}
-        {tab === 'dashboard' && (
-          <div className="p-6">
-            <div className="mx-auto max-w-2xl rounded-md border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-              Dashboard (funnel, response times, cost) ships in EV-9 once real invite data lights
-              up. For now, the Overview tab shows capacity + the Invites tab shows live status.
-            </div>
-          </div>
-        )}
+        {tab === 'dashboard' && <AsyncDashboard eventId={event.id} />}
         {tab === 'activity' && <ActivityTab eventId={event.id} />}
       </div>
     </div>
   );
+}
+
+async function AsyncDashboard({ eventId }: { eventId: string }) {
+  const analytics = await computeEventAnalytics(eventId);
+  return <DashboardTab eventId={eventId} analytics={analytics} />;
 }
 
 function statusColor(s: string): string {
