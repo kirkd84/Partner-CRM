@@ -13,6 +13,7 @@ export { inngest } from './inngest-client';
 import { ping } from './jobs/ping';
 import { googleCalendarSyncOnConnect, googleCalendarSyncCron } from './jobs/google-calendar-sync';
 import { stormRevenueSyncCron, stormRevenueSyncOnDemand } from './jobs/storm-revenue-sync';
+import { cadenceEnrollOnStageChange, cadenceDispatchCron } from './jobs/cadence-worker';
 
 export const functions = [
   ping,
@@ -20,4 +21,6 @@ export const functions = [
   googleCalendarSyncCron,
   stormRevenueSyncCron,
   stormRevenueSyncOnDemand,
+  cadenceEnrollOnStageChange,
+  cadenceDispatchCron,
 ];

@@ -44,7 +44,9 @@ async function assertCanEdit(partnerId: string) {
 }
 
 export async function changeStage(partnerId: string, stage: PartnerStage, note?: string) {
-  const { session } = await assertCanEdit(partnerId);
+  const { session, partner: prev } = await assertCanEdit(partnerId);
+  const fromStage = prev.stage;
+
   await prisma.$transaction([
     prisma.partner.update({
       where: { id: partnerId },
@@ -56,7 +58,9 @@ export async function changeStage(partnerId: string, stage: PartnerStage, note?:
         userId: session.user.id,
         type: 'STAGE_CHANGE',
         body: note ?? `Moved stage to ${stage.replace(/_/g, ' ').toLowerCase()}.`,
-        metadata: { stage },
+        // Include fromStage + toStage so /reports funnel can compute
+        // conversion, and Inngest subscribers have full context.
+        metadata: { stage, fromStage, toStage: stage },
       },
     }),
     prisma.auditLog.create({
@@ -65,13 +69,26 @@ export async function changeStage(partnerId: string, stage: PartnerStage, note?:
         entityType: 'partner',
         entityId: partnerId,
         action: 'stage_change',
-        diff: { stage },
+        diff: { from: fromStage, to: stage },
       },
     }),
   ]);
   revalidatePath(`/partners/${partnerId}`);
   revalidatePath('/radar');
   revalidatePath('/partners');
+
+  // Fire-and-forget: enroll this partner in any cadences that trigger
+  // on the new stage. Failure to enqueue the event is non-fatal — the
+  // partner just doesn't get automated follow-ups this time.
+  try {
+    const { inngest } = await import('@/lib/inngest-client');
+    await inngest.send({
+      name: 'partner-portal/partner.stage-changed',
+      data: { partnerId, fromStage, newStage: stage },
+    });
+  } catch (err) {
+    console.warn('[stage-change] failed to enqueue cadence enrollment', err);
+  }
 }
 
 // ─── Contacts ────────────────────────────────────────────────────────
