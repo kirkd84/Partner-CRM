@@ -83,6 +83,26 @@ export default async function AdminIntegrationsPage() {
       requiredBy: 'Calendar token encryption (Phase 4)',
     },
     {
+      label: 'ANTHROPIC_API_KEY',
+      present: Boolean(process.env.ANTHROPIC_API_KEY),
+      requiredBy: 'AI drafts + tone extraction (Phase 7)',
+    },
+    {
+      label: 'GOOGLE_MAPS_API_KEY',
+      present: Boolean(process.env.GOOGLE_MAPS_API_KEY),
+      requiredBy: '/map pins + Places + Directions + Geocoding (Phase 4 + 8 + 9)',
+    },
+    {
+      label: 'R2_ACCOUNT_ID / ACCESS_KEY_ID / SECRET / BUCKET',
+      present: Boolean(
+        process.env.R2_ACCOUNT_ID &&
+        process.env.R2_ACCESS_KEY_ID &&
+        process.env.R2_SECRET_ACCESS_KEY &&
+        process.env.R2_BUCKET,
+      ),
+      requiredBy: 'Receipt + file uploads (Phase 6)',
+    },
+    {
       label: 'GOOGLE_CLIENT_ID / SECRET',
       present: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
       requiredBy: 'Google Calendar sync (Phase 4)',
