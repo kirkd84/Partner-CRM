@@ -19,6 +19,7 @@
 import { revalidatePath } from 'next/cache';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
+import { proximityWindowHours } from '@/lib/events/proximity';
 
 async function loadCanEdit(eventId: string) {
   const session = await auth();
@@ -223,20 +224,9 @@ export async function setInvitePlusOne(
 
 // ─── Batch send ─────────────────────────────────────────────────────
 
-/**
- * Proximity-aware response-window defaults per SPEC §2.5. Returns
- * hours — the caller multiplies by 3600000 to get ms.
- */
-export function proximityWindowHours(eventStartsAt: Date, now: Date = new Date()): number {
-  const ms = eventStartsAt.getTime() - now.getTime();
-  const days = ms / (24 * 60 * 60 * 1000);
-  if (days >= 30) return 5 * 24;
-  if (days >= 14) return 3 * 24;
-  if (days >= 7) return 2 * 24;
-  if (days >= 3) return 24;
-  if (days >= 1) return 6;
-  return 2; // < 24 hours
-}
+// proximityWindowHours moved to @/lib/events/proximity so both client
+// and server code can import it. `'use server'` files may only export
+// async functions — Next 15 enforces this at build time.
 
 export async function sendBatch(eventId: string): Promise<{
   sent: number;

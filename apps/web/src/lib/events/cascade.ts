@@ -39,6 +39,7 @@ import crypto from 'crypto';
 import { prisma, Prisma } from '@partnerradar/db';
 import { dispatchEventInvite } from '@/lib/events/dispatch-invite';
 import { dispatchBatchOffer } from '@/lib/events/dispatch-batch-offer';
+import { proximityWindowHours } from '@/lib/events/proximity';
 
 export interface CascadeResult {
   promoted: Array<{ inviteId: string; ticketTypeId: string; windowHours: number }>;
@@ -481,16 +482,6 @@ export async function expireStaleBatchOffers(): Promise<{ expired: number }> {
     }
   }
   return { expired: res.count };
-}
-
-function proximityWindowHours(eventStartsAt: Date, now: Date): number {
-  const hoursUntil = (eventStartsAt.getTime() - now.getTime()) / (3600 * 1000);
-  if (hoursUntil >= 24 * 30) return 5 * 24;
-  if (hoursUntil >= 24 * 14) return 3 * 24;
-  if (hoursUntil >= 24 * 7) return 2 * 24;
-  if (hoursUntil >= 24 * 3) return 24;
-  if (hoursUntil >= 24) return 6;
-  return 2;
 }
 
 function generateClaimToken(): string {

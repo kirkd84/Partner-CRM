@@ -24,8 +24,8 @@ import {
   removeInvite,
   setInvitePlusOne,
   sendBatch,
-  proximityWindowHours,
 } from './invite-actions';
+import { proximityWindowHours } from '@/lib/events/proximity';
 
 interface TicketType {
   id: string;
