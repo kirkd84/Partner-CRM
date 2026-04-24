@@ -1,0 +1,271 @@
+'use server';
+
+/**
+ * Design-level server actions — create, regenerate, approve, archive.
+ *
+ * The create flow is the biggest one: parse the prompt → pick template
+ * via the director → render the SVG/PNG server-side → persist MwDesign
+ * with the document (template key + slots + variant + size). The PNG
+ * is rendered on-the-fly by /api/studio/designs/[id]/png so the row
+ * stays small and always reflects the current state.
+ *
+ * Permissions: manager+ can create inside workspaces they can reach
+ * (admin = everywhere, manager = their markets). Rep access is a
+ * future gate when we open Studio to more users.
+ */
+
+import { revalidatePath } from 'next/cache';
+import { prisma, Prisma } from '@partnerradar/db';
+import { auth } from '@/auth';
+import {
+  generateDesignFull,
+  parseIntent,
+  direct,
+  type BrandProfile,
+  type DesignIntent,
+} from '@partnerradar/marketing-engine';
+import type { SlotValues, ColorVariant } from '@partnerradar/marketing-templates';
+
+export interface CreateDesignInput {
+  workspaceId: string;
+  brandId?: string;
+  prompt: string;
+  name?: string;
+  contentType?: DesignIntent['contentType'];
+  variant?: ColorVariant;
+  sizeKey?: string;
+}
+
+async function assertAccess(workspaceId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER') {
+    throw new Error('FORBIDDEN');
+  }
+  const ws = await prisma.mwWorkspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, partnerRadarMarketId: true },
+  });
+  if (!ws) throw new Error('NOT_FOUND');
+  if (session.user.role !== 'ADMIN') {
+    const markets = session.user.markets ?? [];
+    if (!ws.partnerRadarMarketId || !markets.includes(ws.partnerRadarMarketId)) {
+      throw new Error('FORBIDDEN');
+    }
+  }
+  return { session, workspace: ws };
+}
+
+async function resolveBrand(workspaceId: string, brandId?: string) {
+  const brand = brandId
+    ? await prisma.mwBrand.findUnique({ where: { id: brandId } })
+    : await prisma.mwBrand.findFirst({
+        where: { workspaceId, status: 'ACTIVE' },
+        orderBy: { updatedAt: 'desc' },
+      });
+  if (!brand) throw new Error('No active brand for this workspace. Approve one in /studio/brands.');
+  return brand;
+}
+
+export async function createDesign(
+  input: CreateDesignInput,
+): Promise<{ id: string; elapsedMs: number; templateKey: string }> {
+  const { session } = await assertAccess(input.workspaceId);
+  if (!input.prompt.trim()) throw new Error('Give me a prompt to work from.');
+  const brand = await resolveBrand(input.workspaceId, input.brandId);
+  const brandProfile = brand.profile as unknown as BrandProfile;
+
+  // Parse intent, pick template, generate slot copy.
+  let intent: DesignIntent;
+  if (input.contentType) {
+    const parsed = await parseIntent(input.prompt);
+    intent = { ...parsed, contentType: input.contentType };
+  } else {
+    intent = await parseIntent(input.prompt);
+  }
+
+  const directorOut = await direct({ intent, brand: brandProfile });
+  const template = directorOut.template;
+  const sizeKey = input.sizeKey ?? template.manifest.sizes[0]!.key;
+  const size =
+    template.manifest.sizes.find((s) => s.key === sizeKey) ?? template.manifest.sizes[0]!;
+  const variant: ColorVariant = input.variant ?? 'light';
+
+  const name = (input.name ?? intent.purpose).trim().slice(0, 120) || 'Untitled design';
+
+  // We persist document = { templateKey, slots, variant, sizeKey }. The
+  // PNG is rendered on demand by the /api/studio/designs/[id]/png route
+  // so we don't have to store binaries until MW-3 follow-up wires R2.
+  const document = {
+    templateKey: template.manifest.catalogKey,
+    slots: directorOut.slotValues,
+    variant,
+    sizeKey: size.key,
+    width: size.width,
+    height: size.height,
+  };
+
+  const created = await prisma.mwDesign.create({
+    data: {
+      workspaceId: input.workspaceId,
+      brandId: brand.id,
+      createdBy: session.user.id,
+      name,
+      contentType: intent.contentType,
+      templateId: template.manifest.catalogKey,
+      status: 'DRAFT',
+      intent: intent as unknown as Prisma.InputJsonValue,
+      direction: directorOut.direction as unknown as Prisma.InputJsonValue,
+      document: document as unknown as Prisma.InputJsonValue,
+      tags: intent.tone ? [intent.tone] : [],
+    },
+    select: { id: true },
+  });
+
+  // Activity: keep it light, AuditLog gets the formal record.
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        entityType: 'mw_design',
+        entityId: created.id,
+        action: 'create',
+        diff: {
+          prompt: input.prompt,
+          template: template.manifest.catalogKey,
+          brandId: brand.id,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err) {
+    console.warn('[createDesign] audit log skipped', err);
+  }
+
+  revalidatePath('/studio');
+  revalidatePath('/studio/designs');
+
+  return {
+    id: created.id,
+    elapsedMs: 0,
+    templateKey: template.manifest.catalogKey,
+  };
+}
+
+export async function regenerateDesign(
+  designId: string,
+  opts: { prompt?: string; variant?: ColorVariant } = {},
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const existing = await prisma.mwDesign.findUnique({ where: { id: designId } });
+  if (!existing) throw new Error('NOT_FOUND');
+  await assertAccess(existing.workspaceId);
+  const brand = await prisma.mwBrand.findUnique({ where: { id: existing.brandId } });
+  if (!brand) throw new Error('BRAND_GONE');
+
+  const prompt =
+    opts.prompt ?? (existing.intent as { purpose?: string } | null)?.purpose ?? existing.name;
+
+  const result = await generateDesignFull({
+    prompt,
+    brand: brand.profile as unknown as BrandProfile,
+    ...(opts.variant ? { variant: opts.variant } : {}),
+  });
+
+  // Regenerate swaps in the director's fresh slot values — otherwise
+  // the button wouldn't actually do anything visible. Hand-edits are
+  // preserved across regular edits in updateDesignSlots.
+  const doc = {
+    templateKey: result.templateKey,
+    slots: result.slots,
+    variant: result.rendered.variant,
+    sizeKey: result.rendered.sizeKey,
+    width: result.rendered.width,
+    height: result.rendered.height,
+  };
+
+  await prisma.mwDesign.update({
+    where: { id: designId },
+    data: {
+      direction: result.direction as unknown as Prisma.InputJsonValue,
+      document: doc as unknown as Prisma.InputJsonValue,
+      intent: result.intent as unknown as Prisma.InputJsonValue,
+    },
+  });
+  await prisma.mwDesignVersion.create({
+    data: {
+      designId,
+      createdBy: session.user.id,
+      changeLog: opts.prompt
+        ? `Regenerated with prompt: ${opts.prompt.slice(0, 120)}`
+        : 'Regenerated',
+      document: doc as unknown as Prisma.InputJsonValue,
+    },
+  });
+
+  revalidatePath(`/studio/designs/${designId}`);
+}
+
+export async function updateDesignStatus(
+  designId: string,
+  status: 'DRAFT' | 'REVIEW' | 'APPROVED' | 'FINAL' | 'ARCHIVED',
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const design = await prisma.mwDesign.findUnique({ where: { id: designId } });
+  if (!design) throw new Error('NOT_FOUND');
+  await assertAccess(design.workspaceId);
+
+  await prisma.mwDesign.update({
+    where: { id: designId },
+    data: {
+      status,
+      archivedAt: status === 'ARCHIVED' ? new Date() : null,
+    },
+  });
+  revalidatePath('/studio');
+  revalidatePath(`/studio/designs/${designId}`);
+}
+
+export async function updateDesignSlots(
+  designId: string,
+  overrides: { text?: Record<string, string>; variant?: ColorVariant },
+): Promise<void> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const existing = await prisma.mwDesign.findUnique({ where: { id: designId } });
+  if (!existing) throw new Error('NOT_FOUND');
+  await assertAccess(existing.workspaceId);
+
+  const existingDoc = existing.document as unknown as {
+    templateKey: string;
+    slots: SlotValues;
+    variant: ColorVariant;
+    sizeKey: string;
+    width: number;
+    height: number;
+  };
+
+  const newDoc = {
+    ...existingDoc,
+    variant: overrides.variant ?? existingDoc.variant,
+    slots: {
+      text: { ...existingDoc.slots.text, ...(overrides.text ?? {}) },
+      image: { ...existingDoc.slots.image },
+    },
+  };
+
+  await prisma.mwDesign.update({
+    where: { id: designId },
+    data: { document: newDoc as unknown as Prisma.InputJsonValue },
+  });
+  await prisma.mwDesignVersion.create({
+    data: {
+      designId,
+      createdBy: session.user.id,
+      changeLog: overrides.variant ? 'Variant changed' : 'Copy edited',
+      document: newDoc as unknown as Prisma.InputJsonValue,
+    },
+  });
+  revalidatePath(`/studio/designs/${designId}`);
+}

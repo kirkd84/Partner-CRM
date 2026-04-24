@@ -4,6 +4,99 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #10 — ✅ MW-3 core (template catalog + generation pipeline + mobile-first Studio UI)
+
+Lays the whole MW-3 stack end-to-end so a manager+ can type a prompt
+and walk away with a rendered, on-brand, editable, downloadable design.
+Degrades gracefully without any AI keys — the rule-based director +
+Satori/resvg renderer ship real PNGs today; quality climbs as Kirk
+plugs in Anthropic and an image-gen provider.
+
+**Template catalog** (`packages/marketing-templates`):
+
+- `h.ts` — tiny Satori-compatible element factory, no React dep.
+- `variants.ts` — three color variants per template (light / dark /
+  brand-primary) derived from the BrandProfile hexes with WCAG-aware
+  contrast picking.
+- `lib/common.ts` — shared logoBadge / companyHeader / contactFooter
+  - a crude text auto-sizer so long headlines don't overflow.
+- 6 production templates registered in the catalog:
+  - `flyer-hero-photo-overlay` (Kirk's "Supporting Your Client's
+    Property" style), `flyer-typography-forward`,
+    `flyer-split-layout-photo`
+  - `social-quote-card`, `social-service-highlight`
+  - `business-card-classic-horizontal` (300 DPI w/ bleed)
+- Each manifest declares slots, sizes (incl. 1080×1080 IG + 1275×1650
+  letter + 3.5×2″ BC), required brand fields, and moodTags used by
+  the director to match intent to template.
+
+**Generation pipeline** (`packages/marketing-engine`):
+
+- `models/router.ts` — never hardcoded. Routes director to Opus 4.6 /
+  Sonnet 4.6 / rule-based based on `ANTHROPIC_API_KEY`. Routes image
+  gen to fal.ai / stock / none based on `FAL_API_KEY` + stock keys.
+- `pipeline/intent.ts` — rule-based keyword parser + optional Sonnet
+  structured-output call. Pulls contentType, tone, audience.
+- `pipeline/director.ts` — picks a template (mood-tag match) and
+  composes on-brand slot copy. LLM leg is Anthropic Messages; rule
+  leg uses purpose → headline transform + brand tagline/industry.
+- `pipeline/render.ts` — Satori renders SVG, @resvg/resvg-js rasterizes
+  PNG. Fonts fetched once from jsdelivr (Inter 400/600/700/800) and
+  cached in process memory.
+- `pipeline/adapt-brand.ts` — maps the full BrandProfile down to the
+  lean BrandRenderProfile templates consume, keeping marketing-templates
+  decoupled from profile evolution.
+- `pipeline/generate.ts` — orchestrator returning `{ intent, direction,
+templateKey, slots, rendered, elapsedMs }`.
+
+**Studio UI** (mobile-first throughout):
+
+- `/studio/new` — composer with horizontal-scroll content-type pills,
+  autoFocus textarea, "ideas to riff on" suggestion chips, sticky
+  Generate button. Gracefully blocks when workspace has no ACTIVE
+  brand and links to /studio/brands.
+- `/studio/designs/[id]` — responsive two-column on lg+, single column
+  on mobile. Preview with variant swatches, PNG download, regenerate,
+  inline copy editor (debounced autosave), director reasoning card,
+  status actions (approve → final → archive).
+- `/studio` home — big "New design" CTA in header, Drafts/Approved/
+  Archived tabs, 2-col grid on mobile → 4-col on lg. Brand links
+  demoted to a compact strip.
+- `/api/studio/designs/[id]/png` — renders on-the-fly via Satori+resvg
+  so we don't need R2 until MW-5. Caches at the browser (30s).
+
+**Design persistence:**
+
+- `MwDesign.document` JSON = `{ templateKey, slots, variant, sizeKey,
+width, height }`. `direction` stores the director's reasoning and
+  copy. `MwDesignVersion` records every regenerate + edit with a
+  short changeLog.
+
+**Mobile polish across existing surfaces:**
+
+- `TopNav` — labels collapse to icons on phones; nav scrolls horizontally
+  with hidden scrollbar; New button becomes icon-only.
+- Events detail header — reduced padding, h1 shrinks at sm-, tab row
+  gains `overflow-x-auto` so all six tabs stay reachable on a 360px
+  viewport.
+- Events overview padding shrinks at mobile breakpoints.
+
+**Deps added:**
+
+- `satori@^0.11.2`, `@resvg/resvg-js@^2.6.2` in marketing-engine.
+- `@partnerradar/marketing-templates` now a workspace dep of
+  marketing-engine.
+
+**Still to ship in MW-3 follow-ups** (not blocking user value):
+
+- 29 more templates (10 social, 4 brochure, 3 business card, 12 flyer).
+- Stock photo search (Pexels + Unsplash adapters behind the router).
+- Image gen via fal.ai once Kirk adds `FAL_API_KEY`.
+- Background removal + upscaling (integrations/image-ops).
+- Print PDF export with CMYK + bleed + crop marks (currently PNG only).
+
+---
+
 ## 2026-04-24 pass #9 — ✅ MW-2 polish (BrandPreview component)
 
 Closes out MW-2's "3 sample designs" review step from SPEC_MARKETING

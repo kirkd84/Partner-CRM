@@ -1,58 +1,68 @@
 /**
  * @partnerradar/marketing-templates
  *
- * The template catalog — 35 templates across flyers / social / brochures /
- * business cards ship in MW-3. Each template is a JSX/TSX component
- * with a manifest (slot definitions, supported sizes, required brand
- * fields) and a thumbnail.
+ * Template catalog — each template is a module that exports a manifest
+ * (declarative metadata the director reads) and a render function that
+ * takes slots + brand + size + variant and returns a Satori-compatible
+ * node tree.
  *
- * This package scaffolds the catalog registry so MW-3 can just drop
- * new templates into catalog/*, register them here, and MW-2 brand
- * preview + MW-3 generation pipeline pick them up automatically.
+ * MW-3 seeds 6 production templates (3 flyer, 2 social, 1 business
+ * card). MW-3 follow-ups will add the remaining 29 per §§4–7.
+ *
+ * Consumers: marketing-engine renderer, Studio UI (template previews).
  */
 
-export interface TemplateSlot {
-  key: string;
-  kind: 'text' | 'image' | 'color';
-  label: string;
-  required: boolean;
-  constraints?: {
-    maxChars?: number;
-    aspectRatio?: string;
-  };
+export { h, type SatoriNode } from './h';
+export {
+  resolvePalette,
+  type ColorVariant,
+  type ResolvedPalette,
+  type VariantInputColors,
+  luminance,
+  readableOn,
+  mix,
+} from './variants';
+export type {
+  TemplateManifest,
+  TemplateSlot,
+  TemplateSize,
+  TemplateModule,
+  TemplateRender,
+  TemplateRenderInput,
+  BrandRenderProfile,
+  ContentType,
+  SlotValues,
+} from './types';
+
+import type { TemplateModule, ContentType } from './types';
+import { heroPhotoOverlay } from './catalog/flyers/hero-photo-overlay';
+import { typographyForward } from './catalog/flyers/typography-forward';
+import { splitLayoutPhoto } from './catalog/flyers/split-layout-photo';
+import { quoteCard } from './catalog/social/quote-card';
+import { serviceHighlight } from './catalog/social/service-highlight';
+import { classicHorizontal } from './catalog/business-cards/classic-horizontal';
+
+const modules: TemplateModule[] = [
+  heroPhotoOverlay,
+  typographyForward,
+  splitLayoutPhoto,
+  quoteCard,
+  serviceHighlight,
+  classicHorizontal,
+];
+
+export const TEMPLATE_REGISTRY: Record<string, TemplateModule> = Object.fromEntries(
+  modules.map((m) => [m.manifest.catalogKey, m]),
+);
+
+export function listTemplates(): TemplateModule[] {
+  return modules;
 }
 
-export interface TemplateSize {
-  key: string;
-  width: number;
-  height: number;
-  dpi?: number;
-  purpose?: 'print' | 'facebook-feed' | 'instagram-square' | 'ig-story' | 'email-header';
+export function listTemplatesByContentType(type: ContentType): TemplateModule[] {
+  return modules.filter((m) => m.manifest.contentType === type);
 }
 
-export interface TemplateManifest {
-  catalogKey: string;
-  name: string;
-  contentType:
-    | 'FLYER'
-    | 'SOCIAL_POST'
-    | 'SOCIAL_STORY'
-    | 'BROCHURE'
-    | 'BUSINESS_CARD'
-    | 'EMAIL_HEADER'
-    | 'POSTCARD';
-  slots: TemplateSlot[];
-  sizes: TemplateSize[];
-  thumbnailUrl: string;
-  requiredBrandFields: string[];
-}
-
-/**
- * Registry. MW-3 populates this with real manifests; for now we ship a
- * single empty placeholder so the types stay live.
- */
-export const TEMPLATE_REGISTRY: Record<string, TemplateManifest> = {};
-
-export function listTemplates(): TemplateManifest[] {
-  return Object.values(TEMPLATE_REGISTRY);
+export function getTemplate(catalogKey: string): TemplateModule | undefined {
+  return TEMPLATE_REGISTRY[catalogKey];
 }

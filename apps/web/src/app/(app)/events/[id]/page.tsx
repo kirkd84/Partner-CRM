@@ -181,7 +181,7 @@ export default async function EventDetailPage({
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-card-border bg-white">
-        <div className="flex items-start gap-4 px-6 py-4">
+        <div className="flex items-start gap-3 px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
           <Link
             href="/events"
             className="mt-1 flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
@@ -197,7 +197,9 @@ export default async function EventDetailPage({
               <span className="font-mono text-[11px] text-gray-400">{event.publicId}</span>
               <span className="text-[11px] text-gray-500">· {event.market.name}</span>
             </div>
-            <h1 className="mt-1 truncate text-xl font-semibold text-gray-900">{event.name}</h1>
+            <h1 className="mt-1 truncate text-lg font-semibold text-gray-900 sm:text-xl">
+              {event.name}
+            </h1>
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-600">
               <span className="inline-flex items-center gap-1">
                 <Clock className="h-3 w-3 text-gray-400" />
@@ -231,12 +233,13 @@ export default async function EventDetailPage({
           />
         </div>
 
-        <div className="flex items-center gap-1 px-6">
+        {/* Tabs scroll horizontally on narrow viewports so none drop off the edge. */}
+        <div className="flex items-center gap-1 overflow-x-auto px-4 sm:px-6">
           {TABS.map((t) => (
             <Link
               key={t.id}
               href={`/events/${event.id}?tab=${t.id}`}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
+              className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition ${
                 tab === t.id
                   ? 'border-primary text-primary'
                   : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
@@ -250,7 +253,7 @@ export default async function EventDetailPage({
 
       <div className="flex-1 overflow-auto bg-canvas">
         {tab === 'overview' && (
-          <div className="grid grid-cols-1 gap-5 p-6 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+          <div className="grid grid-cols-1 gap-4 p-4 sm:gap-5 sm:p-6 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
             <OverviewTab event={event} canEdit={canEdit} markets={[event.market]} />
             <div className="space-y-5">
               <TicketTypesCard event={event} canEdit={canEdit} />

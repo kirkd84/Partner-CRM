@@ -1,21 +1,20 @@
 /**
  * @partnerradar/marketing-engine
  *
- * Core generation pipeline for Marketing Wizard.
+ * Core generation pipeline for Marketing Wizard (MW-3 and up).
  *
  * Layers per SPEC_MARKETING §4:
- *   1. Intent capture       — chat NL → DesignIntent
- *   2. Creative direction   — Claude Opus 4.7 picks template + assets
- *   3. Asset resolution     — stock / upload / AI-generated / brand asset
- *   4. Template rendering   — Satori + @resvg/resvg-js + Playwright
- *   5. Refinement loop      — chat → Sonnet → apply patch → re-render
- *   6. Export pipeline      — print PDF (CMYK, 300dpi, bleed) + PNGs
+ *   1. Intent capture       — pipeline/intent.ts (Claude Sonnet 4.6 / rules)
+ *   2. Creative direction   — pipeline/director.ts (Claude Opus 4.7 / rules)
+ *   3. Asset resolution     — (MW-3 follow-up: stock + AI gen)
+ *   4. Template rendering   — pipeline/render.ts (Satori + @resvg/resvg-js)
+ *   5. Refinement loop      — MW-4
+ *   6. Export pipeline      — MW-5 (multi-channel) + MW-3 print PDF
  *
- * The model router (models/router.ts in MW-3) routes to Claude Opus /
- * Sonnet / Haiku based on (content type, quality tier, plan, cost
- * cap, availability).
- *
- * MW-1: stubs only, so the package ships and is extractable.
+ * Model routing lives in models/router.ts. Every leg has a graceful
+ * fallback so the pipeline runs end-to-end even before API keys are
+ * configured — Kirk sees real output immediately, quality climbs as
+ * providers come online.
  */
 
 export type DesignIntent = {
@@ -42,17 +41,32 @@ export type CreativeDirection = {
   reasoning: string;
 };
 
-/** MW-1 stub — real implementation ships in MW-3. */
-export async function generateDesign(_intent: DesignIntent): Promise<{
-  status: 'not_implemented';
-  message: string;
-}> {
-  return {
-    status: 'not_implemented',
-    message: 'Marketing engine generation lands in MW-3 — see SPEC_MARKETING.md §4.',
-  };
-}
-
 // MW-2: Brand training surface.
 export * from './brand/types';
 export { extractBrandProfile, type ExtractBrandInput, type ExtractResult } from './brand/extract';
+
+// MW-3: generation pipeline.
+export { parseIntent, parseViaRules } from './pipeline/intent';
+export { direct, directViaRules, type DirectorOutput } from './pipeline/director';
+export { renderDesign, type RenderDesignInput, type RenderedDesign } from './pipeline/render';
+export { generateDesignFull, type GenerateArgs, type GenerateResult } from './pipeline/generate';
+export { toBrandRenderProfile } from './pipeline/adapt-brand';
+export {
+  routeDirector,
+  routeIntentParse,
+  routeImageGen,
+  checkAvailability,
+  type QualityTier,
+  type LLMRoute,
+  type ImageGenRoute,
+} from './models/router';
+
+/** Legacy shim kept for any old callers — use generateDesignFull. */
+export async function generateDesign(
+  _intent: DesignIntent,
+): Promise<{ status: 'not_implemented'; message: string }> {
+  return {
+    status: 'not_implemented',
+    message: 'Use generateDesignFull() from MW-3 onward.',
+  };
+}

@@ -11,6 +11,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src"
   },
+  "dependencies": {
+    "@partnerradar/marketing-templates": "workspace:*",
+    "@resvg/resvg-js": "^2.6.2",
+    "satori": "^0.11.2"
+  },
   "devDependencies": {
     "typescript": "^5.7.2"
   }

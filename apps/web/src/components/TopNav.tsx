@@ -55,26 +55,34 @@ export function TopNav() {
   const t = tenant();
 
   return (
-    <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-black/30 bg-nav-bg px-4">
+    <header className="sticky top-0 z-40 flex h-[52px] shrink-0 items-center gap-2 border-b border-black/30 bg-nav-bg px-3 sm:gap-3 sm:px-4">
       {/* Logo — 2-tone handshake glyph, no background chip, larger */}
-      <Link href="/radar" className="flex items-center gap-2 font-semibold text-white">
+      <Link href="/radar" className="flex shrink-0 items-center gap-2 font-semibold text-white">
         <BrandLogo className="h-8 w-auto" />
-        <span className="hidden text-[14px] sm:inline">{t.brandName}</span>
+        <span className="hidden text-[14px] md:inline">{t.brandName}</span>
       </Link>
 
-      {/* Quick add — solid button, more prominent like Storm's */}
-      <div className="ml-2 flex items-center">
+      {/* Quick add — icon-only on mobile, full button from sm+ */}
+      <div className="shrink-0">
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[13px] font-semibold text-white shadow-sm hover:bg-primary-hover"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2 py-1.5 text-[13px] font-semibold text-white shadow-sm hover:bg-primary-hover sm:px-3"
         >
-          <Plus className="h-4 w-4" /> New
-          <ChevronDown className="h-3 w-3 opacity-80" />
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">New</span>
+          <ChevronDown className="hidden h-3 w-3 opacity-80 sm:block" />
         </button>
       </div>
 
-      {/* Primary nav — Storm-style: bolder text, tighter pills */}
-      <nav className="ml-1 flex items-center gap-0.5">
+      {/*
+        Primary nav — on mobile, we hide labels and let the icons do the
+        talking; the whole strip scrolls horizontally so no item falls off
+        the edge. At sm+ the labels come back.
+      */}
+      <nav
+        className="ml-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Primary"
+      >
         {NAV_ITEMS.map((item) => {
           if (item.managerPlus && !isManagerPlus) return null;
           const active = pathname.startsWith(item.href);
@@ -83,22 +91,23 @@ export function TopNav() {
             <Link
               key={item.href}
               href={item.href}
+              aria-label={item.label}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-semibold transition-colors',
+                'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold transition-colors sm:px-2.5',
                 active
                   ? 'bg-nav-active text-white shadow-sm'
                   : 'text-white/85 hover:bg-white/10 hover:text-white',
               )}
             >
               <Icon className="h-4 w-4" />
-              <span>{item.label}</span>
-              {item.hasDropdown && <ChevronDown className="h-3 w-3 opacity-70" />}
+              <span className="hidden md:inline">{item.label}</span>
+              {item.hasDropdown && <ChevronDown className="hidden h-3 w-3 opacity-70 md:block" />}
             </Link>
           );
         })}
       </nav>
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {/* Search */}
         <button
           type="button"

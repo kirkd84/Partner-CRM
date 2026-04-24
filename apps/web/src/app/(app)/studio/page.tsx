@@ -1,42 +1,59 @@
 /**
  * /studio — Marketing Wizard embedded shell.
  *
- * Placeholder until MW-2 (brand training) lands. Shows the caller's
- * auto-provisioned MwWorkspace + member list so they can see the
- * plumbing works end-to-end. Manager+ gate per SPEC_MARKETING.md §11.
+ * MW-3 refresh: big "New Design" CTA + recent designs grid tabbed by
+ * status. Brand management moved into a compact sidebar link row so
+ * the creative surface gets the spotlight.
+ *
+ * Mobile-first: stack everything top-to-bottom, horizontal-scroll the
+ * tabs, and let the design grid fall to a single column.
  */
 
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { prisma } from '@partnerradar/db';
-import { Card, Pill } from '@partnerradar/ui';
-import { Sparkles, Paintbrush, LayoutGrid, Rocket } from 'lucide-react';
+import Link from 'next/link';
+import { Sparkles, Plus, Paintbrush } from 'lucide-react';
+import { Pill } from '@partnerradar/ui';
 
 export const dynamic = 'force-dynamic';
 
-export default async function StudioPage() {
+type TabId = 'drafts' | 'approved' | 'archived';
+const TABS: Array<{ id: TabId; label: string; statuses: string[] }> = [
+  { id: 'drafts', label: 'Drafts', statuses: ['DRAFT', 'REVIEW'] },
+  { id: 'approved', label: 'Approved', statuses: ['APPROVED', 'FINAL'] },
+  { id: 'archived', label: 'Archived', statuses: ['ARCHIVED'] },
+];
+
+export default async function StudioPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const session = await auth();
   if (!session?.user) redirect('/login');
   if (session.user.role === 'REP') redirect('/radar');
+  const sp = await searchParams;
+  const tab: TabId = (TABS.map((t) => t.id) as string[]).includes(sp.tab ?? '')
+    ? (sp.tab as TabId)
+    : 'drafts';
+  const activeTab = TABS.find((t) => t.id === tab)!;
 
   const markets = session.user.markets ?? [];
 
-  // Find the workspace attached to one of the caller's markets. Admins see
-  // every workspace; managers see their markets' workspaces.
   let workspaces: Array<{
     id: string;
     name: string;
     plan: string;
-    monthlyGenerationQuota: number;
-    monthlyGenerationsUsed: number;
-    market: { id: string; name: string } | null;
     _count: { members: number; brands: number; designs: number };
   }> = [];
   try {
     workspaces = await prisma.mwWorkspace.findMany({
       where: session.user.role === 'ADMIN' ? {} : { partnerRadarMarketId: { in: markets } },
-      include: {
-        market: { select: { id: true, name: true } },
+      select: {
+        id: true,
+        name: true,
+        plan: true,
         _count: { select: { members: true, brands: true, designs: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -45,151 +62,178 @@ export default async function StudioPage() {
     workspaces = [];
   }
 
+  const workspaceIds = workspaces.map((w) => w.id);
+  let designs: Array<{
+    id: string;
+    name: string;
+    contentType: string;
+    status: string;
+    updatedAt: Date;
+    brand: { name: string };
+    document: unknown;
+  }> = [];
+  if (workspaceIds.length > 0) {
+    try {
+      designs = await prisma.mwDesign.findMany({
+        where: {
+          workspaceId: { in: workspaceIds },
+          status: { in: activeTab.statuses as never[] },
+        },
+        select: {
+          id: true,
+          name: true,
+          contentType: true,
+          status: true,
+          updatedAt: true,
+          brand: { select: { name: true } },
+          document: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 24,
+      });
+    } catch {
+      designs = [];
+    }
+  }
+
+  const primaryWorkspaceId = workspaces[0]?.id;
+
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-card-border bg-white px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <h1 className="text-xl font-semibold text-gray-900">Studio</h1>
-          <Pill color="#6366f1" tone="soft">
-            Preview
-          </Pill>
+      <header className="border-b border-card-border bg-white">
+        <div className="flex items-start gap-3 px-4 py-4 sm:px-6">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600">
+            <Sparkles className="h-5 w-5 text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold text-gray-900 sm:text-xl">Studio</h1>
+              <Pill color="#6366f1" tone="soft">
+                Preview
+              </Pill>
+            </div>
+            <p className="mt-0.5 text-[11px] text-gray-500 sm:text-xs">
+              Describe what you want. Studio picks a template, writes the copy, and renders it
+              on-brand.
+            </p>
+          </div>
+          {primaryWorkspaceId && (
+            <Link
+              href={`/studio/new?workspaceId=${primaryWorkspaceId}`}
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary/90 sm:px-5"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">New design</span>
+              <span className="sm:hidden">New</span>
+            </Link>
+          )}
         </div>
-        <p className="mt-1 text-xs text-gray-500">
-          Your AI brand designer. On-brand flyers, social posts, brochures, business cards — from
-          one prompt.
-        </p>
       </header>
 
-      <div className="flex-1 overflow-auto bg-canvas p-6">
-        <div className="mx-auto max-w-4xl space-y-5">
-          {workspaces.length === 0 ? (
-            <Card title="Studio isn't wired to your markets yet">
-              <p className="text-sm text-gray-700">
-                A workspace gets auto-created on next server boot. Refresh in a minute.
-              </p>
-            </Card>
-          ) : (
-            workspaces.map((ws) => (
-              <Card
-                key={ws.id}
-                title={
-                  <span className="flex items-center gap-2">
-                    <span>{ws.name}</span>
-                    <Pill color="#6366f1" tone="soft">
-                      {ws.plan}
-                    </Pill>
-                    {ws.market && (
-                      <span className="text-[11px] text-gray-500">· {ws.market.name}</span>
-                    )}
-                  </span>
-                }
-              >
-                <dl className="grid grid-cols-[140px_1fr] gap-y-1.5 text-sm">
-                  <dt className="text-[11px] uppercase tracking-label text-gray-500">Members</dt>
-                  <dd className="text-gray-900">{ws._count.members}</dd>
-                  <dt className="text-[11px] uppercase tracking-label text-gray-500">Brands</dt>
-                  <dd className="text-gray-900">{ws._count.brands}</dd>
-                  <dt className="text-[11px] uppercase tracking-label text-gray-500">Designs</dt>
-                  <dd className="text-gray-900">{ws._count.designs}</dd>
-                  <dt className="text-[11px] uppercase tracking-label text-gray-500">Quota</dt>
-                  <dd className="text-gray-900">
-                    {ws.plan === 'EMBEDDED'
-                      ? 'Unlimited (embedded in Partner Portal)'
-                      : `${ws.monthlyGenerationsUsed} / ${ws.monthlyGenerationQuota} generations this month`}
-                  </dd>
-                </dl>
-              </Card>
-            ))
-          )}
-
-          {/* Quick entry to the brand management + setup surfaces. */}
-          <Card title="Brands">
-            <div className="flex flex-wrap items-center gap-2">
-              <a
-                href="/studio/brands"
-                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                Manage brands
-              </a>
-              {session.user.role === 'ADMIN' && workspaces[0] ? (
-                <a
-                  href={`/studio/brand-setup?workspaceId=${workspaces[0].id}`}
-                  className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
-                >
-                  New brand
-                </a>
-              ) : null}
-              <span className="text-[11px] text-gray-500">
-                One ACTIVE brand per workspace drives every generated design.
-              </span>
-            </div>
-          </Card>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <RoadmapCard
-              icon={<Paintbrush className="h-5 w-5 text-primary" />}
-              phase="MW-2"
-              title="Brand training"
-              description="Upload 10–50 samples. Claude extracts colors, fonts, tone, layout motifs. Approve to lock in."
-            />
-            <RoadmapCard
-              icon={<LayoutGrid className="h-5 w-5 text-primary" />}
-              phase="MW-3"
-              title="35-template catalog"
-              description="Flyers, socials, brochures, business cards. One design, every channel — auto-resize."
-            />
-            <RoadmapCard
-              icon={<Rocket className="h-5 w-5 text-primary" />}
-              phase="MW-4+"
-              title="Publish + print"
-              description="Schedule to social, email to your CRM, order prints. All from the design."
-            />
+      <div className="flex-1 overflow-auto bg-canvas">
+        <div className="mx-auto w-full max-w-5xl space-y-5 p-4 sm:p-6">
+          {/* Brand link strip — small, not dominating. */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-card-border bg-white px-3 py-2.5 text-xs text-gray-600">
+            <Paintbrush className="h-3.5 w-3.5 text-gray-400" />
+            <span>Brand-matching uses your active brand.</span>
+            <Link
+              href="/studio/brands"
+              className="ml-auto rounded-md border border-gray-300 bg-white px-2.5 py-1 font-semibold text-gray-700 hover:border-primary hover:text-primary"
+            >
+              Manage brands
+            </Link>
           </div>
 
-          <Card title="Why Studio belongs inside Partner Portal">
-            <p className="text-sm text-gray-700">
-              Every event you create here gets an invite flyer. Every partner activation can trigger
-              a personalized follow-up. Every campaign tracks back to the partners it reached.
-              Studio is the creative engine; PartnerRadar is the delivery rails.
-            </p>
-            <p className="mt-3 text-[11px] text-gray-500">
-              Architected with{' '}
-              <code className="rounded bg-gray-100 px-1 py-0.5">MARKETING_MODE=embedded</code>
-              today. Standalone SaaS extraction is a one-week project when we're ready —{' '}
-              <code className="rounded bg-gray-100 px-1 py-0.5">
-                MARKETING_MODE=standalone
-              </code>{' '}
-              lights up its own auth + billing + domain.
-            </p>
-          </Card>
+          {/* Tabs */}
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-gray-200">
+            {TABS.map((t) => (
+              <Link
+                key={t.id}
+                href={`/studio?tab=${t.id}`}
+                className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition ${
+                  tab === t.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                }`}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
+
+          {/* Design grid */}
+          {designs.length === 0 ? (
+            <EmptyGrid tab={tab} primaryWorkspaceId={primaryWorkspaceId} />
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+              {designs.map((d) => {
+                const doc = d.document as {
+                  width?: number;
+                  height?: number;
+                  variant?: string;
+                } | null;
+                const aspect = doc?.width && doc?.height ? `${doc.width} / ${doc.height}` : '1 / 1';
+                return (
+                  <Link
+                    key={d.id}
+                    href={`/studio/designs/${d.id}`}
+                    className="group flex flex-col overflow-hidden rounded-xl border border-card-border bg-white transition hover:shadow-md"
+                  >
+                    <div
+                      className="relative overflow-hidden bg-gray-100"
+                      style={{ aspectRatio: aspect }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/studio/designs/${d.id}/png?variant=${doc?.variant ?? 'light'}`}
+                        alt={d.name}
+                        loading="lazy"
+                        className="h-full w-full object-contain transition group-hover:scale-[1.02]"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1 p-2.5">
+                      <div className="truncate text-xs font-semibold text-gray-900">{d.name}</div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-gray-500">
+                        <span>{d.contentType.replace(/_/g, ' ').toLowerCase()}</span>
+                        <span>·</span>
+                        <span className="truncate">{d.brand.name}</span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function RoadmapCard({
-  icon,
-  phase,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  phase: string;
-  title: string;
-  description: string;
-}) {
+function EmptyGrid({ tab, primaryWorkspaceId }: { tab: TabId; primaryWorkspaceId?: string }) {
   return (
-    <div className="rounded-lg border border-card-border bg-white p-4">
-      <div className="flex items-start justify-between">
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-50">{icon}</div>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-gray-500">
-          {phase}
-        </span>
-      </div>
-      <h3 className="mt-3 text-sm font-semibold text-gray-900">{title}</h3>
-      <p className="mt-1 text-xs text-gray-600">{description}</p>
+    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center">
+      <Sparkles className="mx-auto h-6 w-6 text-gray-400" />
+      <h2 className="mt-3 text-sm font-semibold text-gray-900">
+        {tab === 'drafts'
+          ? 'No drafts yet'
+          : tab === 'approved'
+            ? 'Nothing approved yet'
+            : 'Nothing archived'}
+      </h2>
+      <p className="mt-1 text-xs text-gray-500">
+        {tab === 'drafts'
+          ? 'Describe a flyer, social post, or card. Studio handles the rest.'
+          : 'Once you mark a design approved it shows up here.'}
+      </p>
+      {tab === 'drafts' && primaryWorkspaceId && (
+        <Link
+          href={`/studio/new?workspaceId=${primaryWorkspaceId}`}
+          className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" /> Start a design
+        </Link>
+      )}
     </div>
   );
 }
