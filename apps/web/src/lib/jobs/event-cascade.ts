@@ -1,20 +1,19 @@
 /**
- * Event cascade + reminder scheduler skeletons.
+ * Inngest jobs for ticket cascade + stale-invite expiry.
  *
- * Real cascade logic (primary release promotes next-up, dependent
- * batch-offer, etc.) is specced in SPEC_EVENTS §5. For EV-1/4 we ship
- * a minimal implementation that handles the most common flow — primary
- * ticket released from a decline/cancel → next QUEUED invite gets sent
- * via the same dispatcher.
+ * The real cascade brains live in `lib/events/cascade.ts` —
+ * `handleTicketRelease` is the entry point. This file just wraps those
+ * calls in Inngest function definitions with proper concurrency keys
+ * and cron schedules, and exposes a batch-offer expiry tick.
  *
- * Batch-offer for parking (§4.4) is intentionally stubbed for now —
- * unlocks fully in EV-6 when the /claim page + atomic SELECT FOR
- * UPDATE SKIP LOCKED go in.
+ * Concurrency note: we lock on `event.data.eventId` for both primary
+ * cascade and batch-offer expiry so two releases on the same event
+ * can't race into double-promoting the same queued invite.
  */
 
 import { inngest } from '../inngest-client';
+import { handleTicketRelease, expireStaleBatchOffers } from '@/lib/events/cascade';
 import { prisma } from '@partnerradar/db';
-import { dispatchEventInvite } from '@/lib/events/dispatch-invite';
 
 export const eventTicketReleased = inngest.createFunction(
   {
@@ -28,99 +27,21 @@ export const eventTicketReleased = inngest.createFunction(
     const freed = (event.data?.ticketTypeIds ?? []) as string[];
     if (!eventId || freed.length === 0) return { ok: false };
 
-    return step.run('promote', async () => {
-      const evt = await prisma.evEvent.findUnique({
-        where: { id: eventId },
-        include: {
-          ticketTypes: { where: { isPrimary: true }, select: { id: true, capacity: true } },
-        },
-      });
-      if (!evt) return { ok: false, error: 'event_not_found' };
-      const primary = evt.ticketTypes[0];
-      if (!primary) return { ok: false, error: 'no_primary_ticket' };
-
-      // We only handle primary release for now. Dependent batch-offer
-      // (parking) ships in EV-6.
-      if (!freed.includes(primary.id)) {
-        return { ok: true, skipped: 'not_primary' };
-      }
-
-      // Capacity snapshot.
-      const taken = await prisma.evTicketAssignment.aggregate({
-        where: {
-          ticketTypeId: primary.id,
-          status: { in: ['TENTATIVE', 'CONFIRMED'] },
-        },
-        _sum: { quantity: true },
-      });
-      const available = primary.capacity - (taken._sum.quantity ?? 0);
-      if (available <= 0) return { ok: true, skipped: 'no_capacity' };
-
-      // Promote the next QUEUED invite.
-      const next = await prisma.evInvite.findFirst({
-        where: { eventId, status: 'QUEUED' },
-        orderBy: { queueOrder: 'asc' },
-      });
-      if (!next) return { ok: true, skipped: 'queue_empty' };
-
-      const now = new Date();
-      const hoursUntil = (evt.startsAt.getTime() - now.getTime()) / (3600 * 1000);
-      const windowHours =
-        hoursUntil >= 24 * 30
-          ? 5 * 24
-          : hoursUntil >= 24 * 14
-            ? 3 * 24
-            : hoursUntil >= 24 * 7
-              ? 2 * 24
-              : hoursUntil >= 24 * 3
-                ? 24
-                : hoursUntil >= 24
-                  ? 6
-                  : 2;
-
-      await prisma.$transaction([
-        prisma.evInvite.update({
-          where: { id: next.id },
-          data: {
-            status: 'SENT',
-            sentAt: now,
-            expiresAt: new Date(now.getTime() + windowHours * 3600 * 1000),
-          },
-        }),
-        prisma.evRsvpEvent.create({
-          data: {
-            inviteId: next.id,
-            kind: 'invited',
-            actorType: 'system',
-          },
-        }),
-        prisma.evActivityLogEntry.create({
-          data: {
-            eventId,
-            kind: 'cascade-promoted',
-            summary: `Promoted next invite after ticket release · ${windowHours}h window`,
-          },
-        }),
-      ]);
-
-      await dispatchEventInvite({ inviteId: next.id }).catch((err) => {
-        console.warn('[cascade] dispatch failed', err);
-      });
-
-      return { ok: true, promoted: next.id, windowHours };
-    });
+    const result = await step.run('cascade', () => handleTicketRelease(eventId, freed));
+    return { ok: true, ...result };
   },
 );
 
 /**
  * 5-minute scheduler tick — expires stale SENT invites (past
- * expiresAt) and fires the cascade for the freed tickets.
+ * expiresAt), releases their tickets, and fires the cascade engine
+ * for each released type. Also expires stale batch offers.
  */
 export const eventExpireTick = inngest.createFunction(
-  { id: 'event-expire-tick', name: 'Event · expire stale invites' },
+  { id: 'event-expire-tick', name: 'Event · expire stale invites + offers' },
   { cron: '*/5 * * * *' },
   async ({ step }) => {
-    const expired = await step.run('find-expired', async () =>
+    const expired = await step.run('find-expired-invites', async () =>
       prisma.evInvite.findMany({
         where: {
           status: 'SENT',
@@ -164,6 +85,12 @@ export const eventExpireTick = inngest.createFunction(
       }
     }
 
-    return { expired: expired.length, cascadesQueued: freedCount };
+    const offers = await step.run('expire-batch-offers', () => expireStaleBatchOffers());
+
+    return {
+      invitesExpired: expired.length,
+      cascadesQueued: freedCount,
+      batchOffersExpired: offers.expired,
+    };
   },
 );

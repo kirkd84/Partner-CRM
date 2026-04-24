@@ -23,6 +23,7 @@ import { HostsTab } from './HostsTab';
 import { SubEventsTab } from './SubEventsTab';
 import { InvitesTab } from './InvitesTab';
 import { ActivityTab } from './ActivityTab';
+import { BatchOffersCard } from './BatchOffersCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +104,46 @@ export default async function EventDetailPage({
     orderBy: { name: 'asc' },
   });
 
+  // Batch-offer history for the Overview card. Keep it to recent 25 so
+  // the row count stays sane on events with heavy cascade activity.
+  const batchOffers = await prisma.evBatchOffer
+    .findMany({
+      where: { eventId: event.id },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+      include: {
+        ticketType: { select: { name: true } },
+        _count: { select: { recipients: true } },
+      },
+    })
+    .catch(() => []);
+  const batchOfferClaimerInviteIds = [
+    ...new Set(batchOffers.map((o) => o.claimedByInviteId).filter((x): x is string => !!x)),
+  ];
+  const batchOfferClaimers =
+    batchOfferClaimerInviteIds.length > 0
+      ? await prisma.evInvite.findMany({
+          where: { id: { in: batchOfferClaimerInviteIds } },
+          select: {
+            id: true,
+            adHocName: true,
+            partner: { select: { companyName: true } },
+          },
+        })
+      : [];
+  const claimerById = Object.fromEntries(
+    batchOfferClaimers.map((i) => [i.id, i.partner?.companyName ?? i.adHocName ?? 'an invitee']),
+  );
+  const batchOfferRows = batchOffers.map((o) => ({
+    id: o.id,
+    ticketTypeName: o.ticketType.name,
+    status: o.status as 'OPEN' | 'CLAIMED' | 'EXPIRED' | 'CANCELED',
+    expiresAt: o.expiresAt.toISOString(),
+    createdAt: o.createdAt.toISOString(),
+    recipientCount: o._count.recipients,
+    claimedByName: o.claimedByInviteId ? (claimerById[o.claimedByInviteId] ?? null) : null,
+  }));
+
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-card-border bg-white">
@@ -177,7 +218,10 @@ export default async function EventDetailPage({
         {tab === 'overview' && (
           <div className="grid grid-cols-1 gap-5 p-6 lg:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
             <OverviewTab event={event} canEdit={canEdit} markets={[event.market]} />
-            <TicketTypesCard event={event} canEdit={canEdit} />
+            <div className="space-y-5">
+              <TicketTypesCard event={event} canEdit={canEdit} />
+              <BatchOffersCard eventId={event.id} offers={batchOfferRows} canEdit={canEdit} />
+            </div>
           </div>
         )}
         {tab === 'invites' && <InvitesTab event={event} canEdit={canEdit} />}

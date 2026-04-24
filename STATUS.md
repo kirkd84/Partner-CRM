@@ -4,6 +4,57 @@ Cowork updates this file after every meaningful milestone.
 
 ---
 
+## 2026-04-24 pass #3 — ✅ EV-6 (cascade engine + batch-offer parking race)
+
+With EV-1..5 live and the Dockerfile fix deployed, the next logic-
+dense piece landed: the full cascade engine that handles what happens
+when a ticket is released (decline / cancel / expire / partial drop).
+
+**New surface:**
+
+- `apps/web/src/lib/events/cascade.ts` — single source of truth.
+  `handleTicketRelease(eventId, ticketTypeIds[])` → `{ promoted,
+batchOffered, unfilled }`.
+  - PRIMARY release → promote next QUEUED invite with proximity-aware
+    expiresAt; dispatch automatically.
+  - DEPENDENT release → create EvBatchOffer with unique claim tokens
+    per eligible confirmed invitee; fire SMS + email blast in parallel.
+- `apps/web/src/lib/events/dispatch-batch-offer.ts` — parallel fan-out
+  email (Resend) + SMS (Twilio dry-run) with per-recipient unique
+  claim URLs.
+- `/claim/[token]` public page — single tap "Claim it" button. Atomic
+  race via `SELECT ... FOR UPDATE` on the batch-offer header row
+  inside a $transaction. First arriver wins; losers see a friendly
+  miss page with an "Add me to future offers" opt-in.
+- `EvBatchOffer` + `EvBatchOfferRecipient` tables + idempotent DDL in
+  `instrumentation.ts` (auto-migrate on Railway boot).
+- Organizer-side batch-offers card on the event Overview tab — shows
+  active offers with expiry countdowns, cancel button, and recent
+  history (won-by-name, expired, canceled).
+- `/api/admin/batch-offer-stress` — diagnostic route that fires N
+  concurrent claims against a single batch offer and asserts exactly
+  one winner. Admin-only.
+- `batch-offer-actions.ts` — organizer `cancelBatchOffer` +
+  `handAssignBatchOffer` (hand-assign short-circuits the race).
+
+**Race safety design:** the recipient row's `claimToken` is a 192-bit
+random base64url value. Inside a single Postgres transaction we
+`FOR UPDATE OF o` the shared `EvBatchOffer` header, short-circuit if
+it's already CLAIMED/EXPIRED/CANCELED, re-verify capacity, then
+conditional-update to CLAIMED + insert/upsert the winning assignment.
+Lazy-expires stale OPEN offers on contact; a 5-min Inngest tick also
+bulk-expires them. Losing recipients get their row stamped
+`lostRaceAt` immediately, so reporting can show click-vs-win rate.
+
+**Middleware** now allows `/claim` through unauthenticated like
+`/rsvp` and `/unsubscribe`.
+
+Next up: EV-7 (day-before + arrival reminders with QR codes) — the
+reminder schedule already writes DAY_BEFORE + ARRIVAL_DETAILS rows;
+EV-7 wires up QR generation and the actual send path.
+
+---
+
 ## 2026-04-24 (pivot — Kirk's second "all night") — ✅ Event Tracking EV-1..4 + Marketing Wizard MW-1
 
 After the Phase 8 automation push, Kirk dropped two new specs

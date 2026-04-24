@@ -606,6 +606,69 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       `,
     },
 
+    // EV-6: Batch offers (freed dependent tickets; parking-pass cascade).
+    {
+      label: 'create EvBatchOffer',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "EvBatchOffer" (
+          "id" TEXT NOT NULL,
+          "eventId" TEXT NOT NULL,
+          "ticketTypeId" TEXT NOT NULL,
+          "status" "EvBatchOfferStatus" NOT NULL DEFAULT 'OPEN',
+          "expiresAt" TIMESTAMP(3) NOT NULL,
+          "claimedByInviteId" TEXT,
+          "claimedAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "EvBatchOffer_pkey" PRIMARY KEY ("id")
+        );
+        CREATE INDEX IF NOT EXISTS "EvBatchOffer_eventId_status_idx" ON "EvBatchOffer"("eventId","status");
+        CREATE INDEX IF NOT EXISTS "EvBatchOffer_ticketTypeId_status_idx" ON "EvBatchOffer"("ticketTypeId","status");
+        CREATE INDEX IF NOT EXISTS "EvBatchOffer_expiresAt_idx" ON "EvBatchOffer"("expiresAt");
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'EvBatchOffer_eventId_fkey') THEN
+            ALTER TABLE "EvBatchOffer" ADD CONSTRAINT "EvBatchOffer_eventId_fkey"
+              FOREIGN KEY ("eventId") REFERENCES "EvEvent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'EvBatchOffer_ticketTypeId_fkey') THEN
+            ALTER TABLE "EvBatchOffer" ADD CONSTRAINT "EvBatchOffer_ticketTypeId_fkey"
+              FOREIGN KEY ("ticketTypeId") REFERENCES "EvTicketType"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'create EvBatchOfferRecipient',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "EvBatchOfferRecipient" (
+          "id" TEXT NOT NULL,
+          "batchOfferId" TEXT NOT NULL,
+          "inviteId" TEXT NOT NULL,
+          "claimToken" TEXT NOT NULL,
+          "notifiedAt" TIMESTAMP(3),
+          "clickedAt" TIMESTAMP(3),
+          "wonRaceAt" TIMESTAMP(3),
+          "lostRaceAt" TIMESTAMP(3),
+          "wantsFutureOffers" BOOLEAN NOT NULL DEFAULT false,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "EvBatchOfferRecipient_pkey" PRIMARY KEY ("id")
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "EvBatchOfferRecipient_claimToken_key" ON "EvBatchOfferRecipient"("claimToken");
+        CREATE UNIQUE INDEX IF NOT EXISTS "EvBatchOfferRecipient_batchOfferId_inviteId_key" ON "EvBatchOfferRecipient"("batchOfferId","inviteId");
+        CREATE INDEX IF NOT EXISTS "EvBatchOfferRecipient_claimToken_idx" ON "EvBatchOfferRecipient"("claimToken");
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'EvBatchOfferRecipient_batchOfferId_fkey') THEN
+            ALTER TABLE "EvBatchOfferRecipient" ADD CONSTRAINT "EvBatchOfferRecipient_batchOfferId_fkey"
+              FOREIGN KEY ("batchOfferId") REFERENCES "EvBatchOffer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'EvBatchOfferRecipient_inviteId_fkey') THEN
+            ALTER TABLE "EvBatchOfferRecipient" ADD CONSTRAINT "EvBatchOfferRecipient_inviteId_fkey"
+              FOREIGN KEY ("inviteId") REFERENCES "EvInvite"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+
     // ═══════════════════════════════════════════════════════════════════
     // MARKETING WIZARD TABLES — see SPEC_MARKETING.md
     // ═══════════════════════════════════════════════════════════════════
@@ -1225,9 +1288,7 @@ async function provisionMarketingWorkspaces(prisma: unknown) {
     };
     user: {
       findFirst: (args: unknown) => Promise<{ id: string } | null>;
-      findMany: (
-        args: unknown,
-      ) => Promise<
+      findMany: (args: unknown) => Promise<
         Array<{
           id: string;
           role: 'REP' | 'MANAGER' | 'ADMIN';
@@ -1357,6 +1418,7 @@ function evEnumStatements(): Array<{ label: string; sql: string }> {
       ],
     },
     { name: 'EvReminderChannel', values: ['EMAIL', 'SMS', 'BOTH'] },
+    { name: 'EvBatchOfferStatus', values: ['OPEN', 'CLAIMED', 'EXPIRED', 'CANCELED'] },
   ];
   return ENUMS.map(({ name, values }) => ({
     label: `enum ${name}`,

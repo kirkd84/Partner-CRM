@@ -202,6 +202,12 @@ export async function submitRsvp(input: RsvpInput): Promise<{
 
 async function triggerCascade(eventId: string, freedTicketTypeIds: string[]): Promise<void> {
   if (freedTicketTypeIds.length === 0) return;
+  // Dual path: we try Inngest first (so batching/backoff + retries happen
+  // in the durable queue when configured) and also run the cascade
+  // synchronously so dev environments without Inngest creds still see
+  // the behavior. The cascade engine is idempotent enough that running
+  // it twice for the same release is safe — it short-circuits on
+  // capacity or re-uses the next QUEUED invite.
   try {
     const { inngest } = await import('@/lib/inngest-client');
     await inngest.send({
@@ -209,6 +215,12 @@ async function triggerCascade(eventId: string, freedTicketTypeIds: string[]): Pr
       data: { eventId, ticketTypeIds: freedTicketTypeIds },
     });
   } catch (err) {
-    console.warn('[rsvp] failed to enqueue cascade', err);
+    console.warn('[rsvp] failed to enqueue cascade, falling back to sync', err);
+    try {
+      const { handleTicketRelease } = await import('@/lib/events/cascade');
+      await handleTicketRelease(eventId, freedTicketTypeIds);
+    } catch (innerErr) {
+      console.warn('[rsvp] sync cascade also failed', innerErr);
+    }
   }
 }

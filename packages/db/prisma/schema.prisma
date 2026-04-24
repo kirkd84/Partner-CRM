@@ -778,6 +778,7 @@ model EvEvent {
   subEvents                   EvSubEvent[]
   reminders                   EvReminder[]
   activityLog                 EvActivityLogEntry[]
+  batchOffers                 EvBatchOffer[]
 
   @@index([marketId, status])
   @@index([startsAt])
@@ -811,6 +812,7 @@ model EvTicketType {
   createdAt          DateTime             @default(now())
   assignments        EvTicketAssignment[]
   subEvents          EvSubEvent[]
+  batchOffers        EvBatchOffer[]
 
   @@unique([eventId, name])
   @@index([eventId])
@@ -903,6 +905,7 @@ model EvInvite {
   ticketAssignments       EvTicketAssignment[]
   rsvpEvents              EvRsvpEvent[]
   reminders               EvReminder[]
+  batchOfferRecipients    EvBatchOfferRecipient[]
 
   @@unique([eventId, partnerId])
   @@index([eventId, status, queueOrder])
@@ -1030,6 +1033,52 @@ model EvWaitlistRule {
   orderingStrategy String   @default("priority-asc")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+/// Batch-offer of a freed dependent ticket (SPEC_EVENTS §4.4).
+/// One header per freed ticket; N recipients race to claim it.
+model EvBatchOffer {
+  id                String                  @id @default(cuid())
+  eventId           String
+  event             EvEvent                 @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  ticketTypeId      String
+  ticketType        EvTicketType            @relation(fields: [ticketTypeId], references: [id])
+  status            EvBatchOfferStatus      @default(OPEN)
+  expiresAt         DateTime
+  claimedByInviteId String?
+  claimedAt         DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  recipients        EvBatchOfferRecipient[]
+
+  @@index([eventId, status])
+  @@index([ticketTypeId, status])
+  @@index([expiresAt])
+}
+
+enum EvBatchOfferStatus {
+  OPEN
+  CLAIMED
+  EXPIRED
+  CANCELED
+}
+
+model EvBatchOfferRecipient {
+  id                String       @id @default(cuid())
+  batchOfferId      String
+  batchOffer        EvBatchOffer @relation(fields: [batchOfferId], references: [id], onDelete: Cascade)
+  inviteId          String
+  invite            EvInvite     @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  claimToken        String       @unique
+  notifiedAt        DateTime?
+  clickedAt         DateTime?
+  wonRaceAt         DateTime?
+  lostRaceAt        DateTime?
+  wantsFutureOffers Boolean      @default(false)
+  createdAt         DateTime     @default(now())
+
+  @@unique([batchOfferId, inviteId])
+  @@index([claimToken])
 }
 
 // ═══════════════════════════════════════════════════════════════════════
