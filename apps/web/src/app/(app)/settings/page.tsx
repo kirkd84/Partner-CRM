@@ -6,6 +6,8 @@ import { SettingsForm } from './SettingsForm';
 import { PasswordForm } from './PasswordForm';
 import { CalendarConnections } from './CalendarConnections';
 import { listCalendarProviders } from '@partnerradar/integrations';
+import { isAIConfigured } from '@partnerradar/ai';
+import { ToneCard } from '../tone-training/ToneCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +37,8 @@ export default async function SettingsPage() {
       soundEffects: true,
       notificationPrefs: true,
       passwordHash: true,
+      aiToneTrainingStatus: true,
+      aiToneProfile: true,
     },
   });
   if (!user) redirect('/login');
@@ -82,6 +86,7 @@ export default async function SettingsPage() {
         </p>
       </header>
 
+      {/* scroll region */}
       <div className="flex-1 overflow-y-auto p-6 pb-12">
         <div className="mx-auto grid max-w-7xl grid-cols-1 items-start gap-5 lg:grid-cols-2">
           {/* LEFT column — profile-level settings */}
@@ -131,6 +136,15 @@ export default async function SettingsPage() {
               No sticky positioning so the top edge aligns with Profile
               on the left, and the column fills the full 50% width. */}
           <div className="space-y-5">
+            <Card title="AI tone">
+              <ToneCard
+                repName={user.name}
+                status={user.aiToneTrainingStatus}
+                summary={summarizeTone(user.aiToneProfile)}
+                aiConfigured={isAIConfigured()}
+              />
+            </Card>
+
             <Card title="Calendar connections">
               <p className="mb-3 text-xs text-gray-500">
                 Connect your Google, Microsoft 365, or Apple calendar so your existing events show
@@ -144,4 +158,39 @@ export default async function SettingsPage() {
       </div>
     </div>
   );
+}
+
+/**
+ * Compact one-liner for the ToneCard summary. Mirrors the shape used in
+ * tone-training/actions.ts so the rep sees the same phrasing regardless
+ * of whether they land here or the first-login modal.
+ */
+function summarizeTone(profile: unknown): string | null {
+  if (!profile || typeof profile !== 'object') return null;
+  const p = profile as {
+    formality?: number;
+    preferredLength?: string;
+    emojiRate?: number;
+    avgSentenceLength?: number;
+    quirks?: string[];
+  };
+  if (typeof p.formality !== 'number') return null;
+  const formalityLabel =
+    p.formality <= 3
+      ? 'very casual'
+      : p.formality <= 5
+        ? 'casual'
+        : p.formality <= 7
+          ? 'polished'
+          : 'formal';
+  const emoji =
+    (p.emojiRate ?? 0) > 0.5
+      ? 'with emojis'
+      : (p.emojiRate ?? 0) > 0.1
+        ? 'some emojis'
+        : 'no emojis';
+  const length = p.preferredLength ?? 'medium';
+  const sent = p.avgSentenceLength ? ` · ~${Math.round(p.avgSentenceLength)} words/sentence` : '';
+  const quirk = p.quirks?.[0] ? ` · quirk: "${p.quirks[0]}"` : '';
+  return `${formalityLabel} · ${length} · ${emoji}${sent}${quirk}`;
 }
