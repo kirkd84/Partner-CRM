@@ -10,8 +10,31 @@ import {
   type PartnerStage,
   type PartnerType,
 } from '@partnerradar/types';
-import { AlertTriangle, ExternalLink, Lasso, Loader2, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  ExternalLink,
+  Lasso,
+  Loader2,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { createHitListWithStops } from '../lists/actions';
+import { scrapeLassoForLeads, type LassoScrapeResult } from './lasso-scrape';
+import type { GooglePartnerType } from '@partnerradar/integrations/ingest';
+
+// Partner types we surface in the lasso scrape picker. Subset of
+// ProspectPartnerType — the ones with sensible Google Places mappings
+// (TYPE_MAP in google-places.ts) and that line up with what Roof Tech
+// reps actually prospect for.
+const SCRAPE_TYPE_OPTIONS: Array<{ key: GooglePartnerType; label: string }> = [
+  { key: 'REALTOR', label: 'Realtors' },
+  { key: 'MORTGAGE_BROKER', label: 'Mortgage' },
+  { key: 'INSURANCE_AGENT', label: 'Insurance' },
+  { key: 'PROPERTY_MANAGER', label: 'Property Mgmt' },
+  { key: 'ATTORNEY', label: 'Attorneys' },
+  { key: 'CONTRACTOR', label: 'Contractors' },
+];
 
 interface MapPartner {
   id: string;
@@ -46,11 +69,14 @@ export function MapView({
   defaultCenter,
   partners,
   marketId,
+  canScrape = false,
 }: {
   apiKey: string;
   defaultCenter: { lat: number; lng: number };
   partners: MapPartner[];
   marketId: string | null;
+  /** True when the viewer is admin or manager — gates the "Find new leads" button. */
+  canScrape?: boolean;
 }) {
   const router = useRouter();
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -60,10 +86,20 @@ export function MapView({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [selected, setSelected] = useState<MapPartner | null>(null);
   const [lassoActive, setLassoActive] = useState(false);
+  const [hasLasso, setHasLasso] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [savingList, setSavingList] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  // Lasso scrape — pick which Google partner types to search inside the polygon.
+  // Default to Realtors + Insurance because that's Roof Tech's bread-and-butter.
+  const [scrapeTypes, setScrapeTypes] = useState<Set<GooglePartnerType>>(
+    () => new Set<GooglePartnerType>(['REALTOR', 'INSURANCE_AGENT']),
+  );
+  const [scrapeRunning, setScrapeRunning] = useState(false);
+  const [scrapeResult, setScrapeResult] = useState<LassoScrapeResult | null>(null);
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -224,6 +260,11 @@ export function MapView({
         // shape, mirroring how Photoshop's lasso works.
         dm.setDrawingMode(null);
         setLassoActive(false);
+        setHasLasso(true);
+        // Wipe any prior scrape result so the panel doesn't show stale counts
+        // for the previous polygon.
+        setScrapeResult(null);
+        setScrapeError(null);
 
         const recompute = () => {
           const inside = new Set<string>();
@@ -270,6 +311,66 @@ export function MapView({
     activePolygon.current = null;
     setSelectedIds(new Set());
     setSaveMsg(null);
+    setScrapeResult(null);
+    setScrapeError(null);
+    setHasLasso(false);
+  }
+
+  /**
+   * Pull lat/lng vertices off the active polygon. Google returns LatLng
+   * objects; we flatten to plain `{lat, lng}` so the server action can
+   * stringify them over the wire.
+   */
+  function getPolygonVertices(): Array<{ lat: number; lng: number }> | null {
+    const polygon = activePolygon.current as {
+      getPath: () => { getArray: () => Array<{ lat: () => number; lng: () => number }> };
+    } | null;
+    if (!polygon) return null;
+    const path = polygon.getPath().getArray();
+    if (path.length < 3) return null;
+    return path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() }));
+  }
+
+  function toggleScrapeType(t: GooglePartnerType) {
+    setScrapeTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  }
+
+  function onScrapeLasso() {
+    if (!marketId) {
+      setScrapeError('Pick a market with at least one partner first.');
+      return;
+    }
+    const polygon = getPolygonVertices();
+    if (!polygon) {
+      setScrapeError('Draw a lasso first.');
+      return;
+    }
+    if (scrapeTypes.size === 0) {
+      setScrapeError('Pick at least one partner type to search.');
+      return;
+    }
+    setScrapeRunning(true);
+    setScrapeError(null);
+    setScrapeResult(null);
+    startTransition(async () => {
+      try {
+        const result = await scrapeLassoForLeads({
+          marketId,
+          polygon,
+          partnerTypes: [...scrapeTypes],
+        });
+        setScrapeResult(result);
+      } catch (err) {
+        setScrapeError(err instanceof Error ? err.message : 'Scrape failed');
+      } finally {
+        setScrapeRunning(false);
+      }
+    });
   }
 
   function onSaveAsHitList() {
@@ -370,7 +471,7 @@ export function MapView({
               <Lasso className="h-3.5 w-3.5" />
               {lassoActive ? 'Drawing… click first point to close' : 'Lasso a territory'}
             </button>
-            {selectedIds.size > 0 && !lassoActive && (
+            {hasLasso && !lassoActive && (
               <button
                 type="button"
                 onClick={clearLasso}
@@ -383,13 +484,16 @@ export function MapView({
         )}
       </div>
       <aside className="flex flex-col gap-3">
-        {selectedIds.size > 0 && (
+        {hasLasso && (
           <Card
             title={
               <span className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5">
                   <Lasso className="h-3.5 w-3.5 text-primary" />
-                  Lasso · {selectedIds.size} partner{selectedIds.size === 1 ? '' : 's'}
+                  Lasso ·{' '}
+                  {selectedIds.size === 0
+                    ? 'no existing partners'
+                    : `${selectedIds.size} partner${selectedIds.size === 1 ? '' : 's'}`}
                 </span>
                 <button
                   type="button"
@@ -401,54 +505,166 @@ export function MapView({
               </span>
             }
           >
-            {/* Stage breakdown */}
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(breakdownByStage).map(([stage, count]) => (
-                <Pill key={stage} tone="soft" color={STAGE_COLORS[stage as PartnerStage] ?? 'gray'}>
-                  {STAGE_LABELS[stage as PartnerStage] ?? stage}: {count}
-                </Pill>
-              ))}
-            </div>
+            {selectedIds.size > 0 && (
+              <>
+                {/* Stage breakdown */}
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(breakdownByStage).map(([stage, count]) => (
+                    <Pill
+                      key={stage}
+                      tone="soft"
+                      color={STAGE_COLORS[stage as PartnerStage] ?? 'gray'}
+                    >
+                      {STAGE_LABELS[stage as PartnerStage] ?? stage}: {count}
+                    </Pill>
+                  ))}
+                </div>
 
-            {/* Type breakdown — top 4, then "+ more" */}
-            {breakdownByType.length > 0 && (
-              <div className="mt-3 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px]">
-                {breakdownByType.slice(0, 6).map(([type, count]) => (
-                  <div
-                    key={type}
-                    className="flex items-center justify-between truncate text-gray-600"
-                  >
-                    <span className="truncate">
-                      {PARTNER_TYPE_LABELS[type as PartnerType] ?? type}
-                    </span>
-                    <span className="ml-2 font-mono tabular-nums text-gray-900">{count}</span>
+                {/* Type breakdown — top 6, then "+ more" */}
+                {breakdownByType.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px]">
+                    {breakdownByType.slice(0, 6).map(([type, count]) => (
+                      <div
+                        key={type}
+                        className="flex items-center justify-between truncate text-gray-600"
+                      >
+                        <span className="truncate">
+                          {PARTNER_TYPE_LABELS[type as PartnerType] ?? type}
+                        </span>
+                        <span className="ml-2 font-mono tabular-nums text-gray-900">{count}</span>
+                      </div>
+                    ))}
+                    {breakdownByType.length > 6 && (
+                      <div className="text-[11px] text-gray-400">
+                        + {breakdownByType.length - 6} more types
+                      </div>
+                    )}
                   </div>
-                ))}
-                {breakdownByType.length > 6 && (
-                  <div className="text-[11px] text-gray-400">
-                    + {breakdownByType.length - 6} more types
+                )}
+
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+                  <button
+                    type="button"
+                    onClick={onSaveAsHitList}
+                    disabled={savingList || !marketId}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    Save as today&apos;s hit list
+                  </button>
+                  {!marketId && (
+                    <span className="text-[10px] text-gray-500">
+                      Pick a market in your profile to save lists.
+                    </span>
+                  )}
+                </div>
+                {saveMsg && <p className="mt-2 text-[11px] text-amber-700">{saveMsg}</p>}
+              </>
+            )}
+
+            {selectedIds.size === 0 && (
+              <p className="text-[11px] text-gray-500">
+                No partners already in the system are inside this lasso. Use{' '}
+                <strong>Find new leads</strong> below to scrape Google Places for businesses in this
+                territory.
+              </p>
+            )}
+
+            {/* ── Find new leads in this lasso ─────────────────────────────── */}
+            {canScrape && (
+              <div className="mt-4 border-t border-gray-100 pt-3">
+                <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-label text-gray-600">
+                  <Sparkles className="h-3 w-3 text-amber-500" />
+                  Find new leads
+                </div>
+                <p className="mb-2 text-[11px] text-gray-500">
+                  Scan Google Places inside this polygon for businesses we don&apos;t already track.
+                  Results land in{' '}
+                  <Link
+                    href="/admin/scraped-leads"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    /admin/scraped-leads
+                  </Link>{' '}
+                  for review before becoming partners.
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {SCRAPE_TYPE_OPTIONS.map((opt) => {
+                    const on = scrapeTypes.has(opt.key);
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => toggleScrapeType(opt.key)}
+                        disabled={scrapeRunning}
+                        className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                          on
+                            ? 'border-primary bg-primary text-white'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-primary hover:text-primary'
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onScrapeLasso}
+                    disabled={scrapeRunning || !marketId || scrapeTypes.size === 0}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {scrapeRunning ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {scrapeRunning ? 'Scanning Google Places…' : 'Find new leads in this lasso'}
+                  </button>
+                </div>
+                {scrapeError && <p className="mt-2 text-[11px] text-red-600">{scrapeError}</p>}
+                {scrapeResult && (
+                  <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-[11px] text-emerald-900">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">
+                        {scrapeResult.inserted} new lead
+                        {scrapeResult.inserted === 1 ? '' : 's'} added
+                      </span>
+                      <Link
+                        href="/admin/scraped-leads"
+                        className="inline-flex items-center gap-0.5 font-medium text-emerald-800 hover:underline"
+                      >
+                        Review queue <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </div>
+                    <div className="mt-1 text-emerald-800/80">
+                      {scrapeResult.fetched} fetched · {scrapeResult.insidePolygon} inside polygon ·{' '}
+                      {scrapeResult.duplicates} already tracked
+                      {scrapeResult.errors > 0 ? ` · ${scrapeResult.errors} errors` : ''}
+                    </div>
+                    {scrapeResult.perType.length > 0 && (
+                      <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                        {scrapeResult.perType.map((t) => (
+                          <div
+                            key={t.partnerType}
+                            className="flex items-center justify-between truncate"
+                          >
+                            <span className="truncate">
+                              {SCRAPE_TYPE_OPTIONS.find((o) => o.key === t.partnerType)?.label ??
+                                t.partnerType}
+                            </span>
+                            <span className="ml-2 font-mono tabular-nums">
+                              +{t.inserted} / {t.fetched}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
-
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
-              <button
-                type="button"
-                onClick={onSaveAsHitList}
-                disabled={savingList || !marketId}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {savingList ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                Save as today&apos;s hit list
-              </button>
-              {!marketId && (
-                <span className="text-[10px] text-gray-500">
-                  Pick a market in your profile to save lists.
-                </span>
-              )}
-            </div>
-            {saveMsg && <p className="mt-2 text-[11px] text-amber-700">{saveMsg}</p>}
           </Card>
         )}
 

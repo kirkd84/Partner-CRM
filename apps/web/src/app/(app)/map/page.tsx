@@ -12,6 +12,7 @@ export default async function MapPage() {
   const session = await auth();
   if (!session?.user) return null;
   const isAdmin = session.user.role === 'ADMIN';
+  const canScrape = session.user.role === 'ADMIN' || session.user.role === 'MANAGER';
 
   const where: Prisma.PartnerWhereInput = {
     marketId: { in: session.user.markets },
@@ -108,6 +109,7 @@ export default async function MapPage() {
             apiKey={apiKey}
             defaultCenter={defaultCenter}
             marketId={markets[0]?.id ?? null}
+            canScrape={canScrape}
             partners={withCoords.map((p) => ({
               id: p.id,
               publicId: p.publicId,
