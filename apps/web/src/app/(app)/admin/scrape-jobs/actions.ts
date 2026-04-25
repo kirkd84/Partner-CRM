@@ -13,8 +13,14 @@
 import { revalidatePath } from 'next/cache';
 import { prisma, Prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
-import { fetchGooglePlacesCandidates, runIngest } from '@partnerradar/integrations/ingest';
+import {
+  fetchGooglePlacesCandidates,
+  readStateBoardCsv,
+  runIngest,
+  STATE_BOARD_CONFIGS,
+} from '@partnerradar/integrations/ingest';
 import { placesApiKey } from '@/lib/places/key';
+import { existsSync } from 'node:fs';
 
 type Source =
   | 'GOOGLE_PLACES'
@@ -164,10 +170,40 @@ export async function runScrapeJobNow(jobId: string): Promise<{
     return { ok: true, ...result };
   }
 
-  // Other sources route through the existing NMLS / state-board adapters
-  // already wired in /admin/scraped-leads. We surface a clear error
-  // rather than silently doing nothing.
+  if (job.source === 'STATE_REALTY' || job.source === 'STATE_INSURANCE') {
+    // Filters carry { csvPath, configKey } — see /admin/state-boards UI.
+    const filters = job.filters as { csvPath?: string; configKey?: string } | null;
+    if (!filters?.csvPath || !filters?.configKey) {
+      throw new Error(
+        'State-board job is missing csvPath / configKey. Use /admin/state-boards to set up imports.',
+      );
+    }
+    const config = STATE_BOARD_CONFIGS[filters.configKey];
+    if (!config) {
+      throw new Error(
+        `Unknown state-board config "${filters.configKey}". Known: ${Object.keys(STATE_BOARD_CONFIGS).join(', ')}`,
+      );
+    }
+    if (!existsSync(filters.csvPath)) {
+      throw new Error(`CSV not found at ${filters.csvPath}. Drop the file there and try again.`);
+    }
+    const candidates = readStateBoardCsv({ csvPath: filters.csvPath, config });
+    const result = await runIngest({
+      prisma: prisma as unknown as Parameters<typeof runIngest>[0]['prisma'],
+      marketId: job.marketId,
+      source: job.source,
+      jobName: job.name,
+      createdBy: session.user.id,
+      candidates,
+    });
+    revalidatePath('/admin/scrape-jobs');
+    revalidatePath('/admin/scraped-leads');
+    return { ok: true, ...result };
+  }
+
+  // Other sources route through dedicated importers. Surface a clear
+  // error rather than silently doing nothing.
   throw new Error(
-    `Run-now is only wired for GOOGLE_PLACES so far. Source ${job.source} runs via its dedicated importer.`,
+    `Run-now is not yet wired for ${job.source}. Use /admin/state-boards for state realty/insurance, or the NMLS CLI for mortgage data.`,
   );
 }

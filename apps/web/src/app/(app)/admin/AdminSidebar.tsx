@@ -16,6 +16,7 @@ import {
   Workflow,
   Trophy,
   ListChecks,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 const ITEMS = [
@@ -35,6 +36,12 @@ const ITEMS = [
   { href: '/admin/cadence-queue', label: 'Cadence queue', icon: Sparkles, adminOnly: false },
   { href: '/admin/scraped-leads', label: 'Prospect queue', icon: Inbox, adminOnly: false },
   { href: '/admin/scrape-jobs', label: 'Scrape jobs', icon: ListChecks, adminOnly: false },
+  {
+    href: '/admin/state-boards',
+    label: 'State board imports',
+    icon: FileSpreadsheet,
+    adminOnly: false,
+  },
   { href: '/admin/reliability', label: 'Partner reliability', icon: Trophy, adminOnly: false },
   { href: '/admin/integrations', label: 'Integrations', icon: Plug, adminOnly: true },
   { href: '/admin/audit-log', label: 'Audit log', icon: ScrollText, adminOnly: true },
