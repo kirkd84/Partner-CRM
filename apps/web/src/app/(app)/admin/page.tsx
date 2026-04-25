@@ -1,16 +1,27 @@
 import Link from 'next/link';
 import { prisma } from '@partnerradar/db';
 import { Card } from '@partnerradar/ui';
-import { Users, MapPinned, ScrollText, ArrowRight } from 'lucide-react';
+import { auth } from '@/auth';
+import { Users, MapPinned, ScrollText, ArrowRight, Download } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminOverviewPage() {
-  const [userCount, marketCount, partnerCount, auditCount] = await Promise.all([
+  const session = await auth();
+  const userMarkets = session?.user?.markets ?? [];
+  const isAdmin = session?.user?.role === 'ADMIN';
+
+  const [userCount, marketCount, partnerCount, auditCount, accessibleMarkets] = await Promise.all([
     prisma.user.count({ where: { active: true } }),
     prisma.market.count(),
     prisma.partner.count({ where: { archivedAt: null } }),
     prisma.auditLog.count(),
+    // Markets the caller can export from — admin sees all, manager their own.
+    prisma.market.findMany({
+      where: isAdmin ? {} : { id: { in: userMarkets } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
   ]);
 
   return (
@@ -44,6 +55,48 @@ export default async function AdminOverviewPage() {
           You can invite users, toggle roles and markets, create new markets, and comb through every
           mutation that has touched the database. Phase 4 (Map, Hit List, Routes) is next.
         </p>
+      </Card>
+
+      {/* Export + backup section. CSV streams from the API route — clicking
+          the link triggers a file download. Per-market links narrow the
+          export to one market's book; the "All markets" link uses no
+          marketId filter so admin gets everything they can see. */}
+      <Card
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            <Download className="h-3.5 w-3.5 text-primary" />
+            Export &amp; backups
+          </span>
+        }
+        className="mt-5"
+      >
+        <p className="text-xs text-gray-500">
+          Download partner data as CSV. Useful for backups, audits, or onboarding a new manager.
+          Admins see every market; managers see only their own. Reps can&apos;t bulk-export.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a
+            href="/api/admin/partners/export"
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:border-primary hover:text-primary"
+          >
+            <Download className="h-3.5 w-3.5" /> All markets ({partnerCount})
+          </a>
+          {accessibleMarkets.map((m) => (
+            <a
+              key={m.id}
+              href={`/api/admin/partners/export?marketId=${encodeURIComponent(m.id)}`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700 transition hover:border-primary hover:text-primary"
+            >
+              <Download className="h-3 w-3" /> {m.name}
+            </a>
+          ))}
+          <a
+            href="/api/admin/partners/export?includeArchived=1"
+            className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-600 transition hover:border-primary hover:text-primary"
+          >
+            <Download className="h-3 w-3" /> All + archived
+          </a>
+        </div>
       </Card>
     </div>
   );
