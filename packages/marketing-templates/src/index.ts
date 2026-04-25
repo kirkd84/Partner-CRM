@@ -50,14 +50,26 @@ import { beforeAfter } from './catalog/flyers/before-after';
 import { testimonialFeatured } from './catalog/flyers/testimonial-featured';
 import { promotionalOffer } from './catalog/flyers/promotional-offer';
 import { eventInvitation } from './catalog/flyers/event-invitation';
+import { stormRecovery } from './catalog/flyers/storm-recovery';
+import { freeInspection } from './catalog/flyers/free-inspection';
+import { financingOptions } from './catalog/flyers/financing-options';
+import { neighborJustInstalled } from './catalog/flyers/neighbor-just-installed';
+import { insuranceClaimHelp } from './catalog/flyers/insurance-claim-help';
+import { warrantySpotlight } from './catalog/flyers/warranty-spotlight';
 import { quoteCard } from './catalog/social/quote-card';
 import { serviceHighlight } from './catalog/social/service-highlight';
 import { eventTeaser } from './catalog/social/event-teaser';
 import { beforeAfterSquare } from './catalog/social/before-after-square';
 import { behindTheScenes } from './catalog/social/behind-the-scenes';
 import { statCallout } from './catalog/social/stat-callout';
+import { stormAlert } from './catalog/social/storm-alert';
+import { customerReview } from './catalog/social/customer-review';
+import { teamSpotlight } from './catalog/social/team-spotlight';
+import { roofOfTheWeek } from './catalog/social/roof-of-the-week';
+import { singleStatHero } from './catalog/social/single-stat-hero';
 import { classicHorizontal } from './catalog/business-cards/classic-horizontal';
 import { verticalModern } from './catalog/business-cards/vertical-modern';
+import { realtorCoMarketing } from './catalog/postcards/realtor-co-marketing';
 
 const modules: TemplateModule[] = [
   heroPhotoOverlay,
@@ -68,14 +80,26 @@ const modules: TemplateModule[] = [
   testimonialFeatured,
   promotionalOffer,
   eventInvitation,
+  stormRecovery,
+  freeInspection,
+  financingOptions,
+  neighborJustInstalled,
+  insuranceClaimHelp,
+  warrantySpotlight,
   quoteCard,
   serviceHighlight,
   eventTeaser,
   beforeAfterSquare,
   behindTheScenes,
   statCallout,
+  stormAlert,
+  customerReview,
+  teamSpotlight,
+  roofOfTheWeek,
+  singleStatHero,
   classicHorizontal,
   verticalModern,
+  realtorCoMarketing,
 ];
 
 export const TEMPLATE_REGISTRY: Record<string, TemplateModule> = Object.fromEntries(
