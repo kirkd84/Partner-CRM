@@ -169,6 +169,15 @@ export default async function DesignPage({ params }: { params: Promise<{ id: str
               currentStatus={design.status}
               width={doc.width}
               height={doc.height}
+              templateKind={
+                design.contentType === 'BUSINESS_CARD'
+                  ? 'business-card'
+                  : design.contentType === 'FLYER' || design.contentType === 'POSTCARD'
+                    ? 'flyer'
+                    : design.contentType === 'SOCIAL_POST' || design.contentType === 'SOCIAL_STORY'
+                      ? 'social'
+                      : 'other'
+              }
             />
           </div>
 
