@@ -19,7 +19,13 @@ import {
   CircleAlert,
   CheckCircle2,
 } from 'lucide-react';
-import { createScrapeJob, deleteScrapeJob, runScrapeJobNow, setScrapeJobActive } from './actions';
+import {
+  createScrapeJob,
+  deleteScrapeJob,
+  runScrapeJobNow,
+  setScrapeJobActive,
+  updateScrapeJobCadence,
+} from './actions';
 
 type Source =
   | 'GOOGLE_PLACES'
@@ -118,6 +124,42 @@ export function ScrapeJobsClient({ jobs, markets }: { jobs: JobRow[]; markets: M
     });
   }
 
+  /**
+   * Promote a job from manual → daily/weekly without SSH. We accept the
+   * preset list (manual/hourly/daily/weekly) plus a free-text "every Nm/h/d"
+   * via prompt() so power users aren't blocked by the dropdown.
+   */
+  function onCadenceChange(id: string, next: string) {
+    setBusyJobId(id);
+    setRunMessage(null);
+    let value = next;
+    if (next === '__custom__') {
+      const entered = prompt(
+        'Enter cadence (e.g. "every 30m", "every 6h", "every 3d"). Leave blank to cancel.',
+      );
+      if (!entered || !entered.trim()) {
+        setBusyJobId(null);
+        return;
+      }
+      value = entered.trim();
+    }
+    startTransition(async () => {
+      try {
+        await updateScrapeJobCadence(id, value);
+        setRunMessage({ jobId: id, ok: true, text: `Cadence updated to "${value}"` });
+        router.refresh();
+      } catch (err) {
+        setRunMessage({
+          jobId: id,
+          ok: false,
+          text: err instanceof Error ? err.message : 'Cadence update failed',
+        });
+      } finally {
+        setBusyJobId(null);
+      }
+    });
+  }
+
   function onDelete(id: string) {
     if (!confirm('Delete this scrape job? Existing leads stay in the queue.')) return;
     setBusyJobId(id);
@@ -170,9 +212,18 @@ export function ScrapeJobsClient({ jobs, markets }: { jobs: JobRow[]; markets: M
                 <tr key={j.id} className="border-t border-gray-100">
                   <td className="px-3 py-2">
                     <div className="font-semibold text-gray-900">{j.name}</div>
-                    <div className="text-[11px] text-gray-500">
-                      {j.active ? 'Active' : 'Paused'} · cadence {j.cadence} · {j.leadCount} lead
-                      {j.leadCount === 1 ? '' : 's'}
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500">
+                      <span>{j.active ? 'Active' : 'Paused'}</span>
+                      <span>·</span>
+                      <CadenceChip
+                        value={j.cadence}
+                        disabled={busyJobId === j.id}
+                        onChange={(next) => onCadenceChange(j.id, next)}
+                      />
+                      <span>·</span>
+                      <span>
+                        {j.leadCount} lead{j.leadCount === 1 ? '' : 's'}
+                      </span>
                     </div>
                     {runMessage?.jobId === j.id && (
                       <div
@@ -488,6 +539,45 @@ function NewJobSheet({
         </div>
       </form>
     </div>
+  );
+}
+
+/**
+ * Inline cadence selector for the job row. Common cadences are presets;
+ * "Custom…" prompts for an `every Nm/h/d` string so power users can dial
+ * in a tighter loop. Anything that doesn't match a preset is surfaced
+ * verbatim under the chip so it remains visible.
+ */
+const CADENCE_PRESETS = ['manual', 'hourly', 'daily', 'weekly'] as const;
+function CadenceChip({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (next: string) => void;
+}) {
+  const normalized = (value ?? '').trim().toLowerCase();
+  const isPreset = (CADENCE_PRESETS as readonly string[]).includes(normalized);
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="text-gray-400">cadence</span>
+      <select
+        value={isPreset ? normalized : '__custom__'}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-700 hover:border-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+        title="Promote this job to auto-run on a schedule"
+      >
+        {CADENCE_PRESETS.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+        <option value="__custom__">{isPreset ? 'Custom…' : `Custom: ${value}`}</option>
+      </select>
+    </span>
   );
 }
 
