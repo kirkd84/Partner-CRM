@@ -45,6 +45,41 @@ export default async function StateBoardsPage() {
     })
     .catch(() => []);
 
+  // Per-job upload history: leads bucketed by createdAt date give us a
+  // workable "this upload brought in N new leads" delta without needing a
+  // dedicated StateBoardImport table. Each ingest run inserts new leads
+  // within the same minute, so DATE(createdAt) is a stable bucket.
+  const jobIds = recentJobs.map((j) => j.id);
+  const importsByJob = jobIds.length
+    ? await prisma
+        .$queryRawUnsafe<
+          Array<{
+            scrape_job_id: string;
+            day: Date;
+            count: bigint;
+          }>
+        >(
+          `SELECT "scrapeJobId" AS scrape_job_id,
+                  date_trunc('day', "createdAt") AS day,
+                  COUNT(*)::bigint AS count
+             FROM "ScrapedLead"
+            WHERE "scrapeJobId" = ANY($1::text[])
+            GROUP BY "scrapeJobId", day
+            ORDER BY day DESC`,
+          jobIds,
+        )
+        .catch(() => [])
+    : [];
+  const historyByJob = new Map<string, Array<{ day: string; count: number }>>();
+  for (const row of importsByJob) {
+    const list = historyByJob.get(row.scrape_job_id) ?? [];
+    list.push({
+      day: row.day.toISOString(),
+      count: Number(row.count),
+    });
+    historyByJob.set(row.scrape_job_id, list);
+  }
+
   return (
     <div className="flex h-full flex-col bg-canvas">
       <header className="border-b border-card-border bg-white px-4 py-4 sm:px-6">
@@ -76,6 +111,7 @@ export default async function StateBoardsPage() {
                 ((j.filters as Record<string, unknown> | null)?.configKey as string) ?? null,
               uploadedFilename:
                 ((j.filters as Record<string, unknown> | null)?.uploadedFilename as string) ?? null,
+              history: (historyByJob.get(j.id) ?? []).slice(0, 6),
             }))}
           />
         </div>

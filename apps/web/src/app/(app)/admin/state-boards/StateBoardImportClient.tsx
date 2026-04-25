@@ -2,7 +2,15 @@
 
 import { useState, useTransition } from 'react';
 import { Card } from '@partnerradar/ui';
-import { ArrowRight, FileSpreadsheet, Loader2, Upload } from 'lucide-react';
+import {
+  ArrowRight,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  FileSpreadsheet,
+  Loader2,
+  Upload,
+} from 'lucide-react';
 import Link from 'next/link';
 import { uploadStateBoardCsv, type StateBoardUploadResult } from './actions';
 
@@ -39,6 +47,13 @@ const CONFIG_OPTIONS: Array<{ key: string; label: string; download: string }> = 
   },
 ];
 
+interface ImportHistoryEntry {
+  /** ISO day bucket — DATE(createdAt) of the leads ingested in that import. */
+  day: string;
+  /** Leads inserted that day. Treated as "this upload's delta vs. prior state." */
+  count: number;
+}
+
 interface RecentJob {
   id: string;
   name: string;
@@ -48,6 +63,7 @@ interface RecentJob {
   lastRunAt: string | null;
   configKey: string | null;
   uploadedFilename: string | null;
+  history: ImportHistoryEntry[];
 }
 
 export function StateBoardImportClient({
@@ -241,25 +257,113 @@ export function StateBoardImportClient({
         <Card title="Recent state-board imports">
           <ul className="divide-y divide-gray-100">
             {recentJobs.map((j) => (
-              <li key={j.id} className="flex items-center gap-3 py-2">
-                <FileSpreadsheet className="h-4 w-4 flex-shrink-0 text-gray-400" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-gray-900">{j.name}</div>
-                  <div className="truncate text-[11px] text-gray-500">
-                    {j.marketName} · {j.leadCount} lead{j.leadCount === 1 ? '' : 's'}
-                    {j.lastRunAt ? ` · last run ${new Date(j.lastRunAt).toLocaleString()}` : ''}
-                  </div>
-                  {j.uploadedFilename && (
-                    <div className="truncate text-[10px] text-gray-400">{j.uploadedFilename}</div>
-                  )}
-                </div>
-              </li>
+              <RecentJobRow key={j.id} job={j} />
             ))}
           </ul>
+          <p className="mt-3 text-[10px] text-gray-400">
+            “New leads” counts only rows accepted into the queue — duplicates already tracked from a
+            prior upload don’t show up here.
+          </p>
         </Card>
       )}
     </div>
   );
+}
+
+/**
+ * Per-job history row. Collapsed view shows the headline (last upload's
+ * delta vs prior state); expanded view shows the last 6 imports as a
+ * mini-timeline with day + new-lead count, plus an "open in queue" link.
+ */
+function RecentJobRow({ job }: { job: RecentJob }) {
+  const [expanded, setExpanded] = useState(false);
+  const lastImport = job.history[0];
+  const previous = job.history[1];
+  const deltaLabel = lastImport
+    ? previous
+      ? `${lastImport.count} new vs ${previous.count} prior`
+      : `${lastImport.count} new (first import)`
+    : null;
+
+  return (
+    <li className="py-2">
+      <button
+        type="button"
+        onClick={() => setExpanded((s) => !s)}
+        className="flex w-full items-start gap-3 text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" />
+        ) : (
+          <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" />
+        )}
+        <FileSpreadsheet className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-sm font-medium text-gray-900">{job.name}</span>
+            {deltaLabel && (
+              <span className="flex-shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-800">
+                {deltaLabel}
+              </span>
+            )}
+          </div>
+          <div className="truncate text-[11px] text-gray-500">
+            {job.marketName} · {job.leadCount} lead{job.leadCount === 1 ? '' : 's'} total
+            {job.lastRunAt ? ` · last run ${new Date(job.lastRunAt).toLocaleString()}` : ''}
+          </div>
+          {job.uploadedFilename && (
+            <div className="truncate text-[10px] text-gray-400">{job.uploadedFilename}</div>
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="ml-11 mt-2 rounded-md border border-gray-100 bg-gray-50 p-2">
+          {job.history.length === 0 ? (
+            <p className="text-[11px] text-gray-500">
+              No leads ingested under this job yet — upload a CSV and run the import.
+            </p>
+          ) : (
+            <>
+              <div className="text-[10px] font-semibold uppercase tracking-label text-gray-500">
+                Import history
+              </div>
+              <ul className="mt-1 space-y-1">
+                {job.history.map((entry, idx) => (
+                  <li
+                    key={entry.day}
+                    className="flex items-center justify-between gap-2 text-[11px] text-gray-700"
+                  >
+                    <span>{formatHistoryDay(entry.day)}</span>
+                    <span className="flex items-center gap-2 text-gray-500">
+                      {idx === 0 && (
+                        <span className="rounded bg-emerald-100 px-1 text-[9px] font-bold uppercase text-emerald-800">
+                          latest
+                        </span>
+                      )}
+                      <span className="font-mono">+{entry.count}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="/admin/scraped-leads"
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+              >
+                Review lead queue <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function formatHistoryDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function fileToBase64(file: File): Promise<string> {
