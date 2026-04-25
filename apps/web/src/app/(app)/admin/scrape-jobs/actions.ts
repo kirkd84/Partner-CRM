@@ -97,6 +97,24 @@ export async function createScrapeJob(input: CreateScrapeJobInput): Promise<{ id
   return created;
 }
 
+/**
+ * Flip an existing job's cadence — used to promote a 'manual' job to
+ * 'daily' or 'weekly' once Kirk wants the in-process scheduler to keep
+ * it warm. Accepted values: 'manual', 'hourly', 'daily', 'weekly',
+ * 'every Nm/h/d'. See parseCadenceMs in lib/scrape/scheduler.ts.
+ */
+export async function updateScrapeJobCadence(jobId: string, cadence: string): Promise<void> {
+  const job = await prisma.scrapeJob.findUnique({
+    where: { id: jobId },
+    select: { marketId: true },
+  });
+  if (!job) throw new Error('NOT_FOUND');
+  await assertManagerInMarket(job.marketId);
+  const next = cadence.trim().toLowerCase() || 'manual';
+  await prisma.scrapeJob.update({ where: { id: jobId }, data: { cadence: next } });
+  revalidatePath('/admin/scrape-jobs');
+}
+
 export async function setScrapeJobActive(jobId: string, active: boolean): Promise<void> {
   const job = await prisma.scrapeJob.findUnique({
     where: { id: jobId },

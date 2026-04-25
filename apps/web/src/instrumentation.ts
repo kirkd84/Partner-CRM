@@ -38,6 +38,11 @@ export async function register() {
     await seedAutomationCadences(prisma);
     await provisionMarketingWorkspaces(prisma);
     console.log(`[auto-migrate] Completed in ${Date.now() - startedAt}ms`);
+
+    // Boot the in-process scrape scheduler unless Inngest is wired
+    // (in which case Inngest's cron handles the cadence) or the user
+    // has explicitly opted out via SKIP_SCRAPE_SCHEDULER=1.
+    await maybeStartScrapeScheduler(prisma);
   } catch (err) {
     // NEVER throw — we do not want a migration bug to wedge the
     // entire deploy. Log loudly so it shows up in Railway logs.
@@ -1589,4 +1594,39 @@ function buildEnumDDL(name: string, values: string[]): string {
       END IF;
     END $$;
   `;
+}
+
+/**
+ * Boot the in-process scrape scheduler when nothing else is taking
+ * care of cron. We yield to Inngest the moment its key shows up so
+ * Kirk doesn't get double runs after the credentials land.
+ */
+async function maybeStartScrapeScheduler(prisma: unknown) {
+  if (process.env.SKIP_SCRAPE_SCHEDULER === '1') {
+    console.log('[scrape-scheduler] Skipped — SKIP_SCRAPE_SCHEDULER=1');
+    return;
+  }
+  if (process.env.INNGEST_EVENT_KEY) {
+    console.log('[scrape-scheduler] Skipped — INNGEST_EVENT_KEY is set; Inngest owns cron.');
+    return;
+  }
+  try {
+    const [
+      { startScrapeScheduler, pollIntervalMsFromEnv },
+      { runScrapeJobById },
+      { placesApiKey },
+    ] = await Promise.all([
+      import('./lib/scrape/scheduler'),
+      import('./lib/scrape/runner'),
+      import('./lib/places/key'),
+    ]);
+    startScrapeScheduler({
+      prisma: prisma as Parameters<typeof startScrapeScheduler>[0]['prisma'],
+      pollIntervalMs: pollIntervalMsFromEnv(),
+      runJob: (jobId) =>
+        runScrapeJobById(prisma as Parameters<typeof runScrapeJobById>[0], jobId, placesApiKey),
+    });
+  } catch (err) {
+    console.warn('[scrape-scheduler] Failed to start:', err);
+  }
 }
