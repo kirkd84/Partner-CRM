@@ -23,6 +23,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@partnerradar/db';
+import { checkLimit, ipFromRequest, rateLimitResponse } from '@/lib/security/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,15 @@ export async function GET(req: NextRequest) {
   if (!session?.user) return new Response('Unauthorized', { status: 401 });
   if (session.user.role === 'REP') {
     return new Response('Forbidden — exports are admin/manager only', { status: 403 });
+  }
+
+  // Rate limit by user + IP. 10 exports per hour is plenty for legit
+  // backups/onboarding; anything beyond that is a curl loop trying to
+  // drain the partner table.
+  const ip = ipFromRequest({ headers: req.headers });
+  const rl = checkLimit(`export:partners:${session.user.id}:${ip}`, 60 * 60_000, 10);
+  if (!rl.ok) {
+    return rateLimitResponse(rl, 10);
   }
 
   const url = req.nextUrl;
@@ -77,6 +87,21 @@ export async function GET(req: NextRequest) {
   };
 
   // Stream rows page-by-page so memory stays bounded on a 50k export.
+  // Track the row count so we can audit-log after the stream completes —
+  // bulk-exporting partner contact info is the single most data-leaking
+  // action in the app, so it MUST be logged.
+  let exportedRows = 0;
+  let exportFailedReason: string | null = null;
+  const auditCtx = {
+    actorUserId: session.user.id,
+    actorEmail: session.user.email,
+    actorIp: ip,
+    marketScope: allowedMarketIds === null ? 'all' : allowedMarketIds.join(','),
+    stageFilter: stageFilter ?? null,
+    includeArchived,
+    filename,
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const enc = new TextEncoder();
@@ -103,6 +128,7 @@ export async function GET(req: NextRequest) {
           if (batch.length === 0) break;
           for (const p of batch) {
             controller.enqueue(enc.encode(rowFor(p) + '\n'));
+            exportedRows++;
           }
           cursor = batch[batch.length - 1]!.id;
           if (batch.length < PAGE_SIZE) break;
@@ -112,10 +138,31 @@ export async function GET(req: NextRequest) {
         // Stream errors get reported as a trailing comment row — most
         // CSV parsers ignore lines starting with `#`. Better than
         // silently truncating the file mid-export.
-        controller.enqueue(
-          enc.encode(`# EXPORT FAILED: ${err instanceof Error ? err.message : 'unknown'}\n`),
-        );
+        exportFailedReason = err instanceof Error ? err.message : 'unknown';
+        controller.enqueue(enc.encode(`# EXPORT FAILED: ${exportFailedReason}\n`));
         controller.close();
+      } finally {
+        // Audit-log AFTER streaming so the row count reflects what was
+        // actually delivered. Wrapped in try/catch so a failed audit
+        // write doesn't 500 a successful export.
+        try {
+          await prisma.auditLog.create({
+            data: {
+              userId: session.user!.id,
+              action: 'partner.export.csv',
+              entityType: 'Partner',
+              entityId: 'bulk',
+              metadata: {
+                ...auditCtx,
+                rows: exportedRows,
+                failed: exportFailedReason !== null,
+                ...(exportFailedReason ? { error: exportFailedReason } : {}),
+              } as never,
+            },
+          });
+        } catch (err) {
+          console.error('[partner-export] audit log write failed', err);
+        }
       }
     },
   });
