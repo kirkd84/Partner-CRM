@@ -17,6 +17,7 @@ import {
   Trophy,
   ListChecks,
   FileSpreadsheet,
+  Rocket,
 } from 'lucide-react';
 
 const ITEMS = [
@@ -44,6 +45,12 @@ const ITEMS = [
   },
   { href: '/admin/reliability', label: 'Partner reliability', icon: Trophy, adminOnly: false },
   { href: '/admin/integrations', label: 'Integrations', icon: Plug, adminOnly: true },
+  {
+    href: '/admin/launch-checklist',
+    label: 'Launch checklist',
+    icon: Rocket,
+    adminOnly: true,
+  },
   { href: '/admin/audit-log', label: 'Audit log', icon: ScrollText, adminOnly: true },
 ];
 
