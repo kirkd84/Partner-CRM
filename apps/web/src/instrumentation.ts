@@ -33,6 +33,7 @@ export async function register() {
     // Dynamic import keeps Prisma out of the edge runtime bundle.
     const { prisma } = await import('@partnerradar/db');
     await applyPendingDDL(prisma);
+    await seedTenantsAndAdmins(prisma);
     await seedAppointmentTypes(prisma);
     await seedMessageTemplates(prisma);
     await seedAutomationCadences(prisma);
@@ -54,6 +55,125 @@ export async function register() {
 
 async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Promise<unknown> }) {
   const statements: Array<{ label: string; sql: string }> = [
+    // ── Multi-tenant foundation ──
+    // TenantStatus enum (CREATE TYPE IF NOT EXISTS pattern via DO block)
+    {
+      label: 'enum TenantStatus',
+      sql: buildEnumDDL('TenantStatus', ['ACTIVE', 'SUSPENDED', 'TRIAL', 'CANCELLED']),
+    },
+    // SUPER_ADMIN added to existing Role enum. ALTER TYPE ADD VALUE
+    // can't run inside a transaction in older PG, so we issue it raw
+    // and let the splitSqlStatements path commit it in its own tx.
+    {
+      label: 'add SUPER_ADMIN to Role enum',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_enum
+            WHERE enumlabel = 'SUPER_ADMIN'
+              AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'Role')
+          ) THEN
+            ALTER TYPE "Role" ADD VALUE 'SUPER_ADMIN';
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'create Tenant',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "Tenant" (
+          "id" TEXT NOT NULL,
+          "slug" TEXT NOT NULL,
+          "name" TEXT NOT NULL,
+          "legalName" TEXT,
+          "address" TEXT,
+          "phone" TEXT,
+          "fromAddress" TEXT,
+          "websiteUrl" TEXT,
+          "primaryHex" TEXT,
+          "secondaryHex" TEXT,
+          "logoUrl" TEXT,
+          "status" "TenantStatus" NOT NULL DEFAULT 'ACTIVE',
+          "trialEndsAt" TIMESTAMP(3),
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "Tenant_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'unique index on Tenant.slug',
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "Tenant_slug_key" ON "Tenant"("slug")`,
+    },
+    {
+      label: 'index on Tenant.status',
+      sql: `CREATE INDEX IF NOT EXISTS "Tenant_status_idx" ON "Tenant"("status")`,
+    },
+    // tenantId on Market (nullable + FK; backfill happens in seed step)
+    {
+      label: 'add Market.tenantId',
+      sql: `ALTER TABLE "Market" ADD COLUMN IF NOT EXISTS "tenantId" TEXT`,
+    },
+    {
+      label: 'fk Market.tenantId → Tenant',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'Market_tenantId_fkey'
+          ) THEN
+            ALTER TABLE "Market"
+              ADD CONSTRAINT "Market_tenantId_fkey"
+              FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'index Market.tenantId',
+      sql: `CREATE INDEX IF NOT EXISTS "Market_tenantId_idx" ON "Market"("tenantId")`,
+    },
+    // tenantId on User (nullable; SUPER_ADMIN has null)
+    {
+      label: 'add User.tenantId',
+      sql: `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "tenantId" TEXT`,
+    },
+    {
+      label: 'fk User.tenantId → Tenant',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'User_tenantId_fkey'
+          ) THEN
+            ALTER TABLE "User"
+              ADD CONSTRAINT "User_tenantId_fkey"
+              FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'index User.tenantId',
+      sql: `CREATE INDEX IF NOT EXISTS "User_tenantId_idx" ON "User"("tenantId")`,
+    },
+    // tenantId on MwWorkspace
+    {
+      label: 'add MwWorkspace.tenantId',
+      sql: `ALTER TABLE "MwWorkspace" ADD COLUMN IF NOT EXISTS "tenantId" TEXT`,
+    },
+    {
+      label: 'fk MwWorkspace.tenantId → Tenant',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'MwWorkspace_tenantId_fkey'
+          ) THEN
+            ALTER TABLE "MwWorkspace"
+              ADD CONSTRAINT "MwWorkspace_tenantId_fkey"
+              FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `,
+    },
     // ── AppointmentType table ──
     {
       label: 'create AppointmentType',
@@ -1571,6 +1691,163 @@ function mwEnumStatements(): Array<{ label: string; sql: string }> {
     label: `enum ${name}`,
     sql: buildEnumDDL(name, values),
   }));
+}
+
+/**
+ * Multi-tenant seeding — runs after schema DDL on every boot.
+ *
+ * Idempotent. Three jobs:
+ *   1. Ensure the Demo tenant exists; backfill any null Market.tenantId
+ *      onto it so existing data lives under a tenant the super-admin
+ *      can act-as without affecting Roof Tech's clean book.
+ *   2. Ensure the Roof Technologies tenant exists with kirk@rooftechnologies.com
+ *      seated as ADMIN. No data attached at first — this is the production
+ *      tenant Kirk uses for real reps.
+ *   3. Ensure kirk@copayee.com exists as a SUPER_ADMIN with no tenant.
+ *      The super-admin can switch into any tenant from /super-admin.
+ *
+ * Default seed passwords are temporary and INTENTIONALLY known. Kirk
+ * should rotate via /admin/users → reset-password before any real
+ * partner data lands. Audit-log captures the rotation.
+ */
+async function seedTenantsAndAdmins(prisma: unknown) {
+  const p = prisma as {
+    tenant: {
+      findUnique: (args: unknown) => Promise<{ id: string } | null>;
+      create: (args: unknown) => Promise<{ id: string }>;
+    };
+    market: {
+      updateMany: (args: unknown) => Promise<{ count: number }>;
+      count: (args: unknown) => Promise<number>;
+    };
+    mwWorkspace: { updateMany: (args: unknown) => Promise<{ count: number }> };
+    user: {
+      findUnique: (args: unknown) => Promise<{ id: string; tenantId: string | null } | null>;
+      create: (args: unknown) => Promise<{ id: string }>;
+      update: (args: unknown) => Promise<{ id: string }>;
+      updateMany: (args: unknown) => Promise<{ count: number }>;
+    };
+  };
+
+  // Module-level imports here would force bcryptjs into the edge runtime
+  // build of instrumentation.ts. We've fought this battle before
+  // (see: scrape scheduler). Use eval-require so webpack can't trace.
+  const requireRuntime = (0, eval)('require') as NodeJS.Require;
+  let hash: (s: string, rounds: number) => Promise<string>;
+  try {
+    hash = requireRuntime('bcryptjs').hash;
+  } catch {
+    // If bcryptjs isn't resolvable for any reason, skip seeding rather
+    // than wedge the boot. Logs make the failure visible.
+    console.warn('[seed-tenants] bcryptjs not loadable; skipping');
+    return;
+  }
+
+  // ── 1. Demo tenant ───────────────────────────────────────────────
+  let demo = await p.tenant.findUnique({ where: { slug: 'demo' } });
+  if (!demo) {
+    demo = await p.tenant.create({
+      data: {
+        slug: 'demo',
+        name: 'Demo Workspace',
+        legalName: 'PartnerRadar Demo',
+        address: 'demo data — not a real address',
+        fromAddress: 'demo@partnerradar.app',
+        primaryHex: '#1e40af',
+        status: 'ACTIVE',
+      },
+    });
+    console.log('[seed-tenants] created demo tenant');
+  }
+
+  // Backfill — any Market or MwWorkspace without a tenantId belongs to
+  // the demo tenant. This is a one-time migration; subsequent runs find
+  // nothing to update.
+  const orphanMarkets = await p.market.count({ where: { tenantId: null } });
+  if (orphanMarkets > 0) {
+    await p.market.updateMany({ where: { tenantId: null }, data: { tenantId: demo.id } });
+    console.log(`[seed-tenants] backfilled ${orphanMarkets} orphan markets → demo`);
+  }
+  await p.mwWorkspace.updateMany({ where: { tenantId: null }, data: { tenantId: demo.id } });
+
+  // ── 2. Roof Technologies tenant ──────────────────────────────────
+  let roof = await p.tenant.findUnique({ where: { slug: 'roof-technologies' } });
+  if (!roof) {
+    roof = await p.tenant.create({
+      data: {
+        slug: 'roof-technologies',
+        name: 'Roof Technologies',
+        legalName: 'Roof Technologies, LLC',
+        address: '4955 Miller St. Suite 202, Wheat Ridge, CO 80033',
+        phone: '(855) 766-3001',
+        fromAddress: 'PartnerRadar <info@RoofTechnologies.com>',
+        websiteUrl: 'https://rooftechnologies.com',
+        primaryHex: '#1e40af',
+        status: 'ACTIVE',
+      },
+    });
+    console.log('[seed-tenants] created Roof Technologies tenant');
+  }
+
+  // Roof Tech admin: kirk@rooftechnologies.com
+  const rtKirk = await p.user.findUnique({
+    where: { email: 'kirk@rooftechnologies.com' },
+  });
+  if (!rtKirk) {
+    const passwordHash = await hash('ChangeMe!2026', 10);
+    await p.user.create({
+      data: {
+        email: 'kirk@rooftechnologies.com',
+        name: 'Kirk McCoy',
+        role: 'ADMIN',
+        avatarColor: '#1e40af',
+        passwordHash,
+        tenantId: roof.id,
+        active: true,
+      },
+    });
+    console.log('[seed-tenants] created Roof Tech admin: kirk@rooftechnologies.com');
+  } else if (rtKirk.tenantId !== roof.id) {
+    // Defensive: existing user (e.g. created from prior seed) — make
+    // sure their tenant assignment matches what Kirk asked for.
+    await p.user.update({ where: { id: rtKirk.id }, data: { tenantId: roof.id, role: 'ADMIN' } });
+  }
+
+  // ── 3. Super-admin: kirk@copayee.com (no tenant) ─────────────────
+  const sa = await p.user.findUnique({ where: { email: 'kirk@copayee.com' } });
+  if (!sa) {
+    const passwordHash = await hash('SuperAdmin!2026', 10);
+    await p.user.create({
+      data: {
+        email: 'kirk@copayee.com',
+        name: 'Kirk McCoy (Copayee)',
+        role: 'SUPER_ADMIN',
+        avatarColor: '#7c3aed',
+        passwordHash,
+        tenantId: null, // intentional: super-admin spans all tenants
+        active: true,
+      },
+    });
+    console.log('[seed-tenants] created super-admin: kirk@copayee.com');
+  } else if (sa.tenantId !== null) {
+    // If a prior seed run created kirk@copayee.com with a tenantId,
+    // strip it. Super-admins must be tenant-less.
+    await p.user.update({
+      where: { id: sa.id },
+      data: { tenantId: null, role: 'SUPER_ADMIN' },
+    });
+  }
+
+  // Existing demo users (admin@demo.com / manager@demo.com / rep@demo.com
+  // from the original seed) need to land in the demo tenant so the
+  // demo environment Kirk's keeping for sales calls keeps working.
+  await p.user.updateMany({
+    where: {
+      tenantId: null,
+      email: { in: ['admin@demo.com', 'manager@demo.com', 'rep@demo.com'] },
+    },
+    data: { tenantId: demo.id },
+  });
 }
 
 /**

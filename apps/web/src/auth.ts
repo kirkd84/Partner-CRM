@@ -73,6 +73,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           role: user.role,
           avatarColor: user.avatarColor,
           markets: user.markets.map((m) => m.marketId),
+          // Multi-tenant: SUPER_ADMINs have null tenantId; everyone
+          // else is scoped to their assigned tenant.
+          tenantId: (user as { tenantId?: string | null }).tenantId ?? null,
         };
       },
     }),

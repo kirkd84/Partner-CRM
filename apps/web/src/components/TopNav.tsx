@@ -51,7 +51,8 @@ export function TopNav() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const role = session?.user.role ?? 'REP';
-  const isManagerPlus = role === 'MANAGER' || role === 'ADMIN';
+  const isManagerPlus = role === 'MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN';
+  const isSuperAdmin = role === 'SUPER_ADMIN';
   const t = tenant();
 
   return (
@@ -176,10 +177,18 @@ export function TopNav() {
                 >
                   Settings
                 </Link>
+                {isSuperAdmin && (
+                  <Link
+                    href="/super-admin"
+                    className="block border-t border-gray-100 px-3 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+                  >
+                    Super admin →
+                  </Link>
+                )}
                 <button
                   type="button"
                   onClick={() => signOut({ redirectTo: '/login' })}
-                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                  className="block w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
                 >
                   Sign out
                 </button>

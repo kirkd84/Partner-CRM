@@ -19,6 +19,11 @@ datasource db {
 
 model Market {
   id              String        @id @default(cuid())
+  /// Multi-tenant scope. Every market belongs to exactly one tenant.
+  /// Backfilled to the "demo" tenant for pre-multi-tenant data; new
+  /// markets MUST set this explicitly.
+  tenantId        String?
+  tenant          Tenant?       @relation(fields: [tenantId], references: [id])
   name            String
   timezone        String        @default("America/Denver")
   defaultCenter   Json // { lat: number, lng: number }
@@ -34,10 +39,17 @@ model Market {
   evEvents        EvEvent[]
   evWaitlistRule  EvWaitlistRule?
   mwWorkspace     MwWorkspace?
+
+  @@index([tenantId])
 }
 
 model User {
   id                     String               @id @default(cuid())
+  /// Multi-tenant scope. Null for SUPER_ADMIN (cross-tenant operator).
+  /// Every regular user belongs to exactly one tenant. Backfilled to
+  /// the "demo" tenant for pre-multi-tenant data.
+  tenantId               String?
+  tenant                 Tenant?              @relation(fields: [tenantId], references: [id])
   email                  String               @unique
   passwordHash           String?
   stormCloudUserId       String?              @unique // SSO future
@@ -85,6 +97,43 @@ enum Role {
   REP
   MANAGER
   ADMIN
+  // SUPER_ADMIN sits above tenants. Belongs to no tenant; can act-as
+  // any tenant via /super-admin. Reserved for the platform operator
+  // (Copayee). Don't grant to tenant employees.
+  SUPER_ADMIN
+}
+
+/// Top-level multi-tenant boundary. Every Market, MwWorkspace, and
+/// (transitively) every Partner / Activity / Event belongs to one
+/// Tenant. SUPER_ADMIN users belong to no tenant and can act-as any.
+model Tenant {
+  id           String        @id @default(cuid())
+  slug         String        @unique // url-safe id; e.g. "roof-technologies"
+  name         String
+  legalName    String?
+  address      String?
+  phone        String?
+  fromAddress  String?
+  websiteUrl   String?
+  primaryHex   String?
+  secondaryHex String?
+  logoUrl      String?
+  status       TenantStatus  @default(ACTIVE)
+  trialEndsAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @default(now()) @updatedAt
+  markets      Market[]
+  users        User[]
+  workspaces   MwWorkspace[]
+
+  @@index([status])
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
 }
 
 enum RouteStartMode {
@@ -1106,6 +1155,9 @@ model EvBatchOfferRecipient {
 
 model MwWorkspace {
   id                       String              @id @default(cuid())
+  /// Multi-tenant scope. Workspaces typically follow their market's tenant.
+  tenantId                 String?
+  tenant                   Tenant?             @relation(fields: [tenantId], references: [id])
   name                     String
   partnerRadarMarketId     String?             @unique
   market                   Market?             @relation(fields: [partnerRadarMarketId], references: [id])
