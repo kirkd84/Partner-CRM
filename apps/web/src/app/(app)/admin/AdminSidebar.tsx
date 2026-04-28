@@ -18,6 +18,7 @@ import {
   ListChecks,
   FileSpreadsheet,
   Rocket,
+  Upload,
 } from 'lucide-react';
 
 const ITEMS = [
@@ -41,6 +42,12 @@ const ITEMS = [
     href: '/admin/state-boards',
     label: 'State board imports',
     icon: FileSpreadsheet,
+    adminOnly: false,
+  },
+  {
+    href: '/admin/import-partners',
+    label: 'Import partners (CSV)',
+    icon: Upload,
     adminOnly: false,
   },
   { href: '/admin/reliability', label: 'Partner reliability', icon: Trophy, adminOnly: false },
