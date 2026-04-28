@@ -174,6 +174,21 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
         END $$;
       `,
     },
+    // tenantId + metadata on AuditLog. metadata was used by several
+    // server actions before the column existed — Prisma silently
+    // dropped the field. Adding it now starts persisting them.
+    {
+      label: 'add AuditLog.tenantId',
+      sql: `ALTER TABLE "AuditLog" ADD COLUMN IF NOT EXISTS "tenantId" TEXT`,
+    },
+    {
+      label: 'add AuditLog.metadata',
+      sql: `ALTER TABLE "AuditLog" ADD COLUMN IF NOT EXISTS "metadata" JSONB`,
+    },
+    {
+      label: 'index AuditLog.tenantId+createdAt',
+      sql: `CREATE INDEX IF NOT EXISTS "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt")`,
+    },
     // ── AppointmentType table ──
     {
       label: 'create AppointmentType',
@@ -1769,6 +1784,25 @@ async function seedTenantsAndAdmins(prisma: unknown) {
     console.log(`[seed-tenants] backfilled ${orphanMarkets} orphan markets → demo`);
   }
   await p.mwWorkspace.updateMany({ where: { tenantId: null }, data: { tenantId: demo.id } });
+
+  // Backfill orphan AuditLog rows to the demo tenant. SUPER_ADMIN
+  // act-as entries (kirk@copayee.com's actions) intentionally stay
+  // null so the super-admin audit-log filter can find them
+  // cross-tenant.
+  const auditP = (
+    prisma as { auditLog: { updateMany: (args: unknown) => Promise<{ count: number }> } }
+  ).auditLog;
+  if (auditP) {
+    await auditP.updateMany({
+      where: {
+        tenantId: null,
+        // Don't backfill super-admin entries — keep them null so they
+        // show up only in the cross-tenant super-admin audit view.
+        NOT: { action: { startsWith: 'super_admin.' } },
+      },
+      data: { tenantId: demo.id },
+    });
+  }
 
   // ── 2. Roof Technologies tenant ──────────────────────────────────
   let roof = await p.tenant.findUnique({ where: { slug: 'roof-technologies' } });

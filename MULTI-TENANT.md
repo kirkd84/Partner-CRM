@@ -70,26 +70,28 @@ On every server boot `seedTenantsAndAdmins()` runs in `instrumentation.ts`:
 
 The schema is multi-tenant. The auth layer is multi-tenant. **The query layer is mostly NOT.** Most existing pages still scope by `session.user.markets` (which is implicitly tenant-safe because users only get markets in their own tenant) — but several pages and queries don't, and need a manual pass before a second paying tenant goes live:
 
-### Risk-1 (must fix before a second tenant signs up)
+### Risk-1 — STATUS
 
-These touch tenant-scoped data without an explicit tenant filter today. Today they accidentally work because there's only one tenant; they'll leak between tenants the moment there are two.
-
-- `/admin/audit-log` — currently returns all rows; needs `WHERE userId IN (tenant users)` or a `tenantId` column on AuditLog
-- `/admin/users` — returns all users; needs `WHERE tenantId = activeTenantId(session)`
-- `/admin/markets` — returns all markets; needs `WHERE tenantId = activeTenantId(session)`
-- Marketing wizard `MwBrand` / `MwDesign` queries — workspace gate exists but doesn't yet check the workspace's tenant matches the session's
-- The lasso scrape, Google Places jobs, state-board imports — all scope by market which is tenant-safe; review explicitly anyway
-- `/api/admin/partners/export` — scopes by market list; tenant-safe by transitivity, audit-log it for a second tenant launch
+| Item                                        | Status                                                                                                                                                                                                     |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/admin/audit-log` tenant filter            | ✅ done — scoped via `activeTenantId`. SUPER_ADMIN with no act-as sees all (cross-tenant audit view, by design).                                                                                           |
+| `/admin/users` tenant filter                | ✅ done — scoped via `activeTenantId`.                                                                                                                                                                     |
+| `/admin/markets` tenant filter              | ✅ done — scoped via `activeTenantId`.                                                                                                                                                                     |
+| `MwDesign` PNG/PDF tenant gate              | ✅ done — `assertWorkspaceTenant(session, design.workspace.tenantId)` in both routes.                                                                                                                      |
+| `AuditLog.tenantId` column                  | ✅ done — added via DDL; existing rows backfilled to demo (except `super_admin.*` actions which stay null on purpose).                                                                                     |
+| Lasso scrape / Google Places / state boards | tenant-safe by transitivity (filter by market → market is in tenant); reviewed. No additional retrofit.                                                                                                    |
+| `/api/admin/partners/export`                | tenant-safe by transitivity (scopes by market list); audit-logged with `actorIp`, `marketScope`, `rows`. No additional retrofit.                                                                           |
+| Studio actions.ts                           | tenant-safe by transitivity (workspace lookups go through `partnerRadarMarketId` → tenant-safe via Market). Server-action paths reviewed; PNG/PDF routes carry the explicit `assertWorkspaceTenant` check. |
 
 ### Risk-2 (silent privacy leak)
 
-- `Partner.assignedRepId` cross-tenant: a rep moved between tenants could end up still owning partners in their old tenant. Fix: when changing a user's tenantId, null out their assignedPartners.
-- `AuditLog` doesn't have a tenantId column. Adding one is a follow-up DDL pass.
+- `Partner.assignedRepId` cross-tenant: a rep moved between tenants could end up still owning partners in their old tenant. Fix: when changing a user's tenantId, null out their assignedPartners. ⏳ NOT DONE — admin/users role/market change action needs the cleanup.
+- `AuditLog.tenantId`: ✅ done — column added + writes backfilled.
 
 ### Risk-3 (operational)
 
 - Per-tenant subdomain routing (`acme.partnerradar.app`) — not built. Today everyone uses one domain and the tenant is derived from session. Fine for v1, expected for v2.
-- Per-tenant branding in the UI — TopNav still pulls from `packages/config/tenant.ts`. Should pull from the active tenant's row.
+- Per-tenant branding in the UI — ✅ done for the TopNav brand chip (loaded from active tenant's row). Email From: addresses + cadence senders + studio designs still pull from `packages/config/tenant.ts` and need the same treatment.
 - Stripe billing per tenant — not built. Today there's no plan / quota enforcement at the tenant level.
 - Per-tenant rate limiting — the in-memory limiter doesn't separate tenants in its keying. Fine because keys are user-id-based, but worth noting.
 
@@ -109,6 +111,6 @@ Centralizing the policy in `lib/tenant/context.ts` means a future security revie
 
 ## Migration timeline
 
-- **2026-04-25 (this commit):** Schema + auth + super-admin console + Roof Tech tenant + Copayee super-admin seeded. Existing data migrated to "demo" tenant. Build + deploy succeeds.
-- **Before second tenant signs:** Risk-1 list above. ~1 day of work to walk every query and add tenant filtering.
-- **v2:** Subdomain routing, per-tenant branding wiring, Stripe billing.
+- **2026-04-25 first commit:** Schema + auth + super-admin console + Roof Tech tenant + Copayee super-admin seeded. Existing data migrated to "demo" tenant.
+- **2026-04-25 retrofit commit:** Risk-1 punch list closed. AuditLog gets `tenantId` + `metadata` columns (the latter was missing entirely — server actions writing to it were silently dropping the field). Per-tenant TopNav branding. SECURITY.md + MULTI-TENANT.md updated.
+- **Remaining before second tenant signs:** Risk-2 `assignedRepId` cleanup on user→tenant change; Risk-3 per-tenant email From: addresses; Stripe billing wiring; subdomain routing if desired.

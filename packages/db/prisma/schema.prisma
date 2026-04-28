@@ -690,11 +690,17 @@ model Notification {
 
 model AuditLog {
   id         String   @id @default(cuid())
+  /// Multi-tenant scope. Null for entries written before the multi-tenant
+  /// retrofit (treated as belonging to the demo tenant); SUPER_ADMIN
+  /// cross-tenant actions stay null intentionally so they're visible
+  /// across tenant filters.
+  tenantId   String?
   userId     String?
   entityType String
   entityId   String
   action     String
   diff       Json?
+  metadata   Json?
   ipAddress  String?
   userAgent  String?
   createdAt  DateTime @default(now())
@@ -702,6 +708,7 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([userId, createdAt])
   @@index([createdAt])
+  @@index([tenantId, createdAt])
 }
 
 // ─── Messaging templates & automation ────────────────────────────────

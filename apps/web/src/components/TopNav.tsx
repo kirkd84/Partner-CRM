@@ -47,20 +47,32 @@ const NAV_ITEMS: readonly NavItem[] = [
 // activity feed integration. For now we show the seeded baseline.
 const UNREAD_NOTIFICATIONS = 0;
 
-export function TopNav() {
+interface TopNavProps {
+  /** Display name of the active tenant — shown in the brand chip when
+   *  set, otherwise falls back to packages/config/tenant.ts. */
+  activeTenantName?: string | null;
+  /** Primary brand color of the active tenant (hex). Optional; the
+   *  CSS uses --pr-primary tokens so this is informational for now. */
+  activeTenantPrimaryHex?: string | null;
+}
+
+export function TopNav({ activeTenantName, activeTenantPrimaryHex: _ }: TopNavProps = {}) {
   const { data: session } = useSession();
   const pathname = usePathname();
   const role = session?.user.role ?? 'REP';
   const isManagerPlus = role === 'MANAGER' || role === 'ADMIN' || role === 'SUPER_ADMIN';
   const isSuperAdmin = role === 'SUPER_ADMIN';
   const t = tenant();
+  // Per-tenant brand override — falls through to the static tenant
+  // config when no tenant is active (super-admin not acting-as).
+  const displayBrandName = activeTenantName ?? t.brandName;
 
   return (
     <header className="sticky top-0 z-40 flex h-[52px] shrink-0 items-center gap-2 border-b border-black/30 bg-nav-bg px-3 sm:gap-3 sm:px-4">
       {/* Logo — 2-tone handshake glyph, no background chip, larger */}
       <Link href="/radar" className="flex shrink-0 items-center gap-2 font-semibold text-white">
         <BrandLogo className="h-8 w-auto" />
-        <span className="hidden text-[14px] md:inline">{t.brandName}</span>
+        <span className="hidden text-[14px] md:inline">{displayBrandName}</span>
       </Link>
 
       {/* Quick add — icon-only on mobile, full button from sm+ */}

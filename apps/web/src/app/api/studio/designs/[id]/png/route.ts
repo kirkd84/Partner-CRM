@@ -37,8 +37,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   });
   if (!design) return new Response('Not found', { status: 404 });
 
-  // Workspace gate: admin = all, manager = matching market
-  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER') {
+  // Role gate: admin / manager / super-admin only
+  if (
+    session.user.role !== 'ADMIN' &&
+    session.user.role !== 'MANAGER' &&
+    session.user.role !== 'SUPER_ADMIN'
+  ) {
     return new Response('Forbidden', { status: 403 });
   }
   if (session.user.role === 'MANAGER') {
@@ -49,6 +53,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     ) {
       return new Response('Forbidden', { status: 403 });
     }
+  }
+  // Multi-tenant defense-in-depth — enforce workspace's tenant matches
+  // the active tenant. Catches the "id from another tenant snuck in"
+  // case the market-list check above would miss.
+  try {
+    const { assertWorkspaceTenant } = await import('@/lib/tenant/context');
+    await assertWorkspaceTenant(session, design.workspace.tenantId);
+  } catch {
+    return new Response('Forbidden', { status: 403 });
   }
 
   const doc = design.document as unknown as {

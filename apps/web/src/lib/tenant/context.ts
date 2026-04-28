@@ -111,3 +111,39 @@ export async function marketTenantWhere(
   if (id == null) return {};
   return { market: { tenantId: id } };
 }
+
+/**
+ * Defense-in-depth: throw unless the resource (typically an MwWorkspace
+ * or its derivatives like MwDesign / MwBrand) belongs to the tenant the
+ * session is acting as.
+ *
+ * Resolution:
+ *   - SUPER_ADMIN with no act-as cookie → allowed (cross-tenant view).
+ *   - SUPER_ADMIN acting-as → must match.
+ *   - Regular user → must match their tenantId.
+ *
+ * Use at the top of any server route / action that loads a MwDesign /
+ * MwBrand / MwWorkspace by id. The market-membership check is the
+ * primary gate; this is the secondary check that catches "I'm in
+ * tenant A but somehow have a workspace id that belongs to tenant B."
+ */
+export async function assertWorkspaceTenant(
+  session: SessionLike | null,
+  workspaceTenantId: string | null | undefined,
+): Promise<void> {
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  if (session.user.role === 'SUPER_ADMIN') {
+    const acting = await activeTenantId(session);
+    // Super-admin not acting-as → allowed. Acting-as → must match.
+    if (acting != null && acting !== workspaceTenantId) {
+      throw new Error('FORBIDDEN: workspace tenant mismatch');
+    }
+    return;
+  }
+  // Regular user — strict match. workspaceTenantId can be null on
+  // pre-multi-tenant workspaces; treat null as "demo tenant" via
+  // backfill, which means a non-demo user shouldn't see them.
+  if (session.user.tenantId !== workspaceTenantId) {
+    throw new Error('FORBIDDEN: workspace tenant mismatch');
+  }
+}

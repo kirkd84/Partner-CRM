@@ -3,6 +3,7 @@ import { Table, THead, TBody, TR, TH } from '@partnerradar/ui';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { AuditFilters, AuditRow } from './AuditClient';
+import { activeTenantId } from '@/lib/tenant/context';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,10 +24,22 @@ export default async function AdminAuditLogPage({
 }) {
   const session = await auth();
   if (!session?.user) return null;
-  if (session.user.role !== 'ADMIN') redirect('/admin');
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'SUPER_ADMIN') redirect('/admin');
   const params = await searchParams;
 
+  // Multi-tenant: scope audit log to the active tenant. Three cases:
+  //   (a) Tenant ADMIN — only their tenant's rows.
+  //   (b) SUPER_ADMIN acting-as a tenant — only that tenant's rows.
+  //   (c) SUPER_ADMIN with no act-as cookie — see EVERYTHING (super-admin
+  //       audit log is the sole legitimate cross-tenant view; without it
+  //       Copayee can't audit its own super-admin act-as actions).
+  const tenantId = await activeTenantId(session);
+  const isCrossTenantSuperAdmin = session.user.role === 'SUPER_ADMIN' && tenantId == null;
+
   const where: Prisma.AuditLogWhereInput = {};
+  if (!isCrossTenantSuperAdmin) {
+    where.tenantId = tenantId ?? '__none__';
+  }
   if (params.user) where.userId = params.user;
   if (params.entity) where.entityType = params.entity;
   if (params.action) where.action = params.action;

@@ -2,13 +2,20 @@ import { prisma } from '@partnerradar/db';
 import { Table, THead, TBody, TR, TH, TD } from '@partnerradar/ui';
 import { MapPinned } from 'lucide-react';
 import { MarketsToolbar, MarketRowActions } from './MarketsClient';
+import { auth } from '@/auth';
+import { activeTenantId } from '@/lib/tenant/context';
 
 export const dynamic = 'force-dynamic';
 
 type CenterJson = { lat: number; lng: number };
 
 export default async function AdminMarketsPage() {
+  const session = await auth();
+  // Multi-tenant: only show markets in the active tenant. SUPER_ADMIN
+  // without an act-as cookie sees nothing — pick a tenant first.
+  const tenantId = await activeTenantId(session);
   const markets = await prisma.market.findMany({
+    where: tenantId ? { tenantId } : { tenantId: '__none__' },
     orderBy: { name: 'asc' },
     include: {
       _count: { select: { partners: true, users: true } },

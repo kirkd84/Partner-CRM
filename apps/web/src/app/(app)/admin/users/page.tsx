@@ -3,16 +3,25 @@ import { auth } from '@/auth';
 import { Avatar, Pill, Table, THead, TBody, TR, TH, TD } from '@partnerradar/ui';
 import { UsersToolbar } from './UsersToolbar';
 import { UserRowActions } from './UserRowActions';
+import { activeTenantId } from '@/lib/tenant/context';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminUsersPage() {
   const session = await auth();
   if (!session?.user) return null;
-  const isAdmin = session.user.role === 'ADMIN';
+  const isAdmin = session.user.role === 'ADMIN' || session.user.role === 'SUPER_ADMIN';
+
+  // Multi-tenant: scope users + markets to the active tenant. SUPER_ADMIN
+  // with no act-as cookie sees nothing here — they should pick a tenant
+  // first via /super-admin. Returning empty arrays is intentional rather
+  // than leaking cross-tenant data.
+  const tenantId = await activeTenantId(session);
+  const tenantScope = tenantId ? { tenantId } : { tenantId: '__none__' };
 
   const [users, markets] = await Promise.all([
     prisma.user.findMany({
+      where: tenantScope,
       orderBy: [{ active: 'desc' }, { name: 'asc' }],
       include: {
         markets: {
@@ -21,6 +30,7 @@ export default async function AdminUsersPage() {
       },
     }),
     prisma.market.findMany({
+      where: tenantScope,
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     }),

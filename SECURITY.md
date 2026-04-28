@@ -40,15 +40,18 @@ Be honest about scope:
 
 ## Authorization
 
-Three-role RBAC:
+Four-role RBAC:
 
-| Role        | Sees                                                      | Mutates                                                                                                |
-| ----------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **ADMIN**   | Everything across all markets.                            | Everything.                                                                                            |
-| **MANAGER** | Partners + activity in markets they're assigned to.       | Same. Can invite reps. Can configure scrape jobs in their markets.                                     |
-| **REP**     | Partners assigned to them OR unassigned in their markets. | Their own activity logs. Cannot bulk-export. Cannot lasso-scrape (cost). Cannot configure scrape jobs. |
+| Role            | Sees                                                               | Mutates                                                                                                |
+| --------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| **REP**         | Partners assigned to them OR unassigned in their tenant's markets. | Their own activity logs. Cannot bulk-export. Cannot lasso-scrape (cost). Cannot configure scrape jobs. |
+| **MANAGER**     | Partners + activity in their tenant's markets they're assigned to. | Same. Can invite reps. Can configure scrape jobs in their markets.                                     |
+| **ADMIN**       | Everything in their tenant.                                        | Everything in their tenant.                                                                            |
+| **SUPER_ADMIN** | Cross-tenant operator (Copayee). Can act-as any tenant.            | Tenant lifecycle (create / suspend / cancel) + all operations within the tenant they're acting-as.     |
 
 The check pattern is consistent: `assertManagerInMarket(marketId)` for market-scoped writes, `session.user.role !== 'ADMIN'` for admin-only actions, `session.user.markets.includes(...)` for cross-market reads. Server actions all start with the role check before any DB read so a forged form post can't escalate.
+
+**Multi-tenant scoping**: `lib/tenant/context.ts` exports `activeTenantId(session)`, `tenantWhere(session)`, `marketTenantWhere(session)`, `requireSuperAdmin(session)`, `assertTenantAccess(session, id)`, and `assertWorkspaceTenant(session, ws.tenantId)`. Every query that touches tenant-scoped data must call one of these. SUPER_ADMINs use an HttpOnly `pr-act-as-tenant` cookie set via /super-admin to scope into a tenant temporarily; the cookie is ignored for regular users (a tenant employee can't escape their tenant by setting it). Every act-as transition is audit-logged. See `MULTI-TENANT.md` for the threat model + remaining retrofit work.
 
 ## Input validation
 
