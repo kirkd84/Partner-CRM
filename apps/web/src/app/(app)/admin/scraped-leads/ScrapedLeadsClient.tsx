@@ -4,7 +4,13 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, Pill, DrawerModal } from '@partnerradar/ui';
 import { Check, Search, X, Info, Users } from 'lucide-react';
-import { approveLead, bulkApproveLeads, bulkRejectLeads, rejectLead } from './actions';
+import {
+  approveLead,
+  bulkApproveLeads,
+  bulkApproveLeadsAssigned,
+  bulkRejectLeads,
+  rejectLead,
+} from './actions';
 
 interface Lead {
   id: string;
@@ -46,6 +52,18 @@ export function ScrapedLeadsClient({
   const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
   const [bulkRejectReason, setBulkRejectReason] = useState('');
   const [bulkAssignToRepId, setBulkAssignToRepId] = useState<string>('');
+
+  // Multi-rep assignment modes for batch approval.
+  // - 'one'   : assign every selected lead to a single rep (legacy)
+  // - 'even'  : round-robin across the picked reps (rep[0], rep[1], rep[2], rep[0]…)
+  // - 'area'  : group selected leads by ZIP (or city if no ZIP), then
+  //             distribute whole groups across the picked reps. Keeps
+  //             reps geographically coherent so they're not driving
+  //             across town.
+  type AssignMode = 'one' | 'even' | 'area';
+  const [assignMode, setAssignMode] = useState<AssignMode>('one');
+  const [splitRepIds, setSplitRepIds] = useState<Set<string>>(new Set());
+  const [areaGroupBy, setAreaGroupBy] = useState<'zip' | 'city'>('zip');
 
   // Filters (client-side over the already-loaded 200-lead window).
   const [query, setQuery] = useState('');
@@ -137,6 +155,106 @@ export function ScrapedLeadsClient({
     setSelected(new Set());
   }
 
+  /**
+   * Compute a per-lead rep assignment given the current mode + selected
+   * reps. Always returns one entry per selected lead so the server can
+   * iterate without nulls (a null repId still means 'unassigned').
+   *
+   * 'one': everything to bulkAssignToRepId (or null)
+   * 'even': leadsArr[i] → repsArr[i % repsArr.length] — round-robin
+   * 'area': group leads by ZIP/city, then deal whole groups to reps in
+   *         order; if no ZIP/city is set on a lead it falls in the
+   *         catch-all '__none__' bucket which goes to repsArr[0].
+   */
+  function computeAssignments(): Array<{ leadId: string; assignedRepId: string | null }> {
+    const ids = [...selected];
+    const idLeadMap = new Map(filteredLeads.map((l) => [l.id, l]));
+    const orderedLeads = ids.map((id) => idLeadMap.get(id)).filter(Boolean) as Lead[];
+
+    if (assignMode === 'one') {
+      const rep = bulkAssignToRepId || null;
+      return orderedLeads.map((l) => ({ leadId: l.id, assignedRepId: rep }));
+    }
+
+    const repsArr = [...splitRepIds];
+    if (repsArr.length === 0) {
+      // Multi-rep mode but no reps picked → leave unassigned.
+      return orderedLeads.map((l) => ({ leadId: l.id, assignedRepId: null }));
+    }
+
+    if (assignMode === 'even') {
+      return orderedLeads.map((l, idx) => ({
+        leadId: l.id,
+        assignedRepId: repsArr[idx % repsArr.length] ?? null,
+      }));
+    }
+
+    // 'area' — bucket by ZIP/city, then deal buckets to reps.
+    const buckets = new Map<string, Lead[]>();
+    for (const l of orderedLeads) {
+      const key =
+        areaGroupBy === 'zip'
+          ? String(l.normalized.zip ?? '__none__')
+          : String(l.normalized.city ?? '__none__');
+      const arr = buckets.get(key) ?? [];
+      arr.push(l);
+      buckets.set(key, arr);
+    }
+    // Sort bucket keys so '__none__' lands last and the assignment is
+    // stable run-to-run.
+    const keys = [...buckets.keys()].sort((a, b) => {
+      if (a === '__none__') return 1;
+      if (b === '__none__') return -1;
+      return a.localeCompare(b);
+    });
+    const out: Array<{ leadId: string; assignedRepId: string | null }> = [];
+    keys.forEach((k, idx) => {
+      const rep = repsArr[idx % repsArr.length] ?? null;
+      for (const l of buckets.get(k) ?? []) {
+        out.push({ leadId: l.id, assignedRepId: rep });
+      }
+    });
+    return out;
+  }
+
+  // Live preview of the distribution: "Sarah: 8 · Jose: 8 · Maria: 7"
+  const distributionPreview = useMemo(() => {
+    if (selected.size === 0) return null;
+    if (assignMode === 'one') {
+      const repName = reps.find((r) => r.id === bulkAssignToRepId)?.name;
+      if (!repName) return `${selected.size} → unassigned`;
+      return `${repName}: ${selected.size}`;
+    }
+    if (splitRepIds.size === 0) return 'Pick at least one rep above';
+    const counts = new Map<string, number>();
+    for (const a of computeAssignments()) {
+      const k = a.assignedRepId ?? '__unassigned';
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([repId, n]) => {
+        const name =
+          repId === '__unassigned'
+            ? 'Unassigned'
+            : (reps.find((r) => r.id === repId)?.name ?? repId);
+        return `${name}: ${n}`;
+      })
+      .join(' · ');
+    // computeAssignments depends on selected, splitRepIds, areaGroupBy,
+    // bulkAssignToRepId, assignMode — all listed below so the memo
+    // recomputes on any of them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, splitRepIds, areaGroupBy, bulkAssignToRepId, assignMode, reps, filteredLeads]);
+
+  function toggleSplitRep(id: string) {
+    setSplitRepIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function onFilterStatus(next: string) {
     const p = new URLSearchParams(sp?.toString() ?? '');
     if (next === 'PENDING') p.delete('status');
@@ -182,19 +300,33 @@ export function ScrapedLeadsClient({
     setBatchSummary(null);
     const ids = [...selected];
     if (ids.length === 0) return;
+    // Multi-rep modes go through the per-lead-assignment endpoint;
+    // single-rep mode keeps the original homogenous endpoint so
+    // existing call patterns + audit grouping stay intact.
     startTransition(async () => {
       try {
-        const result = await bulkApproveLeads({
-          leadIds: ids,
-          assignedRepId: bulkAssignToRepId || null,
-        });
-        const repName =
-          (bulkAssignToRepId && reps.find((r) => r.id === bulkAssignToRepId)?.name) ?? null;
-        const head = `Approved ${result.approved} of ${ids.length}`;
-        const tail = repName ? ` — assigned to ${repName}` : '';
-        const errSuffix = result.errors.length ? ` · ${result.errors.length} failed` : '';
-        setBatchSummary(`${head}${tail}.${errSuffix}`);
+        if (assignMode === 'one') {
+          const result = await bulkApproveLeads({
+            leadIds: ids,
+            assignedRepId: bulkAssignToRepId || null,
+          });
+          const repName =
+            (bulkAssignToRepId && reps.find((r) => r.id === bulkAssignToRepId)?.name) ?? null;
+          const head = `Approved ${result.approved} of ${ids.length}`;
+          const tail = repName ? ` — assigned to ${repName}` : '';
+          const errSuffix = result.errors.length ? ` · ${result.errors.length} failed` : '';
+          setBatchSummary(`${head}${tail}.${errSuffix}`);
+        } else {
+          const assignments = computeAssignments();
+          const result = await bulkApproveLeadsAssigned({ assignments });
+          const head = `Approved ${result.approved} of ${ids.length}`;
+          const summary = distributionPreview ? ` — ${distributionPreview}` : '';
+          const errSuffix = result.errors.length ? ` · ${result.errors.length} failed` : '';
+          setBatchSummary(`${head}${summary}.${errSuffix}`);
+        }
         setBulkAssignToRepId('');
+        setSplitRepIds(new Set());
+        setAssignMode('one');
         clearSelection();
         router.refresh();
       } catch (err) {
@@ -346,44 +478,132 @@ export function ScrapedLeadsClient({
         </div>
       )}
 
-      {/* Bulk action bar — sticky so it stays visible while scrolling. */}
+      {/* Bulk action bar — sticky so it stays visible while scrolling.
+          Two rows: header (count + reject/approve) and assignment
+          controls (mode tabs + rep picker + live preview). */}
       {selected.size > 0 && activeStatus === 'PENDING' && (
-        <div className="sticky top-[52px] z-20 mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 shadow-sm">
-          <Users className="h-4 w-4 text-blue-700" />
-          <span className="text-sm font-semibold text-blue-900">{selected.size} selected</span>
-          <span className="text-blue-300">·</span>
-          <button
-            type="button"
-            onClick={clearSelection}
-            className="text-xs text-blue-700 hover:underline"
-          >
-            Clear
-          </button>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <select
-              value={bulkAssignToRepId}
-              onChange={(e) => setBulkAssignToRepId(e.target.value)}
-              className="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs"
-              disabled={isPending}
+        <div className="sticky top-[52px] z-20 mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 shadow-sm">
+          {/* Top row — counts + actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Users className="h-4 w-4 text-blue-700" />
+            <span className="text-sm font-semibold text-blue-900">{selected.size} selected</span>
+            <span className="text-blue-300">·</span>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="text-xs text-blue-700 hover:underline"
             >
-              <option value="">Leave unassigned</option>
-              {reps.map((r) => (
-                <option key={r.id} value={r.id}>
-                  Assign to {r.name}
-                </option>
+              Clear
+            </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setBulkRejectOpen(true)}
+                disabled={isPending}
+              >
+                <X className="h-3.5 w-3.5" /> Reject {selected.size}
+              </Button>
+              <Button
+                size="sm"
+                onClick={onBulkApprove}
+                loading={isPending}
+                disabled={isPending || (assignMode !== 'one' && splitRepIds.size === 0)}
+              >
+                <Check className="h-3.5 w-3.5" /> Approve {selected.size}
+              </Button>
+            </div>
+          </div>
+
+          {/* Second row — assignment mode + rep picker */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-blue-200 pt-2 text-xs">
+            <span className="font-semibold text-blue-900">Assign:</span>
+            <div className="flex rounded-md border border-blue-200 bg-white p-0.5">
+              {(
+                [
+                  { id: 'one', label: 'One rep' },
+                  { id: 'even', label: 'Split evenly' },
+                  { id: 'area', label: 'By area' },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setAssignMode(m.id)}
+                  className={`rounded px-2 py-0.5 transition ${
+                    assignMode === m.id
+                      ? 'bg-blue-600 text-white'
+                      : 'text-blue-900 hover:bg-blue-50'
+                  }`}
+                  disabled={isPending}
+                >
+                  {m.label}
+                </button>
               ))}
-            </select>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setBulkRejectOpen(true)}
-              disabled={isPending}
-            >
-              <X className="h-3.5 w-3.5" /> Reject {selected.size}
-            </Button>
-            <Button size="sm" onClick={onBulkApprove} loading={isPending}>
-              <Check className="h-3.5 w-3.5" /> Approve {selected.size}
-            </Button>
+            </div>
+
+            {assignMode === 'one' && (
+              <select
+                value={bulkAssignToRepId}
+                onChange={(e) => setBulkAssignToRepId(e.target.value)}
+                className="rounded-md border border-blue-200 bg-white px-2 py-1"
+                disabled={isPending}
+              >
+                <option value="">Leave unassigned</option>
+                {reps.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {assignMode !== 'one' && (
+              <>
+                <span className="text-blue-700">Reps:</span>
+                <div className="flex flex-wrap gap-1">
+                  {reps.map((r) => {
+                    const on = splitRepIds.has(r.id);
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => toggleSplitRep(r.id)}
+                        disabled={isPending}
+                        className={`rounded-full border px-2 py-0.5 transition ${
+                          on
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-blue-200 bg-white text-blue-900 hover:border-blue-400'
+                        }`}
+                      >
+                        {r.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {assignMode === 'area' && (
+              <>
+                <span className="text-blue-700">Group by:</span>
+                <select
+                  value={areaGroupBy}
+                  onChange={(e) => setAreaGroupBy(e.target.value as 'zip' | 'city')}
+                  className="rounded-md border border-blue-200 bg-white px-2 py-1"
+                  disabled={isPending}
+                >
+                  <option value="zip">ZIP code</option>
+                  <option value="city">City</option>
+                </select>
+              </>
+            )}
+
+            {distributionPreview && (
+              <span className="ml-auto rounded-md bg-white px-2 py-1 font-mono text-[11px] text-blue-900">
+                {distributionPreview}
+              </span>
+            )}
           </div>
         </div>
       )}

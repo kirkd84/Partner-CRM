@@ -151,6 +151,50 @@ export async function bulkApproveLeads(input: {
 }
 
 /**
+ * Bulk approve where each lead has its own rep assignment.
+ *
+ * Used by the "split evenly" and "split by area" UIs in the prospect
+ * queue. The client decides the distribution; this action just applies
+ * it. Sequential to keep PR-#### IDs monotonic.
+ */
+export async function bulkApproveLeadsAssigned(input: {
+  assignments: Array<{ leadId: string; assignedRepId: string | null }>;
+}): Promise<{
+  approved: number;
+  errors: Array<{ leadId: string; error: string }>;
+  partnerIds: string[];
+}> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (!isManagerPlus) throw new Error('FORBIDDEN: manager+');
+
+  const errors: Array<{ leadId: string; error: string }> = [];
+  const partnerIds: string[] = [];
+  let approved = 0;
+
+  for (const a of input.assignments) {
+    try {
+      const result = await approveLead({
+        leadId: a.leadId,
+        assignedRepId: a.assignedRepId,
+      });
+      partnerIds.push(result.partnerId);
+      approved++;
+    } catch (err) {
+      errors.push({
+        leadId: a.leadId,
+        error: err instanceof Error ? err.message : 'unknown error',
+      });
+    }
+  }
+
+  revalidatePath('/admin/scraped-leads');
+  revalidatePath('/partners');
+  return { approved, errors, partnerIds };
+}
+
+/**
  * Bulk reject N pending leads with the same reason.
  */
 export async function bulkRejectLeads(input: {
