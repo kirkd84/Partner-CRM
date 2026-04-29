@@ -3,9 +3,14 @@
  * because browsers prefer the closest-matching size. The bigger
  * 512×512 icon.tsx is for PWA install + manifest references.
  *
- * Design: simplified for 16/32-px legibility. Drop the concentric
- * rings (they smear into a blur) and keep just the center dot +
- * a single bold sweep wedge.
+ * Design matches the in-app BrandLogo: the Lucide handshake silhouette
+ * with a hard-stop grey/red gradient down the vertical midline. White
+ * tile background so the glyph reads on both light and dark browser
+ * chrome.
+ *
+ * Why this and not a bespoke 16-px design: at 32×32 the handshake
+ * silhouette is still readable, and matching the in-app logo means
+ * the tab bar, install prompt, and brand chip all share one mark.
  */
 
 import { ImageResponse } from 'next/og';
@@ -22,21 +27,44 @@ export default function FaviconSmall() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#1e40af',
-        color: 'white',
+        background: '#ffffff',
+        // Subtle border so the white tile still has an edge against
+        // light browser chrome.
+        border: '1px solid #e5e7eb',
+        borderRadius: 6,
       }}
     >
       <svg
         width="26"
         height="26"
-        viewBox="0 0 32 32"
+        viewBox="0 0 24 24"
         fill="none"
+        stroke="#dc2626"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         xmlns="http://www.w3.org/2000/svg"
       >
-        {/* Bold sweep wedge — readable at 16x16 */}
-        <path d="M16 16 L16 4 A12 12 0 0 1 27 21 Z" fill="white" fillOpacity="0.9" />
-        {/* Center pin */}
-        <circle cx="16" cy="16" r="3" fill="white" />
+        <defs>
+          <linearGradient
+            id="pp-handshake-32"
+            x1="0"
+            x2="24"
+            y1="0"
+            y2="0"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0.5" stopColor="#9ca3af" />
+            <stop offset="0.5" stopColor="#dc2626" />
+          </linearGradient>
+        </defs>
+        <g stroke="url(#pp-handshake-32)">
+          <path d="m11 17 2 2a1 1 0 1 0 3-3" />
+          <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" />
+          <path d="m21 3 1 11h-2" />
+          <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" />
+          <path d="M3 4h8" />
+        </g>
       </svg>
     </div>,
     {

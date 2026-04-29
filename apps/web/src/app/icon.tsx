@@ -2,9 +2,13 @@
  * /icon.png — Next 15 file-based metadata. The component below renders
  * to a PNG at build time and Next emits the link tag automatically.
  *
- * Design: filled blue square, rounded corners, with a stylized radar
- * sweep — concentric arcs in white. Read clean at 32px favicon size
- * AND at the 192/512 PWA sizes because the geometry is simple.
+ * Design matches the in-app BrandLogo: a two-tone handshake glyph
+ * (Lucide handshake path) with a vertical grey/red gradient split.
+ * Used by the PWA install prompt + manifest references at large sizes.
+ *
+ * Earlier versions used a stylized radar sweep; we've migrated to the
+ * handshake to align favicon + brand chip + apple-icon under a single
+ * mark. See /apple-icon.tsx and /icon0.tsx for the matching variants.
  */
 
 import { ImageResponse } from 'next/og';
@@ -21,28 +25,40 @@ export default function Icon() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%)',
-        color: 'white',
-        // The gradient + the radar arcs together give the icon
-        // enough visual energy that we don't need to also stamp
-        // text — text would be illegible at 32px anyway.
+        background: '#ffffff',
       }}
     >
       <svg
-        width="360"
-        height="360"
-        viewBox="0 0 360 360"
+        width="380"
+        height="380"
+        viewBox="0 0 24 24"
         fill="none"
+        stroke="#dc2626"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
         xmlns="http://www.w3.org/2000/svg"
       >
-        {/* Concentric radar rings */}
-        <circle cx="180" cy="180" r="140" stroke="white" strokeOpacity="0.25" strokeWidth="6" />
-        <circle cx="180" cy="180" r="100" stroke="white" strokeOpacity="0.4" strokeWidth="6" />
-        <circle cx="180" cy="180" r="60" stroke="white" strokeOpacity="0.55" strokeWidth="6" />
-        {/* Sweep wedge */}
-        <path d="M180 180 L180 40 A140 140 0 0 1 308 230 Z" fill="white" fillOpacity="0.18" />
-        {/* Center pin */}
-        <circle cx="180" cy="180" r="18" fill="white" />
+        <defs>
+          <linearGradient
+            id="pp-handshake-512"
+            x1="0"
+            x2="24"
+            y1="0"
+            y2="0"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0.5" stopColor="#9ca3af" />
+            <stop offset="0.5" stopColor="#dc2626" />
+          </linearGradient>
+        </defs>
+        <g stroke="url(#pp-handshake-512)">
+          <path d="m11 17 2 2a1 1 0 1 0 3-3" />
+          <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" />
+          <path d="m21 3 1 11h-2" />
+          <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" />
+          <path d="M3 4h8" />
+        </g>
       </svg>
     </div>,
     {
