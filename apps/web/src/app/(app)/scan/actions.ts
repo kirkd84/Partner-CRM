@@ -171,7 +171,7 @@ export async function createPartnerFromScan(
       data: {
         partnerId: existing.id,
         userId: session.user.id,
-        type: 'NOTE',
+        type: 'COMMENT',
         body: `${session.user.name} re-scanned a business card for this partner.`,
       },
     });

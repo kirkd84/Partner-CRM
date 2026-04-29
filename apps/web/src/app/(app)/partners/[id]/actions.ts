@@ -757,7 +757,7 @@ export async function convertToCustomer(
       data: {
         partnerId,
         userId: session.user.id,
-        type: 'NOTE',
+        type: 'COMMENT',
         body:
           mode === 'partner_and_customer'
             ? `${session.user.name} marked this partner as a customer (still partnering). ${stormPushNote}${
