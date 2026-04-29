@@ -281,17 +281,15 @@ enum PartnerStage {
   INACTIVE
 }
 
-/**
- * Per-tenant overrides for how each PartnerStage renders. The enum
- * stays the source of truth for type safety + existing code; this
- * table lets a manager rename the label, recolor, or reorder without
- * a code deploy. Adding net-new stages is intentionally NOT supported
- * here yet (would require a code change for cadence triggers,
- * automation rules, reports). v1 = rename + recolor + reorder only.
- *
- * Seeded by instrumentation.ts on boot from the enum + STAGE_LABELS
- * defaults, idempotent. Per-tenant rows are created lazily.
- */
+/// Per-tenant overrides for how each PartnerStage renders. The enum
+/// stays the source of truth for type safety + existing code; this
+/// table lets a manager rename the label, recolor, or reorder without
+/// a code deploy. Adding net-new stages is intentionally NOT supported
+/// here yet (would require a code change for cadence triggers,
+/// automation rules, reports). v1 = rename + recolor + reorder only.
+///
+/// Seeded by instrumentation.ts on boot from the enum + STAGE_LABELS
+/// defaults, idempotent. Per-tenant rows are created lazily.
 model StageConfig {
   id        String       @id @default(cuid())
   tenantId  String?      // null = global default; tenant rows override
@@ -316,12 +314,10 @@ enum LeadSource {
   BUSINESS_CARD
 }
 
-/**
- * Networking groups Roof Tech belongs to or wants to track — CAI,
- * BNI, Chamber, REIA, etc. We log meetings of the group, partner
- * memberships, and the rep's spend (dues, sponsorships, dinners) so
- * a manager can see whether the group is paying off.
- */
+/// Networking groups Roof Tech belongs to or wants to track — CAI,
+/// BNI, Chamber, REIA, etc. We log meetings of the group, partner
+/// memberships, and the rep's spend (dues, sponsorships, dinners) so
+/// a manager can see whether the group is paying off.
 model NetworkingGroup {
   id            String       @id @default(cuid())
   tenantId      String?
@@ -350,11 +346,9 @@ model NetworkingGroup {
   @@index([archivedAt])
 }
 
-/**
- * Many-to-many between Partner and NetworkingGroup. We track who's a
- * member so the group page can show 'best partners in this group'
- * ranked by activity volume + revenue attribution.
- */
+/// Many-to-many between Partner and NetworkingGroup. We track who's a
+/// member so the group page can show 'best partners in this group'
+/// ranked by activity volume + revenue attribution.
 model NetworkingGroupMembership {
   id        String          @id @default(cuid())
   groupId   String
@@ -373,12 +367,10 @@ model NetworkingGroupMembership {
   @@index([partnerId])
 }
 
-/**
- * Each time a rep attends a meeting of the group. Lighter-weight than
- * an EvEvent because most BNI/CAI meetings aren't ours to host — we
- * just want to log who went, what was spent, and any partners we
- * encountered.
- */
+/// Each time a rep attends a meeting of the group. Lighter-weight than
+/// an EvEvent because most BNI/CAI meetings aren't ours to host — we
+/// just want to log who went, what was spent, and any partners we
+/// encountered.
 model NetworkingGroupMeeting {
   id        String          @id @default(cuid())
   groupId   String
