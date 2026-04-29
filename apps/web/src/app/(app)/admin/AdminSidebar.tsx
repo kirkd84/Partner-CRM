@@ -16,15 +16,19 @@ import {
   Workflow,
   Trophy,
   ListChecks,
-  FileSpreadsheet,
   Rocket,
-  Upload,
+  Layers,
 } from 'lucide-react';
 
+// Note: state-boards + import-partners (CSV book) used to live here too,
+// but they've moved to /generate-leads where every lead-source path
+// (lasso, scanner, state boards, CSV import) sits side-by-side. Admin
+// is for true admin functions only — config, queues, audit.
 const ITEMS = [
   { href: '/admin', label: 'Overview', icon: Settings2, adminOnly: false },
   { href: '/admin/users', label: 'Users', icon: Users, adminOnly: false },
   { href: '/admin/markets', label: 'Markets', icon: MapPinned, adminOnly: false },
+  { href: '/admin/stages', label: 'Partner stages', icon: Layers, adminOnly: false },
   {
     href: '/admin/appointment-types',
     label: 'Appointment types',
@@ -38,18 +42,6 @@ const ITEMS = [
   { href: '/admin/cadence-queue', label: 'Cadence queue', icon: Sparkles, adminOnly: false },
   { href: '/admin/scraped-leads', label: 'Prospect queue', icon: Inbox, adminOnly: false },
   { href: '/admin/scrape-jobs', label: 'Scrape jobs', icon: ListChecks, adminOnly: false },
-  {
-    href: '/admin/state-boards',
-    label: 'State board imports',
-    icon: FileSpreadsheet,
-    adminOnly: false,
-  },
-  {
-    href: '/admin/import-partners',
-    label: 'Import partners (CSV)',
-    icon: Upload,
-    adminOnly: false,
-  },
   { href: '/admin/reliability', label: 'Partner reliability', icon: Trophy, adminOnly: false },
   { href: '/admin/integrations', label: 'Integrations', icon: Plug, adminOnly: true },
   {

@@ -232,6 +232,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
             currentStage={partner.stage}
             canActivate={canActivate}
             canEdit={canEdit}
+            isCustomer={Boolean((partner as { isCustomer?: boolean }).isCustomer)}
           />
         </div>
       </div>

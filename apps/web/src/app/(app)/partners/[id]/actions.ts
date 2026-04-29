@@ -691,3 +691,150 @@ export async function recordDraftAccepted(
   ]);
   revalidatePath(`/partners/${partnerId}`);
 }
+
+// ─── Customer conversion ────────────────────────────────────────────
+//
+// "Sometimes a partner turns into a customer — we roof their house!"
+// Two modes:
+//
+//   • partner_and_customer: they still refer us business AND we work
+//     for them. Flag isCustomer=true; the partner record stays active
+//     in PartnerRadar and a Storm customer is queued for create.
+//
+//   • customer_only: the relationship has shifted entirely; they're
+//     just a customer now. Flag isCustomer=true + customerOnly=true,
+//     stage moves to INACTIVE (with reason), partner is archived from
+//     active pipeline. Storm push happens the same way.
+//
+// The Storm push itself is intentionally a stub — once Kirk wires
+// STORM_CLOUD_API_KEY we can replace the logged-only branch with
+// stormClient.createCustomer({...}). Today we log the intent + write
+// an audit entry so the conversion is traceable.
+
+export type CustomerConvertMode = 'partner_and_customer' | 'customer_only';
+
+export async function convertToCustomer(
+  partnerId: string,
+  input: {
+    mode: CustomerConvertMode;
+    /** Required when mode=customer_only; reasoning shown in audit log + Reports → Funnel */
+    dormantReason?: string;
+    /** Optional free-text note copied onto the activity for context */
+    note?: string;
+  },
+) {
+  const { session, partner } = await assertCanEdit(partnerId);
+  if (input.mode === 'customer_only' && !input.dormantReason?.trim()) {
+    throw new Error('A reason is required when archiving a partner as customer-only.');
+  }
+
+  const now = new Date();
+  const { mode } = input;
+
+  const data: Record<string, unknown> = {
+    isCustomer: true,
+    becameCustomerAt: now,
+  };
+  if (mode === 'customer_only') {
+    data.customerOnly = true;
+    data.stage = 'INACTIVE';
+    data.stageChangedAt = now;
+    data.dormantReason = input.dormantReason!.trim();
+    data.archivedAt = now;
+  }
+
+  // Stub the Storm push — we record the intent so Kirk can confirm
+  // every conversion in the audit log and re-drive once Storm creds
+  // are live. When STORM_CLOUD_API_KEY arrives, replace this block
+  // with a real stormClient.createCustomer call inside the transaction.
+  const stormPushNote = process.env.STORM_CLOUD_API_KEY
+    ? '(Storm push will be wired by the Storm sync job.)'
+    : '(Storm push pending — STORM_CLOUD_API_KEY not configured yet.)';
+
+  await prisma.$transaction([
+    prisma.partner.update({ where: { id: partnerId }, data }),
+    prisma.activity.create({
+      data: {
+        partnerId,
+        userId: session.user.id,
+        type: 'NOTE',
+        body:
+          mode === 'partner_and_customer'
+            ? `${session.user.name} marked this partner as a customer (still partnering). ${stormPushNote}${
+                input.note ? `\n\nNote: ${input.note}` : ''
+              }`
+            : `${session.user.name} converted this partner to a customer-only record. Reason: ${input.dormantReason}. ${stormPushNote}${
+                input.note ? `\n\nNote: ${input.note}` : ''
+              }`,
+        metadata: {
+          customerConvertMode: mode,
+          dormantReason: input.dormantReason ?? null,
+          stormPushed: false,
+        },
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        entityType: 'Partner',
+        entityId: partnerId,
+        action: 'CONVERT_TO_CUSTOMER',
+        diff: {
+          mode,
+          dormantReason: input.dormantReason ?? null,
+          fromStage: partner.stage,
+          stormPushed: false,
+        },
+      },
+    }),
+  ]);
+
+  revalidatePath(`/partners/${partnerId}`);
+  revalidatePath('/partners');
+  revalidatePath('/radar');
+  return { ok: true, mode };
+}
+
+// ─── Stage change with dormant-reason gate ─────────────────────────
+//
+// Companion to changeStage that ENFORCES a reason when transitioning
+// to INACTIVE. The /partners/[id] UI calls this for INACTIVE moves
+// and falls through to changeStage() for everything else.
+export async function changeStageToInactive(partnerId: string, reason: string, note?: string) {
+  if (!reason.trim()) throw new Error('A reason is required when marking a partner Inactive.');
+  const { session, partner: prev } = await assertCanEdit(partnerId);
+  const fromStage = prev.stage;
+
+  await prisma.$transaction([
+    prisma.partner.update({
+      where: { id: partnerId },
+      data: {
+        stage: 'INACTIVE',
+        stageChangedAt: new Date(),
+        dormantReason: reason.trim(),
+      },
+    }),
+    prisma.activity.create({
+      data: {
+        partnerId,
+        userId: session.user.id,
+        type: 'STAGE_CHANGE',
+        body: note?.trim() || `Marked Inactive. Reason: ${reason.trim()}`,
+        metadata: { fromStage, toStage: 'INACTIVE', dormantReason: reason.trim() },
+      },
+    }),
+    prisma.auditLog.create({
+      data: {
+        userId: session.user.id,
+        entityType: 'partner',
+        entityId: partnerId,
+        action: 'stage_change',
+        diff: { from: fromStage, to: 'INACTIVE', dormantReason: reason.trim() },
+      },
+    }),
+  ]);
+  revalidatePath(`/partners/${partnerId}`);
+  revalidatePath('/radar');
+  revalidatePath('/partners');
+  return { ok: true };
+}

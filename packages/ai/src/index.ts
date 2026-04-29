@@ -231,6 +231,110 @@ function splitEmail(raw: string): { subject: string; body: string } {
   return { subject, body };
 }
 
+// ─── Business card OCR + structured extraction ────────────────────
+//
+// /scan flow: rep snaps a card photo → POST to /api/scan/extract →
+// this function runs Claude Vision and returns a normalized lead
+// shape ready to drop into Partner.create. We deliberately use Sonnet
+// not Haiku — handwritten ZIPs, multilingual cards, and small print
+// trip Haiku regularly. Sonnet's accuracy is worth the latency at
+// 1 photo per scan.
+
+export const BusinessCardExtraction = z.object({
+  companyName: z.string(),
+  contactName: z.string().nullable(),
+  title: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  website: z.string().nullable(),
+  address: z.string().nullable(),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  zip: z.string().nullable(),
+  // Best-guess of what the card represents — Realtor / Mortgage / etc.
+  // Maps loosely to PartnerType enum; the UI confirms before save.
+  partnerTypeGuess: z
+    .enum([
+      'REALTOR',
+      'MORTGAGE_BROKER',
+      'INSURANCE_AGENT',
+      'PROPERTY_MANAGER',
+      'GENERAL_CONTRACTOR',
+      'PUBLIC_ADJUSTER',
+      'REAL_ESTATE_ATTORNEY',
+      'HOME_INSPECTOR',
+      'OTHER',
+    ])
+    .nullable(),
+  // Confidence 0-1 — surfaced in UI so reps know when to scrutinize
+  // (low confidence = handwritten or torn card; they'll want to
+  // double-check fields).
+  confidence: z.number().min(0).max(1),
+  // Free-text caveats from the model: "phone unreadable", "card has a
+  // second contact name". Shown as a hint under the form.
+  notes: z.string().nullable(),
+});
+export type BusinessCardExtraction = z.infer<typeof BusinessCardExtraction>;
+
+const CARD_EXTRACTION_PROMPT = `You are a business-card OCR assistant for a roofing-industry CRM.
+
+Given an image of a business card, extract the structured fields below as JSON. The card is from a contact at a partner company (real-estate agent, mortgage broker, insurance agent, property manager, contractor, attorney, inspector, public adjuster, etc.).
+
+Fields:
+- companyName: legal or DBA on the card. If only a person's name appears (solo agents), use the brokerage / firm if shown, else the contact's name as fallback.
+- contactName: the person's full name. null if no name.
+- title: their job title (e.g. "Loan Officer NMLS #12345"). null if absent.
+- email, phone, website: as printed; phone in any format you see.
+- address, city, state, zip: parsed from the card's address.
+- partnerTypeGuess: one of REALTOR / MORTGAGE_BROKER / INSURANCE_AGENT / PROPERTY_MANAGER / GENERAL_CONTRACTOR / PUBLIC_ADJUSTER / REAL_ESTATE_ATTORNEY / HOME_INSPECTOR / OTHER. Pick OTHER if the card doesn't clearly fit one of those.
+- confidence: 0–1, your overall confidence. Lower it for handwritten cards, torn cards, glare, or partial scans.
+- notes: short caveat string for the rep, or null. Examples: "Phone partially obscured", "Card has two contacts; only first parsed", "Title looks scanned at angle".
+
+Return ONLY valid JSON. No prose. No markdown fences. Use null (not empty string) for missing fields.`;
+
+export async function extractBusinessCard(input: {
+  /** Either a base64-encoded image (no data: URI prefix) OR an https URL the model can fetch. */
+  imageBase64?: string;
+  imageUrl?: string;
+  mediaType?: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+}): Promise<BusinessCardExtraction> {
+  const anthropic = client();
+  const mediaType = input.mediaType ?? 'image/jpeg';
+  const imageBlock: Anthropic.ImageBlockParam = input.imageBase64
+    ? {
+        type: 'image',
+        source: { type: 'base64', media_type: mediaType, data: input.imageBase64 },
+      }
+    : {
+        type: 'image',
+        source: { type: 'url', url: input.imageUrl ?? '' },
+      };
+  const msg = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1000,
+    system: CARD_EXTRACTION_PROMPT,
+    messages: [
+      {
+        role: 'user',
+        content: [imageBlock, { type: 'text', text: 'Extract the structured fields now.' }],
+      },
+    ],
+  });
+  const text = msg.content
+    .map((c) => (c.type === 'text' ? c.text : ''))
+    .join('')
+    .trim();
+  const cleaned = text.replace(/^```json\s*|^```\s*|```$/gm, '').trim();
+  // Some Sonnet runs occasionally wrap with prose preamble; defense:
+  // pick the first { ... } block.
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  const jsonSlice =
+    firstBrace >= 0 && lastBrace > firstBrace ? cleaned.slice(firstBrace, lastBrace + 1) : cleaned;
+  const parsed = JSON.parse(jsonSlice);
+  return BusinessCardExtraction.parse(parsed);
+}
+
 // ─── Fallback "draft" for when the API key isn't set. ──────────────
 // Kirk can still see the drawer shape + copy flow before wiring the
 // Anthropic key. Obviously-placeholder so nobody accidentally sends.

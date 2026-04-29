@@ -17,6 +17,7 @@ import { redirect } from 'next/navigation';
 import { Card, Pill } from '@partnerradar/ui';
 import {
   ArrowRight,
+  Camera,
   FileSpreadsheet,
   Inbox,
   Lasso,
@@ -69,6 +70,14 @@ export default async function GenerateLeadsPage() {
 
       <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto grid w-full max-w-4xl gap-4 sm:grid-cols-2">
+          <SourceCard
+            href="/scan"
+            icon={Camera}
+            title="Scan business card"
+            tagline="Mobile camera · AI extraction"
+            description="At an event, snap a photo of a card and the AI fills in the company, contact, phone, and website. The lead lands at Initial Contact so cadences kick in automatically."
+            badge="In person"
+          />
           <SourceCard
             href="/generate-leads/lasso"
             icon={Lasso}

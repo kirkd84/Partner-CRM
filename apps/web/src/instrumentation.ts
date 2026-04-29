@@ -38,6 +38,7 @@ export async function register() {
     await seedMessageTemplates(prisma);
     await seedAutomationCadences(prisma);
     await provisionMarketingWorkspaces(prisma);
+    await seedStageConfig(prisma);
     console.log(`[auto-migrate] Completed in ${Date.now() - startedAt}ms`);
 
     // Note: in-process scrape scheduler is NOT started here. The
@@ -396,6 +397,109 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
     {
       label: 'add Partner.reliabilityScore',
       sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "reliabilityScore" DOUBLE PRECISION`,
+    },
+    // ── Partner field additions for customer-conversion + win/loss + scanner ──
+    // We can also be a customer of a partner (we roof their roof) AND
+    // partner with them on referrals. customerOnly = they exited the
+    // partner pipeline entirely, just a customer now.
+    {
+      label: 'add Partner.isCustomer',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "isCustomer" BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
+      label: 'add Partner.customerOnly',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "customerOnly" BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
+      label: 'add Partner.becameCustomerAt',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "becameCustomerAt" TIMESTAMP(3)`,
+    },
+    {
+      label: 'add Partner.dormantReason',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "dormantReason" TEXT`,
+    },
+    {
+      label: 'add Partner.referredByPartnerId',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "referredByPartnerId" TEXT`,
+    },
+    {
+      label: 'fk Partner.referredByPartnerId → Partner',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Partner_referredByPartnerId_fkey'
+          ) THEN
+            ALTER TABLE "Partner"
+              ADD CONSTRAINT "Partner_referredByPartnerId_fkey"
+              FOREIGN KEY ("referredByPartnerId") REFERENCES "Partner"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'index Partner.referredByPartnerId',
+      sql: `CREATE INDEX IF NOT EXISTS "Partner_referredByPartnerId_idx" ON "Partner"("referredByPartnerId")`,
+    },
+    {
+      label: 'add Partner.businessCardImageUrl',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "businessCardImageUrl" TEXT`,
+    },
+    {
+      label: 'LeadSource +BUSINESS_CARD',
+      sql: `
+        DO $$ BEGIN
+          ALTER TYPE "LeadSource" ADD VALUE IF NOT EXISTS 'BUSINESS_CARD';
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `,
+    },
+    // ── StageConfig (editable stage labels/colors per tenant) ──
+    {
+      label: 'create StageConfig',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "StageConfig" (
+          "id" TEXT PRIMARY KEY,
+          "tenantId" TEXT,
+          "stage" "PartnerStage" NOT NULL,
+          "label" TEXT NOT NULL,
+          "color" TEXT NOT NULL,
+          "sortOrder" INTEGER NOT NULL DEFAULT 0,
+          "archived" BOOLEAN NOT NULL DEFAULT false,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+    },
+    {
+      label: 'unique StageConfig (tenantId, stage)',
+      sql: `
+        CREATE UNIQUE INDEX IF NOT EXISTS "StageConfig_tenantId_stage_key"
+          ON "StageConfig"("tenantId", "stage")
+      `,
+    },
+    {
+      label: 'index StageConfig (tenantId, sortOrder)',
+      sql: `
+        CREATE INDEX IF NOT EXISTS "StageConfig_tenantId_sortOrder_idx"
+          ON "StageConfig"("tenantId", "sortOrder")
+      `,
+    },
+    {
+      label: 'fk StageConfig.tenantId → Tenant',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'StageConfig_tenantId_fkey'
+          ) THEN
+            ALTER TABLE "StageConfig"
+              ADD CONSTRAINT "StageConfig_tenantId_fkey"
+              FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
     },
     // EV-11: shareable read-only event link (lazy-generated).
     {
@@ -1515,6 +1619,52 @@ async function seedAutomationCadences(prisma: {
  * This is the magic that lets /studio work immediately on first deploy —
  * no manual setup, no "create a workspace first" nag screen.
  */
+/**
+ * Seed the global StageConfig defaults (tenantId = NULL). Tenant
+ * overrides are inserted lazily by the /admin/stages UI; this just
+ * makes sure the labels + colors that PartnerRadar has shipped with
+ * since day one are reflected in the table so the display layer can
+ * read from StageConfig instead of the hard-coded constants.
+ *
+ * Idempotent — keyed on (tenantId=NULL, stage), upserts on each boot.
+ */
+async function seedStageConfig(prisma: unknown) {
+  const db = prisma as {
+    stageConfig: {
+      findFirst: (args: unknown) => Promise<{ id: string } | null>;
+      create: (args: unknown) => Promise<unknown>;
+    };
+  };
+  const DEFAULTS: Array<{ stage: string; label: string; color: string; sortOrder: number }> = [
+    { stage: 'NEW_LEAD', label: 'New Lead', color: '#94a3b8', sortOrder: 0 },
+    { stage: 'RESEARCHED', label: 'Researched', color: '#60a5fa', sortOrder: 1 },
+    { stage: 'INITIAL_CONTACT', label: 'Initial Contact', color: '#3b82f6', sortOrder: 2 },
+    { stage: 'MEETING_SCHEDULED', label: 'Meeting Scheduled', color: '#8b5cf6', sortOrder: 3 },
+    { stage: 'IN_CONVERSATION', label: 'In Conversation', color: '#a855f7', sortOrder: 4 },
+    { stage: 'PROPOSAL_SENT', label: 'Proposal Sent', color: '#eab308', sortOrder: 5 },
+    { stage: 'ACTIVATED', label: 'Activated', color: '#10b981', sortOrder: 6 },
+    { stage: 'INACTIVE', label: 'Inactive', color: '#6b7280', sortOrder: 7 },
+  ];
+  let inserted = 0;
+  for (const d of DEFAULTS) {
+    try {
+      const existing = await db.stageConfig.findFirst({
+        where: { tenantId: null, stage: d.stage as unknown },
+      });
+      if (existing) continue;
+      await db.stageConfig.create({
+        data: { tenantId: null, ...d, stage: d.stage as unknown },
+      });
+      inserted++;
+    } catch (err) {
+      console.warn('[seed-stage-config] skipped row', { stage: d.stage, err });
+    }
+  }
+  if (inserted > 0) {
+    console.log(`[seed-stage-config] inserted ${inserted} default rows`);
+  }
+}
+
 async function provisionMarketingWorkspaces(prisma: unknown) {
   const db = prisma as {
     market: { findMany: (args: unknown) => Promise<Array<{ id: string; name: string }>> };

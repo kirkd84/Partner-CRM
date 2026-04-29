@@ -125,6 +125,7 @@ model Tenant {
   markets      Market[]
   users        User[]
   workspaces   MwWorkspace[]
+  stageConfigs StageConfig[]
 
   @@index([status])
 }
@@ -196,6 +197,22 @@ model Partner {
   smsConsentBy        String?
   smsConsentMethod    SmsConsentMethod?
   emailUnsubscribedAt DateTime?
+  // Customer-vs-partner: partners can also be customers (we roofed
+  // their house, or they refer AND we work for them). customerOnly
+  // means they leave the partner pipeline entirely.
+  isCustomer          Boolean              @default(false)
+  customerOnly        Boolean              @default(false)
+  becameCustomerAt    DateTime?
+  // Reason a partner went INACTIVE — required by the UI when
+  // transitioning to INACTIVE so reports can show why deals die.
+  dormantReason       String?              @db.Text
+  // Referral graph — who told us about this partner (if anyone).
+  referredByPartnerId String?
+  referredByPartner   Partner?             @relation("PartnerReferral", fields: [referredByPartnerId], references: [id])
+  referredPartners    Partner[]            @relation("PartnerReferral")
+  // Original business-card photo (R2 key) kept for audit if the lead
+  // came from /scan; null for everything else.
+  businessCardImageUrl String?
   stormCloudId        String?              @unique
   activatedAt         DateTime?
   activatedBy         String?
@@ -259,11 +276,39 @@ enum PartnerStage {
   INACTIVE
 }
 
+/**
+ * Per-tenant overrides for how each PartnerStage renders. The enum
+ * stays the source of truth for type safety + existing code; this
+ * table lets a manager rename the label, recolor, or reorder without
+ * a code deploy. Adding net-new stages is intentionally NOT supported
+ * here yet (would require a code change for cadence triggers,
+ * automation rules, reports). v1 = rename + recolor + reorder only.
+ *
+ * Seeded by instrumentation.ts on boot from the enum + STAGE_LABELS
+ * defaults, idempotent. Per-tenant rows are created lazily.
+ */
+model StageConfig {
+  id        String       @id @default(cuid())
+  tenantId  String?      // null = global default; tenant rows override
+  tenant    Tenant?      @relation(fields: [tenantId], references: [id])
+  stage     PartnerStage
+  label     String
+  color     String       // hex like #3b82f6 — matches existing STAGE_COLORS palette
+  sortOrder Int          @default(0)
+  archived  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([tenantId, stage])
+  @@index([tenantId, sortOrder])
+}
+
 enum LeadSource {
   MANUAL
   SCRAPED
   REFERRAL
   IMPORT
+  BUSINESS_CARD
 }
 
 enum SmsConsentMethod {
