@@ -7,6 +7,7 @@ import { RecentPartnersDropdown } from '@/components/RecentPartners';
 import { ToolsDropdown, isOnATool } from '@/components/ToolsDropdown';
 import {
   Bell,
+  Calendar,
   ChevronDown,
   Map as MapIcon,
   Plus,
