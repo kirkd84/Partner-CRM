@@ -12,7 +12,17 @@
  */
 
 import Link from 'next/link';
-import { Wrench, ChevronDown, Ticket, Sparkles, BarChart3, ListTodo, Search } from 'lucide-react';
+import {
+  Wrench,
+  ChevronDown,
+  Ticket,
+  Sparkles,
+  BarChart3,
+  ListTodo,
+  Search,
+  Camera,
+  Users2,
+} from 'lucide-react';
 
 const TOOLS: Array<{
   href: string;
@@ -38,6 +48,18 @@ const TOOLS: Array<{
     label: 'Generate Leads',
     description: 'Lasso a territory or scrape a board',
     icon: Search,
+  },
+  {
+    href: '/scan',
+    label: 'Scan card',
+    description: 'Photograph a business card',
+    icon: Camera,
+  },
+  {
+    href: '/networking-groups',
+    label: 'Networking groups',
+    description: 'BNI, CAI, Chamber — meetings + ROI',
+    icon: Users2,
   },
   {
     href: '/studio',

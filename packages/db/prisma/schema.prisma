@@ -39,6 +39,7 @@ model Market {
   evEvents        EvEvent[]
   evWaitlistRule  EvWaitlistRule?
   mwWorkspace     MwWorkspace?
+  networkingGroups NetworkingGroup[]
 
   @@index([tenantId])
 }
@@ -89,6 +90,8 @@ model User {
   evHostedEvents         EvHost[]             @relation("EvHosts")
   // Marketing Wizard
   mwWorkspaces           MwWorkspaceMember[]
+  // Networking groups
+  networkingGroupMeetings NetworkingGroupMeeting[] @relation("NetworkingGroupMeetingsByUser")
 
   @@index([email])
 }
@@ -126,6 +129,7 @@ model Tenant {
   users        User[]
   workspaces   MwWorkspace[]
   stageConfigs StageConfig[]
+  networkingGroups NetworkingGroup[]
 
   @@index([status])
 }
@@ -233,6 +237,7 @@ model Partner {
   autoWaitlistEligible Boolean             @default(false)
   waitlistPriority     Int?
   evInvites            EvInvite[]
+  networkingGroupMemberships NetworkingGroupMembership[]
   // Reliability stats updated by the post-event attendance postmortem.
   // All three are moving averages over the last N events; null until
   // the partner has attended (or no-showed) anything.
@@ -309,6 +314,92 @@ enum LeadSource {
   REFERRAL
   IMPORT
   BUSINESS_CARD
+}
+
+/**
+ * Networking groups Roof Tech belongs to or wants to track — CAI,
+ * BNI, Chamber, REIA, etc. We log meetings of the group, partner
+ * memberships, and the rep's spend (dues, sponsorships, dinners) so
+ * a manager can see whether the group is paying off.
+ */
+model NetworkingGroup {
+  id            String       @id @default(cuid())
+  tenantId      String?
+  tenant        Tenant?      @relation(fields: [tenantId], references: [id])
+  marketId      String?
+  market        Market?      @relation(fields: [marketId], references: [id])
+  name          String
+  /// Short code used by the rep — "BNI", "CAI", "Chamber" — for badges
+  /// and the table view. Optional; we surface name when missing.
+  shortCode     String?
+  websiteUrl    String?
+  meetingCadence String?     // free text — "1st + 3rd Tuesday", "Weekly Friday 7am"
+  notes         String?      @db.Text
+  archivedAt    DateTime?
+  createdBy     String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  memberships   NetworkingGroupMembership[]
+  meetings      NetworkingGroupMeeting[]
+  events        EvEvent[]
+  expenses      Expense[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([marketId])
+  @@index([archivedAt])
+}
+
+/**
+ * Many-to-many between Partner and NetworkingGroup. We track who's a
+ * member so the group page can show 'best partners in this group'
+ * ranked by activity volume + revenue attribution.
+ */
+model NetworkingGroupMembership {
+  id        String          @id @default(cuid())
+  groupId   String
+  group     NetworkingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  partnerId String
+  partner   Partner         @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  /// Optional role at the group — Member / Officer / Sponsor / Guest.
+  role      String?
+  joinedAt  DateTime?
+  leftAt    DateTime?
+  notes     String?
+  createdAt DateTime        @default(now())
+
+  @@unique([groupId, partnerId])
+  @@index([groupId])
+  @@index([partnerId])
+}
+
+/**
+ * Each time a rep attends a meeting of the group. Lighter-weight than
+ * an EvEvent because most BNI/CAI meetings aren't ours to host — we
+ * just want to log who went, what was spent, and any partners we
+ * encountered.
+ */
+model NetworkingGroupMeeting {
+  id        String          @id @default(cuid())
+  groupId   String
+  group     NetworkingGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Rep who attended; for joint-attendance log multiple rows.
+  userId    String
+  user      User            @relation("NetworkingGroupMeetingsByUser", fields: [userId], references: [id])
+  occurredOn DateTime
+  topic     String?
+  notes     String?         @db.Text
+  /// Comma- or newline-separated quick list of partners present. The
+  /// authoritative "this partner came" link goes via Activity rows
+  /// the rep creates for each touchpoint; this field is just the
+  /// scratch pad they fill in during the meeting.
+  attendeesNote String?
+  spendCents Int?           // optional dues/dinner spend for this meeting
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([groupId, occurredOn])
+  @@index([userId])
 }
 
 enum SmsConsentMethod {
@@ -490,13 +581,19 @@ model Event {
 
 model Expense {
   id             String          @id @default(cuid())
-  partnerId      String
-  partner        Partner         @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  /// partnerId is OPTIONAL now — networking-group dues, sponsorships,
+  /// and meeting dinners aren't tied to a single partner. When the
+  /// rep tags an expense to a NetworkingGroup, partnerId can be null.
+  /// Reports treat partner-less expenses as group-level overhead.
+  partnerId      String?
+  partner        Partner?        @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  networkingGroupId String?
+  networkingGroup NetworkingGroup? @relation(fields: [networkingGroupId], references: [id])
   userId         String
   user           User            @relation(fields: [userId], references: [id])
   amount         Decimal         @db.Money
   description    String
-  category       String // "Meal" / "Gift" / "Event" / "Travel" / "Other"
+  category       String // "Meal" / "Gift" / "Event" / "Travel" / "Group dues" / "Sponsorship" / "Other"
   occurredOn     DateTime
   receiptFileId  String?
   approvalStatus ExpenseApproval @default(PENDING)
@@ -506,6 +603,7 @@ model Expense {
   createdAt      DateTime        @default(now())
 
   @@index([partnerId])
+  @@index([networkingGroupId])
   @@index([userId, approvalStatus])
   @@index([approvalStatus])
 }
@@ -886,6 +984,15 @@ model EvEvent {
   /// we lazy-generate on first Share click so old events don't get
   /// spurious tokens.
   shareToken                  String?           @unique
+  /// Recurring-event linkage. Standalone events have null on both;
+  /// a series puts the same seriesId on every occurrence (the canonical
+  /// "parent" event being the first one created). recurrenceRule is
+  /// stored on the parent only; child occurrences read it through the
+  /// parent if they need to display the cadence.
+  seriesId                    String?
+  series                      EvEvent?          @relation("EvEventSeries", fields: [seriesId], references: [id], onDelete: SetNull)
+  occurrences                 EvEvent[]         @relation("EvEventSeries")
+  recurrenceRule              String?           // simplified RRULE: FREQ=WEEKLY|BIWEEKLY|MONTHLY;BYDAY=FR;UNTIL=...
   ticketTypes                 EvTicketType[]
   invites                     EvInvite[]
   hosts                       EvHost[]
@@ -893,10 +1000,14 @@ model EvEvent {
   reminders                   EvReminder[]
   activityLog                 EvActivityLogEntry[]
   batchOffers                 EvBatchOffer[]
+  networkingGroupId           String?
+  networkingGroup             NetworkingGroup?  @relation(fields: [networkingGroupId], references: [id])
 
   @@index([marketId, status])
   @@index([startsAt])
   @@index([createdBy])
+  @@index([seriesId, startsAt])
+  @@index([networkingGroupId])
 }
 
 enum EvEventStatus {

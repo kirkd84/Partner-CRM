@@ -501,6 +501,246 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
         END $$;
       `,
     },
+    // ── Recurring events (EvEvent series) ──
+    {
+      label: 'add EvEvent.seriesId',
+      sql: `ALTER TABLE "EvEvent" ADD COLUMN IF NOT EXISTS "seriesId" TEXT`,
+    },
+    {
+      label: 'add EvEvent.recurrenceRule',
+      sql: `ALTER TABLE "EvEvent" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT`,
+    },
+    {
+      label: 'fk EvEvent.seriesId → EvEvent',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'EvEvent_seriesId_fkey'
+          ) THEN
+            ALTER TABLE "EvEvent"
+              ADD CONSTRAINT "EvEvent_seriesId_fkey"
+              FOREIGN KEY ("seriesId") REFERENCES "EvEvent"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'index EvEvent (seriesId, startsAt)',
+      sql: `CREATE INDEX IF NOT EXISTS "EvEvent_seriesId_startsAt_idx" ON "EvEvent"("seriesId", "startsAt")`,
+    },
+    // ── NetworkingGroup module ──
+    {
+      label: 'create NetworkingGroup',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NetworkingGroup" (
+          "id" TEXT PRIMARY KEY,
+          "tenantId" TEXT,
+          "marketId" TEXT,
+          "name" TEXT NOT NULL,
+          "shortCode" TEXT,
+          "websiteUrl" TEXT,
+          "meetingCadence" TEXT,
+          "notes" TEXT,
+          "archivedAt" TIMESTAMP(3),
+          "createdBy" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+    },
+    {
+      label: 'unique NetworkingGroup (tenantId, name)',
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "NetworkingGroup_tenantId_name_key" ON "NetworkingGroup"("tenantId", "name")`,
+    },
+    {
+      label: 'index NetworkingGroup tenantId',
+      sql: `CREATE INDEX IF NOT EXISTS "NetworkingGroup_tenantId_idx" ON "NetworkingGroup"("tenantId")`,
+    },
+    {
+      label: 'index NetworkingGroup marketId',
+      sql: `CREATE INDEX IF NOT EXISTS "NetworkingGroup_marketId_idx" ON "NetworkingGroup"("marketId")`,
+    },
+    {
+      label: 'fk NetworkingGroup.tenantId → Tenant',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NetworkingGroup_tenantId_fkey'
+          ) THEN
+            ALTER TABLE "NetworkingGroup"
+              ADD CONSTRAINT "NetworkingGroup_tenantId_fkey"
+              FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'fk NetworkingGroup.marketId → Market',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NetworkingGroup_marketId_fkey'
+          ) THEN
+            ALTER TABLE "NetworkingGroup"
+              ADD CONSTRAINT "NetworkingGroup_marketId_fkey"
+              FOREIGN KEY ("marketId") REFERENCES "Market"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'create NetworkingGroupMembership',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NetworkingGroupMembership" (
+          "id" TEXT PRIMARY KEY,
+          "groupId" TEXT NOT NULL,
+          "partnerId" TEXT NOT NULL,
+          "role" TEXT,
+          "joinedAt" TIMESTAMP(3),
+          "leftAt" TIMESTAMP(3),
+          "notes" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+    },
+    {
+      label: 'unique NetworkingGroupMembership (groupId, partnerId)',
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS "NetworkingGroupMembership_groupId_partnerId_key" ON "NetworkingGroupMembership"("groupId", "partnerId")`,
+    },
+    {
+      label: 'fks NetworkingGroupMembership',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NetworkingGroupMembership_groupId_fkey'
+          ) THEN
+            ALTER TABLE "NetworkingGroupMembership"
+              ADD CONSTRAINT "NetworkingGroupMembership_groupId_fkey"
+              FOREIGN KEY ("groupId") REFERENCES "NetworkingGroup"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NetworkingGroupMembership_partnerId_fkey'
+          ) THEN
+            ALTER TABLE "NetworkingGroupMembership"
+              ADD CONSTRAINT "NetworkingGroupMembership_partnerId_fkey"
+              FOREIGN KEY ("partnerId") REFERENCES "Partner"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'create NetworkingGroupMeeting',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NetworkingGroupMeeting" (
+          "id" TEXT PRIMARY KEY,
+          "groupId" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "occurredOn" TIMESTAMP(3) NOT NULL,
+          "topic" TEXT,
+          "notes" TEXT,
+          "attendeesNote" TEXT,
+          "spendCents" INTEGER,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+    },
+    {
+      label: 'index NetworkingGroupMeeting (groupId, occurredOn)',
+      sql: `CREATE INDEX IF NOT EXISTS "NetworkingGroupMeeting_groupId_occurredOn_idx" ON "NetworkingGroupMeeting"("groupId", "occurredOn")`,
+    },
+    {
+      label: 'index NetworkingGroupMeeting userId',
+      sql: `CREATE INDEX IF NOT EXISTS "NetworkingGroupMeeting_userId_idx" ON "NetworkingGroupMeeting"("userId")`,
+    },
+    {
+      label: 'fks NetworkingGroupMeeting',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NetworkingGroupMeeting_groupId_fkey'
+          ) THEN
+            ALTER TABLE "NetworkingGroupMeeting"
+              ADD CONSTRAINT "NetworkingGroupMeeting_groupId_fkey"
+              FOREIGN KEY ("groupId") REFERENCES "NetworkingGroup"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NetworkingGroupMeeting_userId_fkey'
+          ) THEN
+            ALTER TABLE "NetworkingGroupMeeting"
+              ADD CONSTRAINT "NetworkingGroupMeeting_userId_fkey"
+              FOREIGN KEY ("userId") REFERENCES "User"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    // ── EvEvent.networkingGroupId + Expense.networkingGroupId ──
+    {
+      label: 'add EvEvent.networkingGroupId',
+      sql: `ALTER TABLE "EvEvent" ADD COLUMN IF NOT EXISTS "networkingGroupId" TEXT`,
+    },
+    {
+      label: 'fk EvEvent.networkingGroupId → NetworkingGroup',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'EvEvent_networkingGroupId_fkey'
+          ) THEN
+            ALTER TABLE "EvEvent"
+              ADD CONSTRAINT "EvEvent_networkingGroupId_fkey"
+              FOREIGN KEY ("networkingGroupId") REFERENCES "NetworkingGroup"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'index EvEvent.networkingGroupId',
+      sql: `CREATE INDEX IF NOT EXISTS "EvEvent_networkingGroupId_idx" ON "EvEvent"("networkingGroupId")`,
+    },
+    {
+      label: 'add Expense.networkingGroupId',
+      sql: `ALTER TABLE "Expense" ADD COLUMN IF NOT EXISTS "networkingGroupId" TEXT`,
+    },
+    {
+      label: 'fk Expense.networkingGroupId → NetworkingGroup',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Expense_networkingGroupId_fkey'
+          ) THEN
+            ALTER TABLE "Expense"
+              ADD CONSTRAINT "Expense_networkingGroupId_fkey"
+              FOREIGN KEY ("networkingGroupId") REFERENCES "NetworkingGroup"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'index Expense.networkingGroupId',
+      sql: `CREATE INDEX IF NOT EXISTS "Expense_networkingGroupId_idx" ON "Expense"("networkingGroupId")`,
+    },
+    {
+      label: 'Expense.partnerId → nullable',
+      sql: `ALTER TABLE "Expense" ALTER COLUMN "partnerId" DROP NOT NULL`,
+    },
     // EV-11: shareable read-only event link (lazy-generated).
     {
       label: 'add EvEvent.shareToken',

@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, DrawerModal } from '@partnerradar/ui';
 import { Plus } from 'lucide-react';
-import { createEvent } from './actions';
+import { createEvent, createRecurringEventSeries, type RecurrencePattern } from './actions';
 import { VenueAutocomplete } from './VenueAutocomplete';
 
 interface Market {
@@ -38,6 +38,12 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
   // the input placeholder visible instead of a misleading pre-populated number.
   const [primaryTicketCapacity, setPrimaryTicketCapacity] = useState<string>('');
 
+  // Recurrence — off by default (one-time event). When the user picks
+  // a pattern + count, we POST through createRecurringEventSeries
+  // instead of createEvent.
+  const [recurrence, setRecurrence] = useState<'none' | RecurrencePattern>('none');
+  const [recurrenceCount, setRecurrenceCount] = useState<number>(12);
+
   const selectedMarket = markets.find((m) => m.id === marketId);
 
   function onOpen() {
@@ -57,6 +63,8 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
     setVisibility('MARKET_WIDE');
     setPrimaryTicketName('General Admission');
     setPrimaryTicketCapacity('');
+    setRecurrence('none');
+    setRecurrenceCount(12);
     setError(null);
     setOpen(true);
   }
@@ -87,26 +95,38 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
       return;
     }
     const capacityNum = Number(primaryTicketCapacity);
+    const baseInput = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      venueName: venueName.trim() || undefined,
+      venueAddress: venueAddress.trim() || undefined,
+      venueLat,
+      venueLng,
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      timezone: selectedMarket?.timezone ?? 'America/Denver',
+      marketId,
+      visibility,
+      primaryTicketName: primaryTicketName.trim() || undefined,
+      primaryTicketCapacity:
+        Number.isFinite(capacityNum) && capacityNum > 0 ? capacityNum : undefined,
+    };
     startTransition(async () => {
       try {
-        const result = await createEvent({
-          name: name.trim(),
-          description: description.trim() || undefined,
-          venueName: venueName.trim() || undefined,
-          venueAddress: venueAddress.trim() || undefined,
-          venueLat,
-          venueLng,
-          startsAt: startsAt.toISOString(),
-          endsAt: endsAt.toISOString(),
-          timezone: selectedMarket?.timezone ?? 'America/Denver',
-          marketId,
-          visibility,
-          primaryTicketName: primaryTicketName.trim() || undefined,
-          primaryTicketCapacity:
-            Number.isFinite(capacityNum) && capacityNum > 0 ? capacityNum : undefined,
+        if (recurrence === 'none') {
+          const result = await createEvent(baseInput);
+          setOpen(false);
+          router.push(`/events/${result.id}`);
+          return;
+        }
+        const series = await createRecurringEventSeries({
+          ...baseInput,
+          recurrence: { pattern: recurrence, count: recurrenceCount },
         });
         setOpen(false);
-        router.push(`/events/${result.id}`);
+        // Land on the first occurrence; the events list will show the
+        // whole series from there.
+        router.push(`/events/${series.occurrenceIds[0]}`);
       } catch (err) {
         // Surface the server-side error — createEvent throws with a
         // meaningful message (UNAUTHORIZED / FORBIDDEN / validation).
@@ -233,6 +253,51 @@ export function NewEventButton({ markets }: { markets: Market[] }) {
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </Field>
+
+          {/* ── Recurrence ───────────────────────────────────────── */}
+          <fieldset className="rounded-md border border-card-border bg-gray-50 p-3">
+            <legend className="px-1 text-[11px] font-semibold uppercase tracking-label text-gray-500">
+              Repeats
+            </legend>
+            <p className="mb-2 text-[11px] text-gray-500">
+              For things like a weekly Friday happy hour. We&apos;ll create one event per
+              occurrence; you can edit or cancel any one without touching the rest.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value as typeof recurrence)}
+                className="rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="none">Doesn&apos;t repeat</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every other week</option>
+                <option value="monthly_by_weekday">Monthly (same weekday)</option>
+              </select>
+              {recurrence !== 'none' && (
+                <>
+                  <span className="text-xs text-gray-500">for</span>
+                  <input
+                    type="number"
+                    min={2}
+                    max={52}
+                    value={recurrenceCount}
+                    onChange={(e) =>
+                      setRecurrenceCount(Math.max(2, Math.min(52, Number(e.target.value) || 12)))
+                    }
+                    className="w-16 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                  <span className="text-xs text-gray-500">occurrences</span>
+                </>
+              )}
+            </div>
+            {recurrence !== 'none' && (
+              <p className="mt-2 text-[11px] text-gray-500">
+                The first occurrence uses the start date you picked above. We&apos;ll generate{' '}
+                {recurrenceCount} occurrences total. Capped at 52 (one year of weekly).
+              </p>
+            )}
+          </fieldset>
 
           <fieldset className="rounded-md border border-card-border bg-gray-50 p-3">
             <legend className="px-1 text-[11px] font-semibold uppercase tracking-label text-gray-500">

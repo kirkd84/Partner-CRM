@@ -46,6 +46,11 @@ export function CalendarConnections({
   providers: CalendarProviderInfo[];
   connections: Connection[];
 }) {
+  // Apple iCloud needs an app-specific password (CalDAV) — full sync
+  // implementation isn't wired yet. Until it is, clicking opens an
+  // explainer modal so the button isn't a dead disabled control.
+  const [appleHelpOpen, setAppleHelpOpen] = useState(false);
+
   return (
     <div className="space-y-2">
       {providers.map((p) => {
@@ -91,8 +96,8 @@ export function CalendarConnections({
                 {p.id === 'apple' ? (
                   <button
                     type="button"
-                    disabled={!p.configured}
-                    className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-primary hover:text-primary disabled:opacity-50"
+                    onClick={() => setAppleHelpOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:border-primary hover:text-primary"
                   >
                     Add iCloud password
                   </button>
@@ -125,6 +130,56 @@ export function CalendarConnections({
         External events render read-only and striped on /calendar. Conflict detection catches
         overlaps with your new appointments.
       </p>
+
+      {/* Apple iCloud explainer modal — shown when the rep clicks
+          'Add iCloud password'. iCloud calendars only sync via CalDAV
+          and an app-specific password, which we'll wire end-to-end in
+          a follow-up. Until then, this modal explains the setup so
+          the button isn't a dead control. */}
+      {appleHelpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={() => setAppleHelpOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-gray-900">Apple iCloud Calendar</h3>
+            <p className="mt-2 text-xs text-gray-700">
+              iCloud doesn&apos;t support OAuth like Google does — it requires CalDAV with an
+              app-specific password. We&apos;re wiring the sync next; the button is here so
+              we&apos;ll be ready the moment that lands.
+            </p>
+            <div className="mt-3 rounded-md bg-gray-50 p-3 text-[11px] text-gray-700">
+              <div className="mb-1 font-semibold text-gray-900">When ready you&apos;ll need:</div>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>An Apple ID with two-factor auth on.</li>
+                <li>
+                  An <strong>app-specific password</strong> generated at appleid.apple.com (Sign-In
+                  &amp; Security → App-Specific Passwords). The password looks like{' '}
+                  <code className="rounded bg-white px-1">abcd-efgh-ijkl-mnop</code>.
+                </li>
+                <li>Your iCloud email — that&apos;s the username for CalDAV.</li>
+              </ol>
+            </div>
+            <p className="mt-2 text-[11px] text-gray-500">
+              Heads-up: this UI will look the same on iOS, Android, and desktop — there&apos;s no
+              Sign In with Apple flow to test from any specific device. The passcode is what
+              authenticates.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAppleHelpOpen(false)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

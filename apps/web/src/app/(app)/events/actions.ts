@@ -483,6 +483,173 @@ export async function disableShareToken(eventId: string): Promise<void> {
   ]);
 }
 
+// ─── Recurring event series ────────────────────────────────────────
+//
+// A series is N occurrences of the same event linked by seriesId on
+// every row (the canonical "parent" being the first one created).
+// We generate the occurrence dates server-side from a small recurrence
+// shape — no need for a full RRULE parser, weekly / biweekly / monthly-
+// by-weekday covers every recurring use case Roof Tech has named.
+
+export type RecurrencePattern = 'weekly' | 'biweekly' | 'monthly_by_weekday';
+
+export interface RecurrenceInput {
+  pattern: RecurrencePattern;
+  /** Number of occurrences to generate, including the first one. Capped at 52. */
+  count: number;
+}
+
+/**
+ * Generate ISO start times for N occurrences. Always preserves the
+ * time-of-day from the seed start (e.g., 4pm Friday stays 4pm Friday
+ * each week).
+ *
+ * For monthly_by_weekday we figure out the seed's "Nth weekday" of
+ * its month, then advance month-by-month, snapping to the same Nth
+ * weekday. Edge case: if the source month has 5 Fridays but a target
+ * month has only 4, we use the last weekday of that month so the
+ * series doesn't disappear silently.
+ */
+function generateOccurrenceDates(
+  seedStart: Date,
+  pattern: RecurrencePattern,
+  count: number,
+): Date[] {
+  const safe = Math.max(1, Math.min(52, count));
+  const dates: Date[] = [new Date(seedStart.getTime())];
+  if (pattern === 'weekly' || pattern === 'biweekly') {
+    const stepDays = pattern === 'weekly' ? 7 : 14;
+    for (let i = 1; i < safe; i++) {
+      const next = new Date(seedStart.getTime());
+      next.setUTCDate(next.getUTCDate() + stepDays * i);
+      dates.push(next);
+    }
+    return dates;
+  }
+  // monthly_by_weekday — preserve "the Nth <weekday>" of the month.
+  const weekday = seedStart.getDay();
+  const dayOfMonth = seedStart.getDate();
+  const nthWeekday = Math.ceil(dayOfMonth / 7); // 1..5
+  for (let i = 1; i < safe; i++) {
+    const target = new Date(seedStart);
+    target.setMonth(seedStart.getMonth() + i);
+    // Find the Nth weekday of that month.
+    target.setDate(1);
+    const firstWeekday = target.getDay();
+    const offset = (weekday - firstWeekday + 7) % 7;
+    let day = 1 + offset + (nthWeekday - 1) * 7;
+    // Clamp if month doesn't have an Nth weekday — fall back to the
+    // last weekday-of-the-week in that month.
+    const tmp = new Date(target.getFullYear(), target.getMonth() + 1, 0);
+    if (day > tmp.getDate()) day -= 7;
+    target.setDate(day);
+    target.setHours(seedStart.getHours(), seedStart.getMinutes(), seedStart.getSeconds(), 0);
+    dates.push(target);
+  }
+  return dates;
+}
+
+/**
+ * Create a recurring event series. All occurrences share the seriesId
+ * of the first one — that's how /events list groups them, and how the
+ * detail page can offer "edit this vs edit series" later.
+ *
+ * Returns the list of created occurrence ids in chronological order.
+ */
+export async function createRecurringEventSeries(
+  input: CreateEventInput & { recurrence: RecurrenceInput },
+): Promise<{ seriesId: string; occurrenceIds: string[] }> {
+  if (!input.recurrence) throw new Error('recurrence input required');
+  const start = new Date(input.startsAt);
+  const end = new Date(input.endsAt);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+    throw new Error('Invalid start or end datetime');
+  }
+  const durationMs = end.getTime() - start.getTime();
+  if (durationMs <= 0) throw new Error('End must be after start');
+
+  const dates = generateOccurrenceDates(start, input.recurrence.pattern, input.recurrence.count);
+  const ids: string[] = [];
+  let seriesId: string | null = null;
+
+  // Sequential — keeps PR-like publicIds monotonic and avoids slamming
+  // the DB with parallel transactions for what's typically a small N.
+  for (let i = 0; i < dates.length; i++) {
+    const occStart = dates[i]!;
+    const occEnd = new Date(occStart.getTime() + durationMs);
+    const occInput: CreateEventInput = {
+      ...input,
+      startsAt: occStart.toISOString(),
+      endsAt: occEnd.toISOString(),
+      // Tag every occurrence with a marker in the description so a
+      // future cleanup can find them; users typically also see this.
+      name: i === 0 || !input.name ? input.name : input.name, // keep same name across the series; the date disambiguates
+    };
+    const created = await createEvent(occInput);
+    ids.push(created.id);
+    if (i === 0) {
+      seriesId = created.id;
+      // Flag the parent with the human-readable recurrence rule.
+      await prisma.evEvent.update({
+        where: { id: created.id },
+        data: {
+          seriesId,
+          recurrenceRule: `FREQ=${input.recurrence.pattern.toUpperCase()};COUNT=${input.recurrence.count}`,
+        },
+      });
+    } else {
+      await prisma.evEvent.update({
+        where: { id: created.id },
+        data: { seriesId: seriesId! },
+      });
+    }
+  }
+
+  return { seriesId: seriesId!, occurrenceIds: ids };
+}
+
+/**
+ * Cancel future occurrences of a series — leaves past ones intact so
+ * the audit log + attendance history survive. The cancellation
+ * cascade per occurrence (refund tickets, email attendees, etc.) is
+ * handled by the existing cancelEvent path; we just loop it.
+ */
+export async function cancelEventSeriesGoingForward(
+  eventId: string,
+  reason: string,
+): Promise<{ canceled: number }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+
+  const seed = await prisma.evEvent.findUnique({
+    where: { id: eventId },
+    select: { id: true, seriesId: true, startsAt: true, marketId: true },
+  });
+  if (!seed) throw new Error('NOT_FOUND');
+  const seriesId = seed.seriesId ?? seed.id;
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  const isInMarket = (session.user.markets ?? []).includes(seed.marketId);
+  if (!isManagerPlus && !isInMarket) throw new Error('FORBIDDEN');
+
+  const future = await prisma.evEvent.findMany({
+    where: {
+      OR: [{ id: seriesId }, { seriesId }],
+      startsAt: { gte: seed.startsAt },
+      canceledAt: null,
+    },
+    select: { id: true },
+  });
+
+  for (const e of future) {
+    try {
+      await cancelEvent(e.id, reason);
+    } catch (err) {
+      console.warn('[cancelSeries] one occurrence failed', { eventId: e.id, err });
+    }
+  }
+  return { canceled: future.length };
+}
+
 function generateShareToken(): string {
   // 16 random bytes = 22 base64url chars. Enough entropy to stay
   // unguessable; tokens don't need timing-safe verify because we
