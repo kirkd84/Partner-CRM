@@ -84,29 +84,38 @@ async function findDuplicates(
 
   // Phone match — last-10-digits is the durable identifier across
   // formatting differences ("(555) 123-4567" vs "555.123.4567").
+  // Contact.phones is a JSON array, so we use a raw query for the
+  // text search inside it. Best-effort: if the raw query fails for
+  // any reason, we silently fall back to the companyName-only check.
   if (input.phone) {
     const digits = input.phone.replace(/\D/g, '').slice(-10);
-    if (digits.length === 10) {
-      const matches = await prisma.partner.findMany({
-        where: {
-          archivedAt: null,
-          marketId: { in: scopeMarketIds },
-          contacts: { some: { phone: { contains: digits } } },
-        },
-        select: {
-          id: true,
-          publicId: true,
-          companyName: true,
-          city: true,
-          state: true,
-        },
-        take: 3,
-      });
-      for (const m of matches) {
-        if (!seen.has(m.id)) {
-          seen.add(m.id);
-          candidates.push({ ...m, matchReason: `Phone ends in ${digits.slice(-4)}` });
+    if (digits.length === 10 && scopeMarketIds.length > 0) {
+      try {
+        const rows = await prisma.$queryRaw<
+          Array<{
+            id: string;
+            publicId: string;
+            companyName: string;
+            city: string | null;
+            state: string | null;
+          }>
+        >`
+          SELECT DISTINCT p."id", p."publicId", p."companyName", p."city", p."state"
+          FROM "Partner" p
+          INNER JOIN "Contact" c ON c."partnerId" = p."id"
+          WHERE p."archivedAt" IS NULL
+            AND p."marketId" = ANY(${scopeMarketIds})
+            AND c."phones"::text LIKE ${'%' + digits + '%'}
+          LIMIT 3
+        `;
+        for (const m of rows) {
+          if (!seen.has(m.id)) {
+            seen.add(m.id);
+            candidates.push({ ...m, matchReason: `Phone ends in ${digits.slice(-4)}` });
+          }
         }
+      } catch (err) {
+        console.warn('[scan-dedupe] phone match query failed; skipping', err);
       }
     }
   }
@@ -212,18 +221,21 @@ export async function createPartnerFromScan(
   });
 
   // If the card had a name + contact details, drop a Contact row so
-  // future cadence merges have something to render.
+  // future cadence merges have something to render. Contact uses a
+  // single `name` field plus `phones`/`emails` as JSON arrays in the
+  // shape `[{ number/address, label, primary }]` — match that shape
+  // exactly or Prisma rejects the create.
   if (input.contactName || input.email || input.phone) {
-    const [first, ...rest] = (input.contactName ?? '').trim().split(/\s+/);
+    const phones = input.phone ? [{ number: input.phone, label: 'work', primary: true }] : [];
+    const emails = input.email ? [{ address: input.email, label: 'work', primary: true }] : [];
     await prisma.contact.create({
       data: {
         partnerId: partner.id,
-        firstName: first || 'Contact',
-        lastName: rest.join(' ') || null,
-        email: input.email ?? null,
-        phone: input.phone ?? null,
+        name: (input.contactName ?? '').trim() || 'Primary contact',
         title: input.title ?? null,
-        primary: true,
+        phones,
+        emails,
+        isPrimary: true,
       },
     });
   }
