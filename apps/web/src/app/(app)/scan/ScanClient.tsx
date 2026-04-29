@@ -20,7 +20,15 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card, Button, Pill } from '@partnerradar/ui';
-import { Camera, Loader2, Save, Sparkles, X, AlertTriangle } from 'lucide-react';
+import {
+  Camera,
+  Image as ImageIcon,
+  Loader2,
+  Save,
+  Sparkles,
+  X,
+  AlertTriangle,
+} from 'lucide-react';
 import { createPartnerFromScan, type DuplicateCandidate } from './actions';
 import type { PartnerType } from '@partnerradar/types';
 
@@ -77,7 +85,9 @@ export function ScanClient({
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const [phase, setPhase] = useState<'capture' | 'extracting' | 'confirm'>('capture');
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [phase, setPhase] = useState<'capture' | 'live' | 'extracting' | 'confirm'>('capture');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<Extraction | null>(null);
@@ -90,6 +100,16 @@ export function ScanClient({
       if (previewUrl) URL.revokeObjectURL(previewUrl);
     };
   }, [previewUrl]);
+
+  // Always release the camera when the component unmounts; otherwise
+  // the green webcam light stays on after the rep navigates away.
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+    // stopCamera is stable (closes over a ref); intentionally empty deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onFile(file: File) {
     setError(null);
@@ -122,7 +142,96 @@ export function ScanClient({
     setDuplicates(null);
     setError(null);
     setPhase('capture');
+    stopCamera();
     if (fileRef.current) fileRef.current.value = '';
+  }
+
+  // ─── Live camera capture (desktop + mobile via getUserMedia) ───────
+  //
+  // Desktop browsers don't honor the file-input `capture=environment`
+  // attribute the way phones do — they just open the file picker. To
+  // get the laptop webcam we use the MediaStream API directly: request
+  // the rear camera if available (falls back to facing-user), pipe to
+  // a <video>, and on capture draw the current frame to a canvas and
+  // convert it to a JPEG file.
+  async function startCamera() {
+    setError(null);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setError(
+        'This browser does not support direct camera access. Use the file picker below to upload a photo.',
+      );
+      return;
+    }
+    try {
+      // Prefer the rear camera (better for cards held in front of you);
+      // fall back to whatever the device offers if 'environment' isn't
+      // available (laptops, external webcams).
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 } },
+          audio: false,
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+      streamRef.current = stream;
+      setPhase('live');
+      // wait a tick for the video element to mount
+      window.setTimeout(() => {
+        if (videoRef.current && streamRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+          videoRef.current.play().catch(() => {
+            // Autoplay restrictions — surface as an error so the rep
+            // knows to click the video. Rare on user-initiated paths.
+            setError('Tap the video to start the preview.');
+          });
+        }
+      }, 50);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Camera access denied';
+      setError(`Camera error: ${msg}`);
+    }
+  }
+
+  function stopCamera() {
+    if (streamRef.current) {
+      for (const t of streamRef.current.getTracks()) t.stop();
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }
+
+  async function captureFromCamera() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setError('Camera not ready yet — give it a second.');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      setError('Could not capture frame — canvas unsupported.');
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9),
+    );
+    if (!blob) {
+      setError('Could not encode the capture as JPEG.');
+      return;
+    }
+    const file = new File([blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' });
+    stopCamera();
+    onFile(file);
   }
 
   function updateField<K extends keyof Extraction>(key: K, value: Extraction[K]) {
@@ -178,7 +287,8 @@ export function ScanClient({
             <div>
               <h2 className="text-base font-semibold text-gray-900">Take a photo of the card</h2>
               <p className="mt-1 max-w-sm text-xs text-gray-500">
-                On mobile this opens the camera. On desktop, pick a saved photo.
+                Open the camera live for a fresh shot, or pick a photo you already have. Both work
+                on mobile and desktop — your laptop webcam is fine.
               </p>
             </div>
             <input
@@ -192,9 +302,18 @@ export function ScanClient({
                 if (f) onFile(f);
               }}
             />
-            <Button onClick={() => fileRef.current?.click()} disabled={!aiConfigured}>
-              <Camera className="h-4 w-4" /> Open camera / pick photo
-            </Button>
+            <div className="flex flex-col items-center gap-2 sm:flex-row">
+              <Button onClick={startCamera} disabled={!aiConfigured}>
+                <Camera className="h-4 w-4" /> Open camera
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => fileRef.current?.click()}
+                disabled={!aiConfigured}
+              >
+                <ImageIcon className="h-4 w-4" /> Pick a photo
+              </Button>
+            </div>
             {!aiConfigured && (
               <p className="text-[11px] text-amber-700">
                 Disabled until ANTHROPIC_API_KEY is set in Railway.
@@ -206,6 +325,58 @@ export function ScanClient({
           Tip: hold the card flat in good light. The model handles slight angles + glare, but a
           straight-on shot is more accurate.
         </p>
+      </div>
+    );
+  }
+
+  // ─── Live camera phase ─────────────────────────────────────────
+  if (phase === 'live') {
+    return (
+      <div className="mx-auto max-w-xl space-y-3">
+        {error && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {error}
+          </div>
+        )}
+        <Card>
+          <div className="flex flex-col items-center gap-3 py-3">
+            <div className="relative w-full overflow-hidden rounded-md bg-black">
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className="h-auto w-full"
+                aria-label="Live camera preview"
+              />
+              {/* Card-aspect framing guide — 1.75:1 is close enough to
+                  3.5×2 business-card ratio that reps line up the shot
+                  without us having to do real edge detection. */}
+              <div
+                className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                aria-hidden
+              >
+                <div className="aspect-[1.75/1] w-[78%] rounded-md border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]" />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500">
+              Line the card up inside the frame — closer fills more pixels for the OCR.
+            </p>
+            <div className="flex flex-col items-center gap-2 sm:flex-row">
+              <Button onClick={captureFromCamera} disabled={!aiConfigured}>
+                <Camera className="h-4 w-4" /> Capture
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  stopCamera();
+                  setPhase('capture');
+                }}
+              >
+                <X className="h-4 w-4" /> Cancel
+              </Button>
+            </div>
+          </div>
+        </Card>
       </div>
     );
   }
