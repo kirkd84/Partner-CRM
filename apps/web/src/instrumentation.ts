@@ -741,6 +741,84 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       label: 'Expense.partnerId → nullable',
       sql: `ALTER TABLE "Expense" ALTER COLUMN "partnerId" DROP NOT NULL`,
     },
+    // ── Newsletter blasts ──
+    {
+      label: 'enum NewsletterStatus',
+      sql: `
+        DO $$ BEGIN
+          CREATE TYPE "NewsletterStatus" AS ENUM ('DRAFT', 'SENDING', 'SENT', 'FAILED');
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `,
+    },
+    {
+      label: 'create Newsletter',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "Newsletter" (
+          "id" TEXT PRIMARY KEY,
+          "tenantId" TEXT,
+          "marketId" TEXT,
+          "subject" TEXT NOT NULL,
+          "bodyText" TEXT NOT NULL,
+          "audienceFilter" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "status" "NewsletterStatus" NOT NULL DEFAULT 'DRAFT',
+          "recipientCount" INTEGER NOT NULL DEFAULT 0,
+          "sentCount" INTEGER NOT NULL DEFAULT 0,
+          "blockedCount" INTEGER NOT NULL DEFAULT 0,
+          "errorCount" INTEGER NOT NULL DEFAULT 0,
+          "errorSamples" JSONB,
+          "createdBy" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "sentAt" TIMESTAMP(3)
+        )
+      `,
+    },
+    {
+      label: 'index Newsletter (tenantId, status)',
+      sql: `CREATE INDEX IF NOT EXISTS "Newsletter_tenantId_status_idx" ON "Newsletter"("tenantId", "status")`,
+    },
+    {
+      label: 'index Newsletter marketId',
+      sql: `CREATE INDEX IF NOT EXISTS "Newsletter_marketId_idx" ON "Newsletter"("marketId")`,
+    },
+    {
+      label: 'index Newsletter createdBy',
+      sql: `CREATE INDEX IF NOT EXISTS "Newsletter_createdBy_idx" ON "Newsletter"("createdBy")`,
+    },
+    {
+      label: 'fks Newsletter',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Newsletter_tenantId_fkey'
+          ) THEN
+            ALTER TABLE "Newsletter"
+              ADD CONSTRAINT "Newsletter_tenantId_fkey"
+              FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Newsletter_marketId_fkey'
+          ) THEN
+            ALTER TABLE "Newsletter"
+              ADD CONSTRAINT "Newsletter_marketId_fkey"
+              FOREIGN KEY ("marketId") REFERENCES "Market"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Newsletter_createdBy_fkey'
+          ) THEN
+            ALTER TABLE "Newsletter"
+              ADD CONSTRAINT "Newsletter_createdBy_fkey"
+              FOREIGN KEY ("createdBy") REFERENCES "User"("id")
+              ON DELETE RESTRICT ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
     // EV-11: shareable read-only event link (lazy-generated).
     {
       label: 'add EvEvent.shareToken',

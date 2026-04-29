@@ -22,6 +22,7 @@ import {
   Search,
   Camera,
   Users2,
+  Mail,
 } from 'lucide-react';
 
 const TOOLS: Array<{
@@ -60,6 +61,13 @@ const TOOLS: Array<{
     label: 'Networking groups',
     description: 'BNI, CAI, Chamber — meetings + ROI',
     icon: Users2,
+  },
+  {
+    href: '/newsletters',
+    label: 'Newsletters',
+    description: 'Email blast to your partners',
+    icon: Mail,
+    managerPlus: true,
   },
   {
     href: '/studio',

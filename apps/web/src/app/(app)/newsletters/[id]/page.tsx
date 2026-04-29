@@ -1,0 +1,121 @@
+/**
+ * /newsletters/[id] — detail. Sent newsletters are read-only and show
+ * stats; drafts are editable and have a Send button.
+ */
+
+import { auth } from '@/auth';
+import { notFound, redirect } from 'next/navigation';
+import Link from 'next/link';
+import { prisma } from '@partnerradar/db';
+import { Card, Pill } from '@partnerradar/ui';
+import { ArrowLeft } from 'lucide-react';
+import { activeTenantId } from '@/lib/tenant/context';
+import { NewsletterDetailClient } from './NewsletterDetailClient';
+
+export const dynamic = 'force-dynamic';
+
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'gray',
+  SENDING: 'amber',
+  SENT: 'emerald',
+  FAILED: 'red',
+};
+
+export default async function NewsletterDetail({ params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user) redirect('/login');
+  const isManagerPlus =
+    session.user.role === 'MANAGER' ||
+    session.user.role === 'ADMIN' ||
+    session.user.role === 'SUPER_ADMIN';
+  if (!isManagerPlus) redirect('/radar');
+
+  const { id } = await params;
+  const tenantId = await activeTenantId(session);
+
+  const newsletter = await prisma.newsletter.findFirst({
+    where: { id, ...(tenantId ? { tenantId } : {}) },
+    include: { creator: { select: { name: true, email: true } } },
+  });
+  if (!newsletter) notFound();
+
+  return (
+    <div className="p-6">
+      <Link
+        href="/newsletters"
+        className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-primary"
+      >
+        <ArrowLeft className="h-3 w-3" /> Back to newsletters
+      </Link>
+      <header className="mt-1 flex flex-wrap items-baseline gap-3">
+        <h1 className="text-xl font-semibold text-gray-900">{newsletter.subject}</h1>
+        <Pill tone="soft" color={STATUS_COLORS[newsletter.status] ?? 'gray'}>
+          {newsletter.status}
+        </Pill>
+        <span className="text-xs text-gray-500">
+          By {newsletter.creator?.name ?? '—'} ·{' '}
+          {newsletter.sentAt
+            ? `Sent ${newsletter.sentAt.toLocaleString()}`
+            : `Updated ${newsletter.updatedAt.toLocaleString()}`}
+        </span>
+      </header>
+
+      {newsletter.status !== 'DRAFT' && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-4">
+          <Stat label="Recipients" value={newsletter.recipientCount} />
+          <Stat label="Sent" value={newsletter.sentCount} accent="emerald" />
+          <Stat label="Skipped" value={newsletter.blockedCount} accent="amber" />
+          <Stat label="Errors" value={newsletter.errorCount} accent="red" />
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_360px]">
+        <Card title="Preview">
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-800">
+            {newsletter.bodyText}
+          </pre>
+        </Card>
+
+        <NewsletterDetailClient
+          id={newsletter.id}
+          status={newsletter.status}
+          subject={newsletter.subject}
+          bodyText={newsletter.bodyText}
+          recipientCount={newsletter.recipientCount}
+          errorSamples={
+            (newsletter.errorSamples as Array<{
+              partnerId: string;
+              email: string;
+              error: string;
+            }> | null) ?? null
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: 'emerald' | 'amber' | 'red';
+}) {
+  const tone =
+    accent === 'emerald'
+      ? 'text-emerald-700'
+      : accent === 'amber'
+        ? 'text-amber-700'
+        : accent === 'red'
+          ? 'text-red-700'
+          : 'text-gray-900';
+  return (
+    <div className="rounded-md border border-card-border bg-white px-3 py-2 shadow-card">
+      <div className="text-[10.5px] uppercase tracking-label text-gray-500">{label}</div>
+      <div className={`mt-0.5 text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}

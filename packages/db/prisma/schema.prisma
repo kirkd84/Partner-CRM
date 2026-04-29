@@ -40,6 +40,7 @@ model Market {
   evWaitlistRule  EvWaitlistRule?
   mwWorkspace     MwWorkspace?
   networkingGroups NetworkingGroup[]
+  newsletters     Newsletter[]
 
   @@index([tenantId])
 }
@@ -92,6 +93,8 @@ model User {
   mwWorkspaces           MwWorkspaceMember[]
   // Networking groups
   networkingGroupMeetings NetworkingGroupMeeting[] @relation("NetworkingGroupMeetingsByUser")
+  // Newsletters they authored
+  newsletters             Newsletter[]            @relation("NewslettersByCreator")
 
   @@index([email])
 }
@@ -130,6 +133,7 @@ model Tenant {
   workspaces   MwWorkspace[]
   stageConfigs StageConfig[]
   networkingGroups NetworkingGroup[]
+  newsletters Newsletter[]
 
   @@index([status])
 }
@@ -365,6 +369,55 @@ model NetworkingGroupMembership {
   @@unique([groupId, partnerId])
   @@index([groupId])
   @@index([partnerId])
+}
+
+/// Newsletter blasts — one row per drafted/sent campaign. Body is
+/// stored as plain text for the v1 cut; rich-text comes later. The
+/// audienceFilter JSON describes the segment the manager picked
+/// (partner types, stages, groups, exclude-customers flag) so we can
+/// reproduce the send list when reading back the history.
+///
+/// CAN-SPAM compliance is enforced at send time, not stored:
+///   - physical-address footer is appended from Tenant.address
+///   - unsubscribe link is appended via lib/messaging/unsubscribe-token
+///   - Partner.emailUnsubscribedAt gates per-recipient
+model Newsletter {
+  id              String           @id @default(cuid())
+  tenantId        String?
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id])
+  /// Optional market scope. Null = every market in the tenant.
+  marketId        String?
+  market          Market?          @relation(fields: [marketId], references: [id])
+  subject         String
+  bodyText        String           @db.Text
+  /// Audience filter — picked at compose time.
+  /// Shape: { partnerTypes?: string[], stages?: string[], groupIds?: string[],
+  ///          includeCustomers?: boolean, includeInactive?: boolean }
+  audienceFilter  Json
+  status          NewsletterStatus @default(DRAFT)
+  recipientCount  Int              @default(0)
+  sentCount       Int              @default(0)
+  blockedCount    Int              @default(0)
+  errorCount      Int              @default(0)
+  /// Errors from individual sends — sample of last N for debugging.
+  /// Capped client-side at ~20 entries so the row doesn't grow forever.
+  errorSamples    Json?
+  createdBy       String
+  creator         User             @relation("NewslettersByCreator", fields: [createdBy], references: [id])
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  sentAt          DateTime?
+
+  @@index([tenantId, status])
+  @@index([marketId])
+  @@index([createdBy])
+}
+
+enum NewsletterStatus {
+  DRAFT
+  SENDING
+  SENT
+  FAILED
 }
 
 /// Each time a rep attends a meeting of the group. Lighter-weight than
