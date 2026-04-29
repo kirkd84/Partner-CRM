@@ -90,12 +90,13 @@ const nextConfig: NextConfig = {
           // Drop legacy XSS-Protection (it's been deprecated and can
           // introduce vulnerabilities in older browsers).
           { key: 'X-XSS-Protection', value: '0' },
-          // Disable browser features we don't use. If we ever add
-          // geolocation (route start = "current location") we'll need
-          // to flip geolocation=(self). camera/mic kept off for now.
+          // Disable browser features we don't use. We DO use the camera
+          // on /scan (business-card OCR via getUserMedia) and geolocation
+          // is opt-in for route-start = "current location"; both flipped
+          // to (self). Microphone stays off; we have no audio features.
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(self), interest-cohort=()',
+            value: 'camera=(self), microphone=(), geolocation=(self), interest-cohort=()',
           },
           // HSTS — only meaningful in prod where we're served over HTTPS.
           // 6 months, includeSubDomains. preload off until Kirk has
