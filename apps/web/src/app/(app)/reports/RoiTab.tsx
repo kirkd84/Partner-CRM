@@ -8,7 +8,7 @@
 
 import { prisma, Prisma } from '@partnerradar/db';
 import { Card, Avatar } from '@partnerradar/ui';
-import { rangeToStart, type RangeId } from './RangePicker';
+import { rangeToStart, type RangeId } from './range';
 
 interface Props {
   range: RangeId;

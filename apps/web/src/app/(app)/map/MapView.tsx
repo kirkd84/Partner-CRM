@@ -10,31 +10,14 @@ import {
   type PartnerStage,
   type PartnerType,
 } from '@partnerradar/types';
-import {
-  AlertTriangle,
-  ArrowRight,
-  ExternalLink,
-  Lasso,
-  Loader2,
-  Sparkles,
-  Trash2,
-} from 'lucide-react';
+import { AlertTriangle, ArrowRight, ExternalLink, Lasso, Loader2, Trash2 } from 'lucide-react';
 import { createHitListWithStops } from '../lists/actions';
-import { scrapeLassoForLeads, type LassoScrapeResult } from './lasso-scrape';
-import type { GooglePartnerType } from '@partnerradar/integrations/ingest';
 
-// Partner types we surface in the lasso scrape picker. Subset of
-// ProspectPartnerType — the ones with sensible Google Places mappings
-// (TYPE_MAP in google-places.ts) and that line up with what Roof Tech
-// reps actually prospect for.
-const SCRAPE_TYPE_OPTIONS: Array<{ key: GooglePartnerType; label: string }> = [
-  { key: 'REALTOR', label: 'Realtors' },
-  { key: 'MORTGAGE_BROKER', label: 'Mortgage' },
-  { key: 'INSURANCE_AGENT', label: 'Insurance' },
-  { key: 'PROPERTY_MANAGER', label: 'Property Mgmt' },
-  { key: 'ATTORNEY', label: 'Attorneys' },
-  { key: 'CONTRACTOR', label: 'Contractors' },
-];
+// Note: the in-map "Find new leads" Google Places scrape panel was
+// removed in favor of the dedicated /generate-leads tool, where every
+// lead-gen path (lasso, state boards, CSV imports) lives side-by-side.
+// Map view now focuses on visualizing existing partners + saving lasso
+// selections to a Hit List.
 
 interface MapPartner {
   id: string;
@@ -69,14 +52,11 @@ export function MapView({
   defaultCenter,
   partners,
   marketId,
-  canScrape = false,
 }: {
   apiKey: string;
   defaultCenter: { lat: number; lng: number };
   partners: MapPartner[];
   marketId: string | null;
-  /** True when the viewer is admin or manager — gates the "Find new leads" button. */
-  canScrape?: boolean;
 }) {
   const router = useRouter();
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -91,15 +71,6 @@ export function MapView({
   const [savingList, setSavingList] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [, startTransition] = useTransition();
-
-  // Lasso scrape — pick which Google partner types to search inside the polygon.
-  // Default to Realtors + Insurance because that's Roof Tech's bread-and-butter.
-  const [scrapeTypes, setScrapeTypes] = useState<Set<GooglePartnerType>>(
-    () => new Set<GooglePartnerType>(['REALTOR', 'INSURANCE_AGENT']),
-  );
-  const [scrapeRunning, setScrapeRunning] = useState(false);
-  const [scrapeResult, setScrapeResult] = useState<LassoScrapeResult | null>(null);
-  const [scrapeError, setScrapeError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,10 +232,6 @@ export function MapView({
         dm.setDrawingMode(null);
         setLassoActive(false);
         setHasLasso(true);
-        // Wipe any prior scrape result so the panel doesn't show stale counts
-        // for the previous polygon.
-        setScrapeResult(null);
-        setScrapeError(null);
 
         const recompute = () => {
           const inside = new Set<string>();
@@ -314,63 +281,6 @@ export function MapView({
     setScrapeResult(null);
     setScrapeError(null);
     setHasLasso(false);
-  }
-
-  /**
-   * Pull lat/lng vertices off the active polygon. Google returns LatLng
-   * objects; we flatten to plain `{lat, lng}` so the server action can
-   * stringify them over the wire.
-   */
-  function getPolygonVertices(): Array<{ lat: number; lng: number }> | null {
-    const polygon = activePolygon.current as {
-      getPath: () => { getArray: () => Array<{ lat: () => number; lng: () => number }> };
-    } | null;
-    if (!polygon) return null;
-    const path = polygon.getPath().getArray();
-    if (path.length < 3) return null;
-    return path.map((ll) => ({ lat: ll.lat(), lng: ll.lng() }));
-  }
-
-  function toggleScrapeType(t: GooglePartnerType) {
-    setScrapeTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(t)) next.delete(t);
-      else next.add(t);
-      return next;
-    });
-  }
-
-  function onScrapeLasso() {
-    if (!marketId) {
-      setScrapeError('Pick a market with at least one partner first.');
-      return;
-    }
-    const polygon = getPolygonVertices();
-    if (!polygon) {
-      setScrapeError('Draw a lasso first.');
-      return;
-    }
-    if (scrapeTypes.size === 0) {
-      setScrapeError('Pick at least one partner type to search.');
-      return;
-    }
-    setScrapeRunning(true);
-    setScrapeError(null);
-    setScrapeResult(null);
-    startTransition(async () => {
-      try {
-        const result = await scrapeLassoForLeads({
-          marketId,
-          polygon,
-          partnerTypes: [...scrapeTypes],
-        });
-        setScrapeResult(result);
-      } catch (err) {
-        setScrapeError(err instanceof Error ? err.message : 'Scrape failed');
-      } finally {
-        setScrapeRunning(false);
-      }
-    });
   }
 
   function onSaveAsHitList() {
@@ -564,114 +474,13 @@ export function MapView({
 
             {selectedIds.size === 0 && (
               <p className="text-[11px] text-gray-500">
-                No partners already in the system are inside this lasso. Use{' '}
-                <strong>Find new leads</strong> below to scrape Google Places for businesses in this
-                territory.
+                No partners already in the system are inside this lasso. To pull in new businesses
+                from Google Places, head to{' '}
+                <Link href="/generate-leads" className="font-medium text-primary hover:underline">
+                  Generate Leads
+                </Link>
+                .
               </p>
-            )}
-
-            {/* ── Find new leads in this lasso ─────────────────────────────── */}
-            {canScrape && (
-              <div className="mt-4 border-t border-gray-100 pt-3">
-                <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-label text-gray-600">
-                  <Sparkles className="h-3 w-3 text-amber-500" />
-                  Find new leads
-                </div>
-                <p className="mb-2 text-[11px] text-gray-500">
-                  Scan Google Places inside this polygon for businesses we don&apos;t already track.
-                  Results land in{' '}
-                  <Link
-                    href="/admin/scraped-leads"
-                    className="font-medium text-primary hover:underline"
-                  >
-                    /admin/scraped-leads
-                  </Link>{' '}
-                  for review before becoming partners.
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {SCRAPE_TYPE_OPTIONS.map((opt) => {
-                    const on = scrapeTypes.has(opt.key);
-                    return (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        onClick={() => toggleScrapeType(opt.key)}
-                        disabled={scrapeRunning}
-                        className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
-                          on
-                            ? 'border-primary bg-primary text-white'
-                            : 'border-gray-200 bg-white text-gray-700 hover:border-primary hover:text-primary'
-                        } disabled:cursor-not-allowed disabled:opacity-60`}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={onScrapeLasso}
-                    disabled={scrapeRunning || !marketId || scrapeTypes.size === 0}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {scrapeRunning ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3.5 w-3.5" />
-                    )}
-                    {scrapeRunning ? 'Scanning Google Places…' : 'Find new leads in this lasso'}
-                  </button>
-                </div>
-                {scrapeError && <p className="mt-2 text-[11px] text-red-600">{scrapeError}</p>}
-                {scrapeResult && (
-                  <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-2.5 text-[11px] text-emerald-900">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold">
-                        {scrapeResult.inserted} new lead
-                        {scrapeResult.inserted === 1 ? '' : 's'} added
-                      </span>
-                      <Link
-                        href="/admin/scraped-leads"
-                        className="inline-flex items-center gap-0.5 font-medium text-emerald-800 hover:underline"
-                      >
-                        Review queue <ArrowRight className="h-3 w-3" />
-                      </Link>
-                    </div>
-                    <div className="mt-1 text-emerald-800/80">
-                      {scrapeResult.fetched} fetched · {scrapeResult.insidePolygon} inside polygon ·{' '}
-                      {scrapeResult.duplicates} already tracked
-                      {scrapeResult.errors > 0 ? ` · ${scrapeResult.errors} errors` : ''}
-                    </div>
-                    {scrapeResult.perType.length > 0 && (
-                      <div className="mt-2 space-y-0.5">
-                        {scrapeResult.perType.map((t) => {
-                          const label =
-                            SCRAPE_TYPE_OPTIONS.find((o) => o.key === t.partnerType)?.label ??
-                            t.partnerType;
-                          return (
-                            <div key={t.partnerType}>
-                              <div className="flex items-center justify-between">
-                                <span className="truncate">{label}</span>
-                                <span
-                                  className={`ml-2 font-mono tabular-nums ${
-                                    t.error ? 'text-red-700' : ''
-                                  }`}
-                                >
-                                  {t.error ? 'failed' : `+${t.inserted} / ${t.fetched}`}
-                                </span>
-                              </div>
-                              {t.error && (
-                                <div className="mt-0.5 text-[10.5px] text-red-700">{t.error}</div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
             )}
           </Card>
         )}

@@ -4,13 +4,12 @@
  * 512×512 icon.tsx is for PWA install + manifest references.
  *
  * Design matches the in-app BrandLogo: the Lucide handshake silhouette
- * with a hard-stop grey/red gradient down the vertical midline. White
- * tile background so the glyph reads on both light and dark browser
- * chrome.
+ * with a hard-stop grey/red gradient down the vertical midline.
  *
- * Why this and not a bespoke 16-px design: at 32×32 the handshake
- * silhouette is still readable, and matching the in-app logo means
- * the tab bar, install prompt, and brand chip all share one mark.
+ * Background is transparent so the glyph rides whatever color the
+ * browser tab uses (dark mode chrome would otherwise show a glaring
+ * white tile). Both brand colors (#9ca3af grey + #dc2626 red) carry
+ * enough contrast to register on either light or dark backgrounds.
  */
 
 import { ImageResponse } from 'next/og';
@@ -27,16 +26,12 @@ export default function FaviconSmall() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#ffffff',
-        // Subtle border so the white tile still has an edge against
-        // light browser chrome.
-        border: '1px solid #e5e7eb',
-        borderRadius: 6,
+        background: 'transparent',
       }}
     >
       <svg
-        width="26"
-        height="26"
+        width="30"
+        height="30"
         viewBox="0 0 24 24"
         fill="none"
         stroke="#dc2626"

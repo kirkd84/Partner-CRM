@@ -9,7 +9,7 @@
 import { prisma, Prisma, ActivityType } from '@partnerradar/db';
 import { Card, StatCard } from '@partnerradar/ui';
 import { PhoneCall, Mail, MessageSquare, Coffee, Navigation, ArrowUpRight } from 'lucide-react';
-import { rangeToStart, type RangeId } from './RangePicker';
+import { rangeToStart, type RangeId } from './range';
 
 interface Props {
   range: RangeId;

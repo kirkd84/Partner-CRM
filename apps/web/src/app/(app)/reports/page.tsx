@@ -15,7 +15,8 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { ReportsTabs, type ReportTab } from './ReportsTabs';
-import { RangePicker, rangeLabel, type RangeId } from './RangePicker';
+import { RangePicker } from './RangePicker';
+import { rangeLabel, type RangeId } from './range';
 import { ActivityTab } from './ActivityTab';
 import { FunnelTab } from './FunnelTab';
 import { RoiTab } from './RoiTab';

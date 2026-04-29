@@ -10,7 +10,7 @@
 import { prisma, Prisma } from '@partnerradar/db';
 import { Card } from '@partnerradar/ui';
 import { ORDERED_STAGES, STAGE_COLORS, STAGE_LABELS } from '@partnerradar/types';
-import { rangeToStart, type RangeId } from './RangePicker';
+import { rangeToStart, type RangeId } from './range';
 
 interface Props {
   range: RangeId;

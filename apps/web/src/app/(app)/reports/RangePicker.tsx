@@ -2,20 +2,16 @@
 
 /**
  * URL-driven date range picker — every tab shares the same set of
- * windows and the same `range` query param.
+ * windows and the same `range` query param. Pure helpers (rangeToStart,
+ * rangeLabel, RangeId) live in ./range.ts so server components can
+ * import them without crossing the client boundary.
  */
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { RANGES, type RangeId } from './range';
 
-const RANGES = [
-  { id: '7d', label: '7 days' },
-  { id: '30d', label: '30 days' },
-  { id: '90d', label: '90 days' },
-  { id: 'ytd', label: 'YTD' },
-] as const;
-
-export type RangeId = (typeof RANGES)[number]['id'];
+export type { RangeId };
 
 export function RangePicker({ current }: { current: RangeId }) {
   const pathname = usePathname();
@@ -42,22 +38,4 @@ export function RangePicker({ current }: { current: RangeId }) {
       })}
     </div>
   );
-}
-
-export function rangeToStart(range: RangeId): Date {
-  const now = new Date();
-  switch (range) {
-    case '7d':
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    case '30d':
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    case '90d':
-      return new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    case 'ytd':
-      return new Date(now.getFullYear(), 0, 1);
-  }
-}
-
-export function rangeLabel(range: RangeId): string {
-  return RANGES.find((r) => r.id === range)?.label ?? range;
 }
