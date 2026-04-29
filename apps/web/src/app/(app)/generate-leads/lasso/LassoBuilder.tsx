@@ -21,13 +21,21 @@ import { ArrowRight, Lasso, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { scrapeLassoForLeads, type LassoScrapeResult } from '../../map/lasso-scrape';
 import type { GooglePartnerType } from '@partnerradar/integrations/ingest';
 
+// Google Places API (New) — Table A type set. Only show types Google
+// will actually accept; everything else 400s the entire lasso run.
+//
+// Notable omissions:
+//   • Mortgage brokers / loan officers — no Google place type. Use the
+//     State Boards CSV import (NMLS) instead; it's exhaustive and free.
+//   • General contractors — Google doesn't have `general_contractor`
+//     as a Table A type. We surface ROOFER (roofing_contractor) and
+//     leave the rest to manual entry / industry-specific sources.
 const SCRAPE_TYPE_OPTIONS: Array<{ key: GooglePartnerType; label: string }> = [
   { key: 'REALTOR', label: 'Realtors' },
-  { key: 'MORTGAGE_BROKER', label: 'Mortgage' },
   { key: 'INSURANCE_AGENT', label: 'Insurance' },
   { key: 'PROPERTY_MANAGER', label: 'Property Mgmt' },
   { key: 'ATTORNEY', label: 'Attorneys' },
-  { key: 'CONTRACTOR', label: 'Contractors' },
+  { key: 'ROOFER', label: 'Roofers' },
 ];
 
 export function LassoBuilder({

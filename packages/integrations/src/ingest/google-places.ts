@@ -47,14 +47,26 @@ interface PlacesNewResponse {
 
 /**
  * Map our PartnerType to one or more Google `includedType` values.
- * Places API "Nearby Search (New)" requires types from a specific set
+ * Places API (New) accepts only Table A types
  * (https://developers.google.com/maps/documentation/places/web-service/place-types).
+ *
+ * Confirmed-valid in production: real_estate_agency, insurance_agency,
+ * lawyer, roofing_contractor.
+ *
+ * Known-INVALID (Google returns 400 INVALID_ARGUMENT): mortgage_broker,
+ * general_contractor, establishment. We map those partner types to
+ * empty arrays so `fetchGooglePlacesCandidates` can refuse them
+ * upfront with a clear error instead of round-tripping to Google.
+ *
+ * For mortgages, use the State Boards CSV import (NMLS) — it's
+ * exhaustive, free, and tagged correctly.
  */
 const TYPE_MAP: Record<GooglePartnerType, string[]> = {
   REALTOR: ['real_estate_agency'],
   BROKER: ['real_estate_agency'],
-  MORTGAGE_BROKER: ['mortgage_broker'],
-  LOAN_OFFICER: ['mortgage_broker'],
+  // Mortgage / loan officers — Google has no place type for them.
+  MORTGAGE_BROKER: [],
+  LOAN_OFFICER: [],
   INSURANCE_AGENT: ['insurance_agency'],
   // Property managers + claims adjusters don't have direct Google types,
   // so we lean on real-estate / insurance and let the human reviewer
@@ -62,9 +74,12 @@ const TYPE_MAP: Record<GooglePartnerType, string[]> = {
   PROPERTY_MANAGER: ['real_estate_agency'],
   CLAIMS_ADJUSTER: ['insurance_agency'],
   ATTORNEY: ['lawyer'],
-  CONTRACTOR: ['general_contractor'],
+  // Generic contractors — no Google type. Keep ROOFER (roofing_contractor
+  // is in Table A) and surface plumber/electrician/painter at the call
+  // site if reps eventually want them as separate buckets.
+  CONTRACTOR: [],
   ROOFER: ['roofing_contractor'],
-  OTHER: ['establishment'],
+  OTHER: [],
 };
 
 export interface GooglePlacesQuery {
@@ -109,7 +124,18 @@ export async function* fetchGooglePlacesCandidates(
 ): AsyncGenerator<ProspectCandidate, void, unknown> {
   const max = q.maxResults ?? 60;
   const radiusM = Math.min(50_000, q.radiusMi * 1609.34);
-  const includedTypes = TYPE_MAP[q.partnerType] ?? ['establishment'];
+  const includedTypes = TYPE_MAP[q.partnerType] ?? [];
+  if (includedTypes.length === 0) {
+    // Refuse upfront — calling Google with an empty includedTypes (or a
+    // bogus one like 'establishment') 400s and burns API quota. The
+    // caller should filter unsupported partnerTypes out of the UI.
+    throw new Error(
+      `Google Places does not support partnerType=${q.partnerType}. ` +
+        `Supported: REALTOR, BROKER, INSURANCE_AGENT, PROPERTY_MANAGER, ` +
+        `CLAIMS_ADJUSTER, ATTORNEY, ROOFER. For mortgages and general ` +
+        `contractors, use the State Boards CSV import or a different source.`,
+    );
+  }
   let yielded = 0;
   let pageToken: string | undefined;
   while (yielded < max) {
