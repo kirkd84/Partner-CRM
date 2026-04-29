@@ -23,10 +23,7 @@ async function assertManagerPlusInMarket(marketId: string) {
   return session;
 }
 
-export async function approveLead(input: {
-  leadId: string;
-  assignedRepId?: string | null;
-}) {
+export async function approveLead(input: { leadId: string; assignedRepId?: string | null }) {
   const lead = await prisma.scrapedLead.findUnique({
     where: { id: input.leadId },
     select: { id: true, marketId: true, normalized: true, status: true },
@@ -105,6 +102,83 @@ export async function approveLead(input: {
   revalidatePath('/admin/scraped-leads');
   revalidatePath('/partners');
   return { ok: true, partnerId: partner.id, publicId };
+}
+
+/**
+ * Bulk approve N pending leads with the same optional rep assignment.
+ *
+ * Runs sequentially (not Promise.all) so PR-#### IDs stay monotonic and
+ * the audit log entries are ordered. Failures are caught per-lead so a
+ * single 'Already reviewed' (someone approved it from another tab)
+ * doesn't tank the rest of the batch.
+ */
+export async function bulkApproveLeads(input: {
+  leadIds: string[];
+  assignedRepId?: string | null;
+}): Promise<{
+  approved: number;
+  errors: Array<{ leadId: string; error: string }>;
+  partnerIds: string[];
+}> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (!isManagerPlus) throw new Error('FORBIDDEN: manager+');
+
+  const errors: Array<{ leadId: string; error: string }> = [];
+  const partnerIds: string[] = [];
+  let approved = 0;
+
+  for (const leadId of input.leadIds) {
+    try {
+      const result = await approveLead({
+        leadId,
+        assignedRepId: input.assignedRepId ?? null,
+      });
+      partnerIds.push(result.partnerId);
+      approved++;
+    } catch (err) {
+      errors.push({
+        leadId,
+        error: err instanceof Error ? err.message : 'unknown error',
+      });
+    }
+  }
+
+  revalidatePath('/admin/scraped-leads');
+  revalidatePath('/partners');
+  return { approved, errors, partnerIds };
+}
+
+/**
+ * Bulk reject N pending leads with the same reason.
+ */
+export async function bulkRejectLeads(input: {
+  leadIds: string[];
+  reason: string;
+}): Promise<{ rejected: number; errors: Array<{ leadId: string; error: string }> }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (!isManagerPlus) throw new Error('FORBIDDEN: manager+');
+
+  const errors: Array<{ leadId: string; error: string }> = [];
+  let rejected = 0;
+
+  for (const leadId of input.leadIds) {
+    try {
+      await rejectLead({ leadId, reason: input.reason });
+      rejected++;
+    } catch (err) {
+      errors.push({
+        leadId,
+        error: err instanceof Error ? err.message : 'unknown error',
+      });
+    }
+  }
+
+  revalidatePath('/admin/scraped-leads');
+  return { rejected, errors };
 }
 
 export async function rejectLead(input: { leadId: string; reason: string }) {
