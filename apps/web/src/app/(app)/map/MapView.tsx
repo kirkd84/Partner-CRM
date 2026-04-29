@@ -278,8 +278,6 @@ export function MapView({
     activePolygon.current = null;
     setSelectedIds(new Set());
     setSaveMsg(null);
-    setScrapeResult(null);
-    setScrapeError(null);
     setHasLasso(false);
   }
 

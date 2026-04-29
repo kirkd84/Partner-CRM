@@ -70,7 +70,7 @@ export default async function GenerateLeadsPage() {
       <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto grid w-full max-w-4xl gap-4 sm:grid-cols-2">
           <SourceCard
-            href="/map?lasso=1"
+            href="/generate-leads/lasso"
             icon={Lasso}
             title="Lasso a territory"
             tagline="Map-driven · Google Places"
