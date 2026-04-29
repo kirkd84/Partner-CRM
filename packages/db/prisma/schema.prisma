@@ -221,6 +221,10 @@ model Partner {
   // Original business-card photo (R2 key) kept for audit if the lead
   // came from /scan; null for everything else.
   businessCardImageUrl String?
+  /// Date the partner's business was founded / opened. Renders as
+  /// month + day on the touchpoints view (year omitted in display)
+  /// so reps can wish them happy anniversary every year.
+  businessAnniversaryOn DateTime?
   stormCloudId        String?              @unique
   activatedAt         DateTime?
   activatedBy         String?
@@ -389,32 +393,74 @@ model Newsletter {
   marketId        String?
   market          Market?          @relation(fields: [marketId], references: [id])
   subject         String
+  /// Plain-text body — used for the text/plain MIME alternative AND as
+  /// the markdown source the rich-text toolbar edits. Stored as
+  /// markdown when bodyMarkdown is true; otherwise treated as raw plain text.
   bodyText        String           @db.Text
+  /// Whether bodyText is markdown (rendered to HTML at send time) or
+  /// plain-text-only. New newsletters default true; legacy v1 ones
+  /// stayed false and render unchanged.
+  bodyMarkdown    Boolean          @default(false)
   /// Audience filter — picked at compose time.
-  /// Shape: { partnerTypes?: string[], stages?: string[], groupIds?: string[],
-  ///          includeCustomers?: boolean, includeInactive?: boolean }
   audienceFilter  Json
   status          NewsletterStatus @default(DRAFT)
   recipientCount  Int              @default(0)
   sentCount       Int              @default(0)
   blockedCount    Int              @default(0)
   errorCount      Int              @default(0)
-  /// Errors from individual sends — sample of last N for debugging.
-  /// Capped client-side at ~20 entries so the row doesn't grow forever.
   errorSamples    Json?
+  /// Scheduled future-send. Null = send immediately when the manager
+  /// clicks Send. The /api/cron/newsletter-tick endpoint scans for
+  /// rows with status=SCHEDULED and scheduledAt <= now and fires.
+  scheduledAt     DateTime?
+  /// Aggregate engagement counters. Per-recipient state lives on
+  /// NewsletterRecipient; these are the rolled-up totals shown on
+  /// the detail page.
+  openCount       Int              @default(0)
+  clickCount      Int              @default(0)
   createdBy       String
   creator         User             @relation("NewslettersByCreator", fields: [createdBy], references: [id])
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   sentAt          DateTime?
+  recipients      NewsletterRecipient[]
 
   @@index([tenantId, status])
   @@index([marketId])
   @@index([createdBy])
+  @@index([status, scheduledAt])
+}
+
+/// Per-recipient state for a newsletter send. Created when the rep
+/// clicks Send + we look up the audience; lifecycle is driven by
+/// the Resend webhook (delivered / opened / clicked / bounced).
+model NewsletterRecipient {
+  id             String     @id @default(cuid())
+  newsletterId   String
+  newsletter     Newsletter @relation(fields: [newsletterId], references: [id], onDelete: Cascade)
+  partnerId      String
+  contactId      String?
+  email          String
+  /// Resend message id — populated after send succeeds. We look up by
+  /// this in the webhook receiver to find the row to update.
+  resendId       String?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  openedAt       DateTime?
+  firstClickedAt DateTime?
+  bouncedAt      DateTime?
+  bounceReason   String?
+  errorMessage   String?
+  createdAt      DateTime   @default(now())
+
+  @@index([newsletterId])
+  @@index([resendId])
+  @@index([partnerId])
 }
 
 enum NewsletterStatus {
   DRAFT
+  SCHEDULED
   SENDING
   SENT
   FAILED
@@ -475,10 +521,15 @@ model Contact {
   isPrimary    Boolean  @default(false)
   smsConsent   Boolean  @default(false)
   emailConsent Boolean  @default(true)
+  /// Birthday — month + day only, no year, for privacy. Either both
+  /// set or both null. Drives the upcoming-birthdays touchpoints view.
+  birthMonth   Int?
+  birthDay     Int?
   notes        String?
   createdAt    DateTime @default(now())
 
   @@index([partnerId])
+  @@index([birthMonth, birthDay])
 }
 
 // ─── Activities / Tasks / Appointments / Expenses ────────────────────

@@ -10,7 +10,7 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Camera, Sparkles } from 'lucide-react';
+import { ArrowLeft, Camera, Layers, Sparkles } from 'lucide-react';
 import { ScanClient } from './ScanClient';
 import { listRepMarkets } from './actions';
 
@@ -35,6 +35,12 @@ export default async function ScanPage() {
         <div className="mt-1 flex items-center gap-2">
           <Camera className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold text-gray-900 sm:text-xl">Scan business card</h1>
+          <Link
+            href="/scan/batch"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-700 hover:border-primary hover:text-primary"
+          >
+            <Layers className="h-3.5 w-3.5" /> Batch upload
+          </Link>
         </div>
         <p className="mt-1 text-[11px] text-gray-500 sm:text-xs">
           Snap a card and Claude reads the company, contact, phone, email, and address. Review,

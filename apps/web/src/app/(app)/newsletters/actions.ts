@@ -143,8 +143,12 @@ export async function previewAudience(input: {
 export interface CreateNewsletterInput {
   subject: string;
   bodyText: string;
+  /** True if bodyText is markdown that we should render to HTML. */
+  bodyMarkdown?: boolean;
   filter: AudienceFilter;
   marketId?: string | null;
+  /** ISO; null/undefined = send immediately on Send click. */
+  scheduledAt?: string | null;
 }
 
 export async function createNewsletterDraft(input: CreateNewsletterInput): Promise<{ id: string }> {
@@ -159,8 +163,11 @@ export async function createNewsletterDraft(input: CreateNewsletterInput): Promi
       marketId: input.marketId ?? null,
       subject: input.subject.trim(),
       bodyText: input.bodyText,
+      bodyMarkdown: input.bodyMarkdown ?? false,
       audienceFilter: input.filter as unknown as object,
       createdBy: session.user.id,
+      scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+      status: input.scheduledAt ? 'SCHEDULED' : 'DRAFT',
     },
     select: { id: true },
   });
@@ -189,10 +196,15 @@ export async function updateNewsletterDraft(
     data: {
       ...(input.subject !== undefined && { subject: input.subject.trim() }),
       ...(input.bodyText !== undefined && { bodyText: input.bodyText }),
+      ...(input.bodyMarkdown !== undefined && { bodyMarkdown: input.bodyMarkdown }),
       ...(input.filter !== undefined && {
         audienceFilter: input.filter as unknown as object,
       }),
       ...(input.marketId !== undefined && { marketId: input.marketId ?? null }),
+      ...(input.scheduledAt !== undefined && {
+        scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+        status: input.scheduledAt ? 'SCHEDULED' : 'DRAFT',
+      }),
     },
   });
 
@@ -240,6 +252,7 @@ export async function sendNewsletterTest(
     tenantAddress: tenant?.address ?? null,
     unsubscribe: '[unsubscribe link will appear here in real sends]',
     isTest: true,
+    renderAsMarkdown: input.bodyMarkdown ?? false,
   });
 
   const res = await sendEmail({
@@ -265,13 +278,28 @@ export async function sendNewsletterTest(
  * Updates the Newsletter row with running totals; on completion flips
  * status to SENT (or FAILED if every send blew up).
  */
+/**
+ * Manager-triggered send. Just an auth-gated wrapper around the
+ * shared executeNewsletterSend(); the cron tick at
+ * /api/cron/newsletter-tick calls executeNewsletterSend directly
+ * (no session) once a row's scheduledAt is in the past.
+ */
 export async function sendNewsletter(id: string): Promise<{
   recipientCount: number;
   sentCount: number;
   blockedCount: number;
   errorCount: number;
 }> {
-  const session = await assertManagerPlus();
+  await assertManagerPlus();
+  return executeNewsletterSend(id);
+}
+
+export async function executeNewsletterSend(id: string): Promise<{
+  recipientCount: number;
+  sentCount: number;
+  blockedCount: number;
+  errorCount: number;
+}> {
   const newsletter = await prisma.newsletter.findUnique({
     where: { id },
     select: {
@@ -280,6 +308,7 @@ export async function sendNewsletter(id: string): Promise<{
       marketId: true,
       subject: true,
       bodyText: true,
+      bodyMarkdown: true,
       audienceFilter: true,
       status: true,
       createdBy: true,
@@ -300,7 +329,16 @@ export async function sendNewsletter(id: string): Promise<{
     });
     marketIds = ms.map((m) => m.id);
   } else {
-    marketIds = session.user.markets ?? [];
+    // No tenant + no explicit market — last resort: any market the
+    // newsletter's creator has access to. Cron path falls into this
+    // branch when a newsletter was created without a tenantId (rare).
+    const ums = await prisma.userMarket
+      .findMany({
+        where: { userId: newsletter.createdBy },
+        select: { marketId: true },
+      })
+      .catch(() => []);
+    marketIds = ums.map((m) => m.marketId);
   }
 
   const where = buildAudienceWhere(filter, marketIds);
@@ -363,6 +401,7 @@ export async function sendNewsletter(id: string): Promise<{
       tenantAddress: tenant?.address ?? null,
       unsubscribe: unsubResolved,
       isTest: false,
+      renderAsMarkdown: newsletter.bodyMarkdown,
     });
     try {
       const res = await sendEmail({
@@ -432,7 +471,9 @@ export async function sendNewsletter(id: string): Promise<{
 
   await prisma.auditLog.create({
     data: {
-      userId: session.user.id,
+      // No session in the cron path — attribute the audit entry to
+      // the newsletter's original author. They're the responsible party.
+      userId: newsletter.createdBy,
       entityType: 'Newsletter',
       entityId: id,
       action: 'SEND',
@@ -456,11 +497,65 @@ export async function sendNewsletter(id: string): Promise<{
 }
 
 /**
- * Wrap the plain-text body into a minimal HTML email with paragraphs
- * and a CAN-SPAM-compliant footer (physical address + unsubscribe).
+ * Tiny markdown → safe HTML renderer. Handles the only constructs the
+ * compose toolbar exposes: **bold**, *italic*, [link](url), # / ## /
+ * ### headings, lists (- ...) and paragraph breaks. Everything else
+ * is escaped as plain text, so reps can't smuggle <script> tags into
+ * email payloads.
+ */
+function markdownToHtml(src: string): string {
+  const escape = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = (s: string) =>
+    escape(s)
+      // [text](url) — only allow http(s) URLs to keep mailto smuggling
+      // and javascript: out.
+      .replace(
+        /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        (_m, text: string, url: string) =>
+          `<a href="${url}" style="color:#3b82f6;text-decoration:underline;">${text}</a>`,
+      )
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|\s)\*([^*]+)\*(?=\s|$)/g, '$1<em>$2</em>');
+
+  const blocks = src.split(/\n{2,}/);
+  const out: string[] = [];
+  for (const raw of blocks) {
+    const block = raw.trim();
+    if (!block) continue;
+    if (block.startsWith('### ')) {
+      out.push(
+        `<h3 style="font-size:15px;font-weight:600;margin:16px 0 8px;">${inline(block.slice(4))}</h3>`,
+      );
+    } else if (block.startsWith('## ')) {
+      out.push(
+        `<h2 style="font-size:17px;font-weight:600;margin:18px 0 8px;">${inline(block.slice(3))}</h2>`,
+      );
+    } else if (block.startsWith('# ')) {
+      out.push(
+        `<h1 style="font-size:20px;font-weight:700;margin:20px 0 8px;">${inline(block.slice(2))}</h1>`,
+      );
+    } else if (/^[-*]\s/.test(block)) {
+      const items = block
+        .split('\n')
+        .map((line) => line.replace(/^[-*]\s+/, '').trim())
+        .filter(Boolean)
+        .map((line) => `<li style="margin:0 0 4px;">${inline(line)}</li>`)
+        .join('');
+      out.push(`<ul style="margin:0 0 16px;padding-left:20px;">${items}</ul>`);
+    } else {
+      out.push(`<p style="margin:0 0 16px;">${inline(block).replace(/\n/g, '<br>')}</p>`);
+    }
+  }
+  return out.join('');
+}
+
+/**
+ * Wrap the body into a minimal HTML email with paragraphs and a
+ * CAN-SPAM-compliant footer (physical address + unsubscribe).
  *
- * We deliberately keep the markup boring — clean white background,
- * system fonts, no remote tracking pixels in v1.
+ * If renderAsMarkdown is true, markdown→HTML kicks in. Otherwise we
+ * fall back to the v1 plain-text-with-paragraph-breaks renderer.
  */
 function renderNewsletterHtml(input: {
   bodyText: string;
@@ -468,19 +563,20 @@ function renderNewsletterHtml(input: {
   tenantAddress: string | null;
   unsubscribe: string;
   isTest: boolean;
+  renderAsMarkdown?: boolean;
 }): string {
   const escape = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const paragraphs = input.bodyText
-    .split(/\n\n+/)
-    .map((para) => {
-      // Single newlines inside a paragraph become <br> so the rep's
-      // line breaks survive. Empty paras get dropped.
-      const html = escape(para.trim()).replace(/\n/g, '<br>');
-      return html ? `<p style="margin: 0 0 16px;">${html}</p>` : '';
-    })
-    .filter(Boolean)
-    .join('');
+  const paragraphs = input.renderAsMarkdown
+    ? markdownToHtml(input.bodyText)
+    : input.bodyText
+        .split(/\n\n+/)
+        .map((para) => {
+          const html = escape(para.trim()).replace(/\n/g, '<br>');
+          return html ? `<p style="margin: 0 0 16px;">${html}</p>` : '';
+        })
+        .filter(Boolean)
+        .join('');
   const footerLines: string[] = [];
   footerLines.push(`<strong>${escape(input.tenantName)}</strong>`);
   if (input.tenantAddress) footerLines.push(escape(input.tenantAddress));

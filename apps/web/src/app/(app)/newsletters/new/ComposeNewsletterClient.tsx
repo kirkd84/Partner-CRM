@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Pill } from '@partnerradar/ui';
-import { Send, Eye, Save, Mail } from 'lucide-react';
+import { Send, Eye, Save, Mail, Bold, Italic, Link2, List, Heading2, Clock } from 'lucide-react';
 import {
   createNewsletterDraft,
   previewAudience,
@@ -22,6 +22,10 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
   const router = useRouter();
   const [subject, setSubject] = useState('');
   const [bodyText, setBodyText] = useState('');
+  const [bodyMarkdown, setBodyMarkdown] = useState(true);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [pickedTypes, setPickedTypes] = useState<Set<string>>(new Set());
   const [pickedStages, setPickedStages] = useState<Set<string>>(new Set());
   const [pickedGroups, setPickedGroups] = useState<Set<string>>(new Set());
@@ -85,7 +89,9 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
         const r = await createNewsletterDraft({
           subject,
           bodyText,
+          bodyMarkdown,
           filter: currentFilter(),
+          scheduledAt: scheduleEnabled && scheduleAt ? new Date(scheduleAt).toISOString() : null,
         });
         router.push(`/newsletters/${r.id}`);
       } catch (err) {
@@ -106,6 +112,7 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
         const r = await sendNewsletterTest({
           subject,
           bodyText,
+          bodyMarkdown,
           filter: currentFilter(),
         });
         if (r.ok) setInfo(`Test sent — check your inbox. ${r.detail ?? ''}`);
@@ -131,11 +138,21 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
       try {
         // Save first so we have a Newsletter row to attribute the
         // send to + log on each Activity.
+        const isScheduling = scheduleEnabled && scheduleAt;
         const draft = await createNewsletterDraft({
           subject,
           bodyText,
+          bodyMarkdown,
           filter: currentFilter(),
+          scheduledAt: isScheduling ? new Date(scheduleAt).toISOString() : null,
         });
+        if (isScheduling) {
+          setInfo(
+            `Scheduled for ${new Date(scheduleAt).toLocaleString()} — ${preview?.count ?? 0} recipient${preview?.count === 1 ? '' : 's'}. The cron tick fires due ones every few minutes.`,
+          );
+          router.push(`/newsletters/${draft.id}`);
+          return;
+        }
         const r = await sendNewsletter(draft.id);
         setInfo(
           `Sent to ${r.sentCount} of ${r.recipientCount}. ${r.blockedCount} skipped (no email / unsubscribed), ${r.errorCount} failed.`,
@@ -173,22 +190,80 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
             />
           </label>
-          <label className="mt-3 block">
-            <span className="text-[11px] font-medium text-gray-600">Body (plain text)</span>
+          <div className="mt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-gray-600">
+                Body {bodyMarkdown ? '(markdown)' : '(plain text)'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setBodyMarkdown((v) => !v)}
+                className="text-[10.5px] text-primary hover:underline"
+              >
+                {bodyMarkdown ? 'Switch to plain text' : 'Switch to markdown'}
+              </button>
+            </div>
+            {bodyMarkdown && (
+              <div className="mt-1 flex flex-wrap items-center gap-1 rounded-t-md border border-b-0 border-gray-300 bg-gray-50 px-2 py-1">
+                <ToolbarButton
+                  title="Bold (wraps **text**)"
+                  onClick={() => wrapSelection(bodyRef.current, '**', '**', setBodyText)}
+                >
+                  <Bold className="h-3.5 w-3.5" />
+                </ToolbarButton>
+                <ToolbarButton
+                  title="Italic (wraps *text*)"
+                  onClick={() => wrapSelection(bodyRef.current, '*', '*', setBodyText)}
+                >
+                  <Italic className="h-3.5 w-3.5" />
+                </ToolbarButton>
+                <ToolbarButton
+                  title="Heading"
+                  onClick={() => prefixLines(bodyRef.current, '## ', setBodyText)}
+                >
+                  <Heading2 className="h-3.5 w-3.5" />
+                </ToolbarButton>
+                <ToolbarButton
+                  title="Bulleted list"
+                  onClick={() => prefixLines(bodyRef.current, '- ', setBodyText)}
+                >
+                  <List className="h-3.5 w-3.5" />
+                </ToolbarButton>
+                <ToolbarButton
+                  title="Insert link"
+                  onClick={() => {
+                    const url = window.prompt('Link URL (https://…)?');
+                    if (!url || !/^https?:\/\//.test(url)) return;
+                    wrapSelection(bodyRef.current, '[', `](${url})`, setBodyText);
+                  }}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                </ToolbarButton>
+                <span className="ml-auto text-[10.5px] text-gray-500">
+                  **bold**, *italic*, ## heading, - list, [link](url)
+                </span>
+              </div>
+            )}
             <textarea
+              ref={bodyRef}
               value={bodyText}
               onChange={(e) => setBodyText(e.target.value)}
               rows={14}
               placeholder={
-                'Hey team —\n\nA quick update on what we&apos;ve been up to this quarter…\n\nReach out anytime.\n— Kirk'
+                bodyMarkdown
+                  ? 'Hey team —\n\nA quick update on **what we shipped** this quarter:\n\n- Card scanner\n- Networking groups\n- Lasso radius mode\n\nMore at [our blog](https://example.com).\n\n— Kirk'
+                  : 'Hey team —\n\nA quick update on what we’ve been up to this quarter…\n\nReach out anytime.\n— Kirk'
               }
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm leading-relaxed"
+              className={`w-full ${
+                bodyMarkdown ? 'rounded-b-md border-t-0' : 'mt-1 rounded-md'
+              } border border-gray-300 px-3 py-2 font-mono text-sm leading-relaxed`}
             />
             <p className="mt-1 text-[10.5px] text-gray-400">
-              Plain text for now — paragraph breaks come from blank lines. Rich text editor on the
-              roadmap.
+              {bodyMarkdown
+                ? 'Markdown is rendered to HTML server-side. Only http(s) links are allowed; everything else is escaped to plain text.'
+                : 'Paragraph breaks come from blank lines.'}
             </p>
-          </label>
+          </div>
         </Card>
 
         <Card title="Audience">
@@ -275,13 +350,47 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
             <Button onClick={onSaveDraft} variant="secondary" className="w-full">
               <Save className="h-4 w-4" /> Save as draft
             </Button>
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-2.5 text-xs">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-300"
+                />
+                <Clock className="h-3.5 w-3.5 text-gray-500" /> Schedule for later
+              </label>
+              {scheduleEnabled && (
+                <>
+                  <input
+                    type="datetime-local"
+                    value={scheduleAt}
+                    onChange={(e) => setScheduleAt(e.target.value)}
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                  />
+                  <p className="mt-1 text-[10.5px] text-gray-500">
+                    Cron tick fires due newsletters every few minutes — pick a time at least 5
+                    minutes from now.
+                  </p>
+                </>
+              )}
+            </div>
             {!confirming ? (
               <Button
                 onClick={() => setConfirming(true)}
-                disabled={!preview || preview.count === 0 || !subject.trim() || !bodyText.trim()}
+                disabled={
+                  !preview ||
+                  preview.count === 0 ||
+                  !subject.trim() ||
+                  !bodyText.trim() ||
+                  (scheduleEnabled && !scheduleAt)
+                }
                 className="w-full"
               >
-                <Send className="h-4 w-4" /> Send to {preview?.count ?? 0}
+                <Send className="h-4 w-4" />{' '}
+                {scheduleEnabled
+                  ? `Schedule for ${preview?.count ?? 0}`
+                  : `Send to ${preview?.count ?? 0}`}
               </Button>
             ) : (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5">
@@ -328,6 +437,69 @@ export function ComposeNewsletterClient({ partnerTypes, stages, groups }: Option
         </Card>
       </aside>
     </div>
+  );
+}
+
+// ─── Markdown helpers ────────────────────────────────────────────
+//
+// Wrap the current selection with prefix/suffix. If nothing's
+// selected, drops the cursor between them so the rep can keep typing.
+function wrapSelection(
+  ta: HTMLTextAreaElement | null,
+  prefix: string,
+  suffix: string,
+  setBody: (s: string) => void,
+) {
+  if (!ta) return;
+  const start = ta.selectionStart ?? 0;
+  const end = ta.selectionEnd ?? 0;
+  const before = ta.value.slice(0, start);
+  const sel = ta.value.slice(start, end);
+  const after = ta.value.slice(end);
+  const next = `${before}${prefix}${sel}${suffix}${after}`;
+  setBody(next);
+  // Restore selection just inside the wrapper for fast iteration.
+  window.requestAnimationFrame(() => {
+    ta.focus();
+    const cursor = start + prefix.length + sel.length;
+    ta.setSelectionRange(cursor, cursor);
+  });
+}
+
+// Prefix every selected line (or just the line under the cursor when
+// nothing's selected) with the given marker. Used for headings + lists.
+function prefixLines(ta: HTMLTextAreaElement | null, prefix: string, setBody: (s: string) => void) {
+  if (!ta) return;
+  const start = ta.selectionStart ?? 0;
+  const end = ta.selectionEnd ?? 0;
+  const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+  const lineEnd = ta.value.indexOf('\n', end);
+  const sliceEnd = lineEnd === -1 ? ta.value.length : lineEnd;
+  const before = ta.value.slice(0, lineStart);
+  const lines = ta.value.slice(lineStart, sliceEnd).split('\n');
+  const prefixed = lines.map((l) => (l.startsWith(prefix) ? l : prefix + l)).join('\n');
+  const after = ta.value.slice(sliceEnd);
+  setBody(`${before}${prefixed}${after}`);
+}
+
+function ToolbarButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className="rounded p-1 text-gray-600 hover:bg-white hover:text-primary"
+    >
+      {children}
+    </button>
   );
 }
 

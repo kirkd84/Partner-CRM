@@ -819,6 +819,101 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
         END $$;
       `,
     },
+    // Newsletter v2: scheduled send, rich text, open/click tracking.
+    {
+      label: 'Newsletter +SCHEDULED status',
+      sql: `
+        DO $$ BEGIN
+          ALTER TYPE "NewsletterStatus" ADD VALUE IF NOT EXISTS 'SCHEDULED';
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+      `,
+    },
+    {
+      label: 'add Newsletter.bodyMarkdown',
+      sql: `ALTER TABLE "Newsletter" ADD COLUMN IF NOT EXISTS "bodyMarkdown" BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
+      label: 'add Newsletter.scheduledAt',
+      sql: `ALTER TABLE "Newsletter" ADD COLUMN IF NOT EXISTS "scheduledAt" TIMESTAMP(3)`,
+    },
+    {
+      label: 'add Newsletter.openCount',
+      sql: `ALTER TABLE "Newsletter" ADD COLUMN IF NOT EXISTS "openCount" INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      label: 'add Newsletter.clickCount',
+      sql: `ALTER TABLE "Newsletter" ADD COLUMN IF NOT EXISTS "clickCount" INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      label: 'index Newsletter (status, scheduledAt)',
+      sql: `CREATE INDEX IF NOT EXISTS "Newsletter_status_scheduledAt_idx" ON "Newsletter"("status", "scheduledAt")`,
+    },
+    {
+      label: 'create NewsletterRecipient',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NewsletterRecipient" (
+          "id" TEXT PRIMARY KEY,
+          "newsletterId" TEXT NOT NULL,
+          "partnerId" TEXT NOT NULL,
+          "contactId" TEXT,
+          "email" TEXT NOT NULL,
+          "resendId" TEXT,
+          "sentAt" TIMESTAMP(3),
+          "deliveredAt" TIMESTAMP(3),
+          "openedAt" TIMESTAMP(3),
+          "firstClickedAt" TIMESTAMP(3),
+          "bouncedAt" TIMESTAMP(3),
+          "bounceReason" TEXT,
+          "errorMessage" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+    },
+    {
+      label: 'index NewsletterRecipient newsletterId',
+      sql: `CREATE INDEX IF NOT EXISTS "NewsletterRecipient_newsletterId_idx" ON "NewsletterRecipient"("newsletterId")`,
+    },
+    {
+      label: 'index NewsletterRecipient resendId',
+      sql: `CREATE INDEX IF NOT EXISTS "NewsletterRecipient_resendId_idx" ON "NewsletterRecipient"("resendId")`,
+    },
+    {
+      label: 'index NewsletterRecipient partnerId',
+      sql: `CREATE INDEX IF NOT EXISTS "NewsletterRecipient_partnerId_idx" ON "NewsletterRecipient"("partnerId")`,
+    },
+    {
+      label: 'fk NewsletterRecipient.newsletterId → Newsletter',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NewsletterRecipient_newsletterId_fkey'
+          ) THEN
+            ALTER TABLE "NewsletterRecipient"
+              ADD CONSTRAINT "NewsletterRecipient_newsletterId_fkey"
+              FOREIGN KEY ("newsletterId") REFERENCES "Newsletter"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    // Birthday + anniversary fields
+    {
+      label: 'add Contact.birthMonth',
+      sql: `ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "birthMonth" INTEGER`,
+    },
+    {
+      label: 'add Contact.birthDay',
+      sql: `ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "birthDay" INTEGER`,
+    },
+    {
+      label: 'index Contact (birthMonth, birthDay)',
+      sql: `CREATE INDEX IF NOT EXISTS "Contact_birthMonth_birthDay_idx" ON "Contact"("birthMonth", "birthDay")`,
+    },
+    {
+      label: 'add Partner.businessAnniversaryOn',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "businessAnniversaryOn" TIMESTAMP(3)`,
+    },
     // EV-11: shareable read-only event link (lazy-generated).
     {
       label: 'add EvEvent.shareToken',

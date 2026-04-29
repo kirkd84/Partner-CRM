@@ -838,3 +838,36 @@ export async function changeStageToInactive(partnerId: string, reason: string, n
   revalidatePath('/partners');
   return { ok: true };
 }
+
+// ─── Referral linkage ──────────────────────────────────────────────
+//
+// Set who referred this partner. Pass null to clear. Self-referral is
+// rejected. The schema's onDelete=SetNull keeps cycles harmless even
+// if the referring partner is later archived.
+export async function setReferredBy(
+  partnerId: string,
+  referredByPartnerId: string | null,
+): Promise<{ ok: true }> {
+  const { session } = await assertCanEdit(partnerId);
+  if (referredByPartnerId === partnerId) {
+    throw new Error("A partner can't refer themselves.");
+  }
+  await prisma.partner.update({
+    where: { id: partnerId },
+    data: { referredByPartnerId },
+  });
+  await prisma.activity.create({
+    data: {
+      partnerId,
+      userId: session.user.id,
+      type: 'COMMENT',
+      body: referredByPartnerId
+        ? `${session.user.name} set the referral source for this partner.`
+        : `${session.user.name} cleared the referral source for this partner.`,
+      metadata: { referredByPartnerId },
+    },
+  });
+  revalidatePath(`/partners/${partnerId}`);
+  if (referredByPartnerId) revalidatePath(`/partners/${referredByPartnerId}`);
+  return { ok: true };
+}

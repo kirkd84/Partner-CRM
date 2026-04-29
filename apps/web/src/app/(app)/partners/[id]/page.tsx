@@ -32,6 +32,7 @@ import { isAIConfigured } from '@partnerradar/ai';
 import { ActivityRail } from './ActivityRail';
 import { TrackPartnerView } from '@/components/RecentPartners';
 import { PartnerStatsRow } from './PartnerStatsRow';
+import { ReferralCard } from './ReferralCard';
 import { LinkedProjectsTable } from './LinkedProjectsTable';
 import { PartnerEventsCard } from './PartnerEventsCard';
 
@@ -61,6 +62,11 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
       },
       assignedRep: { select: { id: true, name: true, avatarColor: true } },
       market: true,
+      referredByPartner: { select: { id: true, publicId: true, companyName: true } },
+      referredPartners: {
+        select: { id: true, publicId: true, companyName: true, stage: true },
+        orderBy: { companyName: 'asc' },
+      },
     },
   });
   if (!partner) notFound();
@@ -376,6 +382,35 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
 
             {/* Partner performance — MTD / YTD / Last year / Lifetime */}
             <PartnerStatsRow stats={stormStats} />
+
+            {/* Referrals — incoming source + outgoing list */}
+            <ReferralCard
+              partnerId={partner.id}
+              canEdit={canEdit}
+              referredBy={
+                (
+                  partner as {
+                    referredByPartner?: {
+                      id: string;
+                      publicId: string;
+                      companyName: string;
+                    } | null;
+                  }
+                ).referredByPartner ?? null
+              }
+              referredPartners={
+                (
+                  partner as {
+                    referredPartners?: Array<{
+                      id: string;
+                      publicId: string;
+                      companyName: string;
+                      stage: string;
+                    }>;
+                  }
+                ).referredPartners ?? []
+              }
+            />
 
             {/* 2×2 grid — Tasks / Appointments / Events / Files */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
