@@ -27,12 +27,15 @@ interface NavItem {
   managerPlus?: boolean;
 }
 
-// Primary nav — slimmer than before. Dropdown-driven items (Recent,
-// Tools) render their own components below to keep this list flat.
-const NAV_ITEMS: readonly NavItem[] = [
+// Primary nav split into two groups so Tools (dropdown) can sit
+// between them without losing the Admin-last ordering. Final order:
+// Recent · Radar · Partners · Map · Tools · Admin
+const NAV_PRIMARY: readonly NavItem[] = [
   { href: '/radar', label: 'Radar', icon: RadarIcon },
   { href: '/partners', label: 'Partners', icon: Users },
   { href: '/map', label: 'Map', icon: MapIcon },
+];
+const NAV_TRAILING: readonly NavItem[] = [
   { href: '/admin', label: 'Admin', icon: SettingsIcon, managerPlus: true },
 ];
 
@@ -81,19 +84,18 @@ export function TopNav({ activeTenantName, activeTenantPrimaryHex: _ }: TopNavPr
       </div>
 
       {/*
-        Primary nav — on mobile, we hide labels and let the icons do the
-        talking; the whole strip scrolls horizontally so no item falls off
-        the edge. At sm+ the labels come back.
+        Primary nav — on mobile, labels collapse to icons. We deliberately
+        do NOT use `overflow-x-auto` here: setting overflow on either axis
+        creates a scroll context that clips the absolute-positioned
+        dropdown panels (Recent, Tools, user menu) and they never appear.
+        At md+ labels come back; at narrower widths the icon-only items
+        all fit inside the available room without scrolling.
       */}
-      <nav
-        className="ml-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        aria-label="Primary"
-      >
+      <nav className="ml-1 flex min-w-0 flex-1 items-center gap-0.5" aria-label="Primary">
         {/* Recent — hover-dropdown, partners viewed in this session. */}
         <RecentPartnersDropdown active={false} />
 
-        {NAV_ITEMS.map((item) => {
-          if (item.managerPlus && !isManagerPlus) return null;
+        {NAV_PRIMARY.map((item) => {
           const active = pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
@@ -117,6 +119,30 @@ export function TopNav({ activeTenantName, activeTenantPrimaryHex: _ }: TopNavPr
         {/* Tools — replaces the older Lists tab. Hit List + Events +
             Generate Leads + Studio (mgr+) + Reports (mgr+). */}
         <ToolsDropdown isManagerPlus={isManagerPlus} active={isOnATool(pathname)} />
+
+        {/* Admin sits last (manager+). Stays inside the nav so its
+            active highlight matches the other items. */}
+        {NAV_TRAILING.map((item) => {
+          if (item.managerPlus && !isManagerPlus) return null;
+          const active = pathname.startsWith(item.href);
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-label={item.label}
+              className={cn(
+                'inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-semibold transition-colors sm:px-2.5',
+                active
+                  ? 'bg-nav-active text-white shadow-sm'
+                  : 'text-white/85 hover:bg-white/10 hover:text-white',
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="hidden md:inline">{item.label}</span>
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
