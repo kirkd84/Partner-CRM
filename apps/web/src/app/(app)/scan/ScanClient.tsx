@@ -192,8 +192,23 @@ export function ScanClient({
         }
       }, 50);
     } catch (err) {
+      // getUserMedia rejection codes — the spec gives us specific
+      // names so we can tell the user exactly what to fix.
+      const name = (err as { name?: string } | null)?.name ?? '';
       const msg = err instanceof Error ? err.message : 'Camera access denied';
-      setError(`Camera error: ${msg}`);
+      if (name === 'NotAllowedError' || /denied|not allowed/i.test(msg)) {
+        setError(
+          'Camera permission was denied. Click the lock/camera icon next to the URL → set Camera to Allow → reload. Or use "Pick a photo" below.',
+        );
+      } else if (name === 'NotFoundError') {
+        setError(
+          'No camera detected on this device. Plug one in or use "Pick a photo" to upload an image.',
+        );
+      } else if (name === 'NotReadableError') {
+        setError('Camera is busy — close other apps using it (Zoom, Teams, OBS) and try again.');
+      } else {
+        setError(`Camera error: ${msg}`);
+      }
     }
   }
 
