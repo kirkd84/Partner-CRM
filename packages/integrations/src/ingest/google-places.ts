@@ -79,6 +79,10 @@ export interface GooglePlacesQuery {
   maxResults?: number;
 }
 
+// Places API (New) `searchNearby` returns up to 20 results in a single
+// response and does NOT paginate — there's no nextPageToken on this
+// endpoint (only `searchText` paginates). Asking for nextPageToken in
+// the field mask trips a 400 INVALID_ARGUMENT.
 const FIELD_MASK = [
   'places.id',
   'places.displayName',
@@ -93,7 +97,6 @@ const FIELD_MASK = [
   'places.location',
   'places.rating',
   'places.userRatingCount',
-  'nextPageToken',
 ].join(',');
 
 /**
@@ -132,10 +135,21 @@ export async function* fetchGooglePlacesCandidates(
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Google Places ${res.status}: ${text.slice(0, 240)}`);
+      // Log full diagnostic context server-side: the fieldViolations
+      // payload Google returns is the only way to know which exact
+      // input is wrong, and at 240 chars the JSON gets truncated mid-
+      // array. Server log stays verbose; the surfaced UI message is
+      // the human-friendly summary parsed below.
+      console.warn('[google-places] request failed', {
+        status: res.status,
+        body,
+        response: text,
+      });
+      throw new Error(formatPlacesError(res.status, text));
     }
     const data = (await res.json()) as PlacesNewResponse;
     if (data.error) {
+      console.warn('[google-places] semantic error', { body, error: data.error });
       throw new Error(
         `Google Places ${data.error.status ?? data.error.code}: ${data.error.message ?? 'unknown'}`,
       );
@@ -188,4 +202,41 @@ function toCandidate(p: PlacesNewPlace, partnerType: GooglePartnerType): Prospec
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Pull the most useful info out of a Google Places error response and
+ * format a single-line message for the UI. Without this, a 400 body
+ * looks like a wall of nested JSON; the actual cause is one or two
+ * `fieldViolations[].description` strings buried inside.
+ */
+function formatPlacesError(status: number, text: string): string {
+  if (!text) return `Google Places ${status}: empty response`;
+  // Try to parse as JSON — Google always returns JSON, but be defensive.
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: {
+        status?: string;
+        message?: string;
+        details?: Array<{
+          fieldViolations?: Array<{ field?: string; description?: string }>;
+        }>;
+      };
+    };
+    const err = parsed.error;
+    if (!err) return `Google Places ${status}: ${text.slice(0, 240)}`;
+    // Concatenate fieldViolations across all detail entries; that's
+    // the field-by-field complaint Google uses for INVALID_ARGUMENT.
+    const violations = (err.details ?? [])
+      .flatMap((d) => d.fieldViolations ?? [])
+      .map((v) => `${v.field ?? '?'}: ${v.description ?? '?'}`)
+      .filter(Boolean);
+    const head = `Google Places ${err.status ?? status}`;
+    if (violations.length > 0) {
+      return `${head}: ${violations.join(' · ')}`;
+    }
+    return `${head}: ${err.message ?? text.slice(0, 240)}`;
+  } catch {
+    return `Google Places ${status}: ${text.slice(0, 240)}`;
+  }
 }
