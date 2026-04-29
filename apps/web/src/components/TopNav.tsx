@@ -3,21 +3,17 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { BrandLogo } from '@/components/BrandLogo';
+import { RecentPartnersDropdown } from '@/components/RecentPartners';
+import { ToolsDropdown, isOnATool } from '@/components/ToolsDropdown';
 import {
   Bell,
-  Calendar,
   ChevronDown,
-  Clock,
   Map as MapIcon,
   Plus,
   Radar as RadarIcon,
   Search,
   Users,
-  ListTodo,
-  BarChart3,
   Settings as SettingsIcon,
-  Ticket,
-  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { Avatar, cn } from '@partnerradar/ui';
@@ -27,19 +23,15 @@ interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  hasDropdown?: boolean;
   managerPlus?: boolean;
 }
 
+// Primary nav — slimmer than before. Dropdown-driven items (Recent,
+// Tools) render their own components below to keep this list flat.
 const NAV_ITEMS: readonly NavItem[] = [
-  { href: '/recent', label: 'Recent', icon: Clock, hasDropdown: true },
   { href: '/radar', label: 'Radar', icon: RadarIcon },
   { href: '/partners', label: 'Partners', icon: Users },
   { href: '/map', label: 'Map', icon: MapIcon },
-  { href: '/lists', label: 'Lists', icon: ListTodo, hasDropdown: true },
-  { href: '/events', label: 'Events', icon: Ticket },
-  { href: '/studio', label: 'Studio', icon: Sparkles, managerPlus: true },
-  { href: '/reports', label: 'Reports', icon: BarChart3, managerPlus: true },
   { href: '/admin', label: 'Admin', icon: SettingsIcon, managerPlus: true },
 ];
 
@@ -96,6 +88,9 @@ export function TopNav({ activeTenantName, activeTenantPrimaryHex: _ }: TopNavPr
         className="ml-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         aria-label="Primary"
       >
+        {/* Recent — hover-dropdown, partners viewed in this session. */}
+        <RecentPartnersDropdown active={false} />
+
         {NAV_ITEMS.map((item) => {
           if (item.managerPlus && !isManagerPlus) return null;
           const active = pathname.startsWith(item.href);
@@ -114,10 +109,13 @@ export function TopNav({ activeTenantName, activeTenantPrimaryHex: _ }: TopNavPr
             >
               <Icon className="h-4 w-4" />
               <span className="hidden md:inline">{item.label}</span>
-              {item.hasDropdown && <ChevronDown className="hidden h-3 w-3 opacity-70 md:block" />}
             </Link>
           );
         })}
+
+        {/* Tools — replaces the older Lists tab. Hit List + Events +
+            Generate Leads + Studio (mgr+) + Reports (mgr+). */}
+        <ToolsDropdown isManagerPlus={isManagerPlus} active={isOnATool(pathname)} />
       </nav>
 
       <div className="ml-auto flex shrink-0 items-center gap-1.5">

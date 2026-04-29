@@ -10,7 +10,7 @@
  * It renders in a server-only file so the DB hits happen at render time
  * and the resulting HTML is static — no loading skeleton.
  *
- * Spend = sum(Expense.amount) where !REJECTED, occurredAt in [monthStart, now]
+ * Spend = sum(Expense.amount) where !REJECTED, occurredOn in [monthStart, now]
  * Budget = (most-specific BudgetRule for the caller) × last-month revenue
  * Revenue = sum(RevenueAttribution.amount) this month
  *
@@ -49,7 +49,7 @@ export async function FinancialPulse({ session }: FinancialPulseProps) {
       .aggregate({
         where: {
           approvalStatus: { not: 'REJECTED' },
-          occurredAt: { gte: monthStart, lte: now },
+          occurredOn: { gte: monthStart, lte: now },
           partner: partnerScope,
         },
         _sum: { amount: true },

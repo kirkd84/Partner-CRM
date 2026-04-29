@@ -30,6 +30,7 @@ import {
 } from './PartnerDrawers';
 import { isAIConfigured } from '@partnerradar/ai';
 import { ActivityRail } from './ActivityRail';
+import { TrackPartnerView } from '@/components/RecentPartners';
 import { PartnerStatsRow } from './PartnerStatsRow';
 import { LinkedProjectsTable } from './LinkedProjectsTable';
 import { PartnerEventsCard } from './PartnerEventsCard';
@@ -198,6 +199,13 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
         <span className="rounded-md bg-blue-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-blue-700">
           {partner.publicId}
         </span>
+        {/* Push this partner onto the localStorage Recent list. Renders
+            nothing; just runs an effect on mount. */}
+        <TrackPartnerView
+          id={partner.id}
+          publicId={partner.publicId}
+          companyName={partner.companyName}
+        />
         <div className="min-w-0">
           <h1 className="truncate text-[17px] font-semibold tracking-tight text-gray-900">
             {partner.companyName}

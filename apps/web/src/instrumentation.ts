@@ -1744,17 +1744,21 @@ async function seedTenantsAndAdmins(prisma: unknown) {
     };
   };
 
-  // Module-level imports here would force bcryptjs into the edge runtime
-  // build of instrumentation.ts. We've fought this battle before
-  // (see: scrape scheduler). Use eval-require so webpack can't trace.
-  const requireRuntime = (0, eval)('require') as NodeJS.Require;
+  // bcryptjs is in serverExternalPackages so it's not bundled. Top-level
+  // dynamic import is the right tool — `eval('require')` blew up in the
+  // ESM build of instrumentation.js with `ReferenceError: require is not
+  // defined` (Railway log 2026-04-27 boot), which silently skipped the
+  // entire tenant + super-admin seed.
   let hash: (s: string, rounds: number) => Promise<string>;
   try {
-    hash = requireRuntime('bcryptjs').hash;
-  } catch {
-    // If bcryptjs isn't resolvable for any reason, skip seeding rather
-    // than wedge the boot. Logs make the failure visible.
-    console.warn('[seed-tenants] bcryptjs not loadable; skipping');
+    const mod = (await import('bcryptjs')) as unknown as {
+      hash?: (s: string, r: number) => Promise<string>;
+      default?: { hash: (s: string, r: number) => Promise<string> };
+    };
+    hash = (mod.hash ?? mod.default?.hash) as typeof hash;
+    if (!hash) throw new Error('bcryptjs.hash not exported');
+  } catch (err) {
+    console.warn('[seed-tenants] bcryptjs not loadable; skipping', err);
     return;
   }
 

@@ -99,12 +99,17 @@ export async function createTenant(input: CreateTenantInput): Promise<{ id: stri
   const existing = await prisma.tenant.findUnique({ where: { slug } });
   if (existing) throw new Error(`Tenant slug "${slug}" already exists.`);
 
-  // bcryptjs is Node-only; require it at runtime so this server action
-  // doesn't pull it into any edge bundle.
-  const requireRuntime = (0, eval)('require') as NodeJS.Require;
-  const { hash } = requireRuntime('bcryptjs') as {
-    hash: (s: string, r: number) => Promise<string>;
+  // bcryptjs is in serverExternalPackages so it's not bundled. Dynamic
+  // import is ESM-safe (eval-require blew up in the production ESM
+  // build — see instrumentation.ts seed function for the same fix).
+  const bcryptMod = (await import('bcryptjs')) as unknown as {
+    hash?: (s: string, r: number) => Promise<string>;
+    default?: { hash: (s: string, r: number) => Promise<string> };
   };
+  const hash = (bcryptMod.hash ?? bcryptMod.default?.hash) as
+    | ((s: string, r: number) => Promise<string>)
+    | undefined;
+  if (!hash) throw new Error('bcryptjs.hash not exported');
   const passwordHash = await hash(input.adminPassword, 10);
 
   const tenant = await prisma.tenant.create({

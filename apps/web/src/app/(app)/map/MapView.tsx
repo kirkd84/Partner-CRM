@@ -644,21 +644,29 @@ export function MapView({
                       {scrapeResult.errors > 0 ? ` · ${scrapeResult.errors} errors` : ''}
                     </div>
                     {scrapeResult.perType.length > 0 && (
-                      <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5">
-                        {scrapeResult.perType.map((t) => (
-                          <div
-                            key={t.partnerType}
-                            className="flex items-center justify-between truncate"
-                          >
-                            <span className="truncate">
-                              {SCRAPE_TYPE_OPTIONS.find((o) => o.key === t.partnerType)?.label ??
-                                t.partnerType}
-                            </span>
-                            <span className="ml-2 font-mono tabular-nums">
-                              +{t.inserted} / {t.fetched}
-                            </span>
-                          </div>
-                        ))}
+                      <div className="mt-2 space-y-0.5">
+                        {scrapeResult.perType.map((t) => {
+                          const label =
+                            SCRAPE_TYPE_OPTIONS.find((o) => o.key === t.partnerType)?.label ??
+                            t.partnerType;
+                          return (
+                            <div key={t.partnerType}>
+                              <div className="flex items-center justify-between">
+                                <span className="truncate">{label}</span>
+                                <span
+                                  className={`ml-2 font-mono tabular-nums ${
+                                    t.error ? 'text-red-700' : ''
+                                  }`}
+                                >
+                                  {t.error ? 'failed' : `+${t.inserted} / ${t.fetched}`}
+                                </span>
+                              </div>
+                              {t.error && (
+                                <div className="mt-0.5 text-[10.5px] text-red-700">{t.error}</div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

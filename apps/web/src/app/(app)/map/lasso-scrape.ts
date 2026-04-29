@@ -41,7 +41,15 @@ export interface LassoScrapeResult {
   inserted: number;
   duplicates: number;
   errors: number;
-  perType: Array<{ partnerType: GooglePartnerType; fetched: number; inserted: number }>;
+  perType: Array<{
+    partnerType: GooglePartnerType;
+    fetched: number;
+    inserted: number;
+    /** Error message when the per-type scrape failed. Surfaced in the
+     *  UI so reps know whether the cause is "no businesses match" vs
+     *  "API key blew up". */
+    error?: string;
+  }>;
 }
 
 export async function scrapeLassoForLeads(input: LassoScrapeInput): Promise<LassoScrapeResult> {
@@ -132,11 +140,20 @@ export async function scrapeLassoForLeads(input: LassoScrapeInput): Promise<Lass
       result.errors += ingest.errors;
       result.inserted += ingest.inserted;
       typeInserted = ingest.inserted;
+      result.perType.push({ partnerType, fetched: typeFetched, inserted: typeInserted });
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'unknown error';
       console.warn('[lasso-scrape] type failed', { partnerType, err });
       result.errors++;
+      // Bubble the cause up so the UI can show "no businesses found" vs
+      // "GOOGLE_PLACES_API_KEY rejected" vs network blowup.
+      result.perType.push({
+        partnerType,
+        fetched: typeFetched,
+        inserted: typeInserted,
+        error: msg,
+      });
     }
-    result.perType.push({ partnerType, fetched: typeFetched, inserted: typeInserted });
   }
 
   // Stamp lastRunAt on the job so the /admin/scrape-jobs list orders
