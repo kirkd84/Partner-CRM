@@ -54,6 +54,12 @@ export function HitListToolbar({ markets }: { markets: Market[] }) {
     <>
       <div className="flex items-center gap-2">
         <Link
+          href="/lists/plans"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <MapPinned className="h-4 w-4" /> All plans
+        </Link>
+        <Link
           href="/lists/plans/new"
           className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
         >
