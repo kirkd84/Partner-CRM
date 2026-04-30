@@ -24,6 +24,8 @@ export function NewContactButton({ partnerId }: { partnerId: string }) {
   const [title, setTitle] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [birthMonth, setBirthMonth] = useState<string>('');
+  const [birthDay, setBirthDay] = useState<string>('');
   const [isPrimary, setIsPrimary] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -31,11 +33,21 @@ export function NewContactButton({ partnerId }: { partnerId: string }) {
     e.preventDefault();
     if (!name.trim()) return;
     startTransition(async () => {
-      await createContact(partnerId, { name, title, email, phone, isPrimary });
+      await createContact(partnerId, {
+        name,
+        title,
+        email,
+        phone,
+        isPrimary,
+        birthMonth: birthMonth ? parseInt(birthMonth, 10) : null,
+        birthDay: birthDay ? parseInt(birthDay, 10) : null,
+      });
       setName('');
       setTitle('');
       setEmail('');
       setPhone('');
+      setBirthMonth('');
+      setBirthDay('');
       setIsPrimary(false);
       setOpen(false);
       router.refresh();
@@ -102,6 +114,47 @@ export function NewContactButton({ partnerId }: { partnerId: string }) {
               placeholder="+1 555 555 5555"
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             />
+          </Field>
+          <Field label="Birthday (month + day, optional)">
+            <div className="flex gap-2">
+              <select
+                value={birthMonth}
+                onChange={(e) => setBirthMonth(e.target.value)}
+                className="rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="">— Month —</option>
+                {[
+                  'Jan',
+                  'Feb',
+                  'Mar',
+                  'Apr',
+                  'May',
+                  'Jun',
+                  'Jul',
+                  'Aug',
+                  'Sep',
+                  'Oct',
+                  'Nov',
+                  'Dec',
+                ].map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={birthDay}
+                onChange={(e) => setBirthDay(e.target.value)}
+                placeholder="Day"
+                className="w-24 rounded-md border border-gray-300 px-2 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <p className="mt-1 text-[10.5px] text-gray-500">
+              Year is intentionally omitted. Birthdays drive the touchpoints reminder list.
+            </p>
           </Field>
           <label className="flex items-center gap-2 text-sm">
             <input

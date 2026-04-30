@@ -33,6 +33,7 @@ import { ActivityRail } from './ActivityRail';
 import { TrackPartnerView } from '@/components/RecentPartners';
 import { PartnerStatsRow } from './PartnerStatsRow';
 import { ReferralCard } from './ReferralCard';
+import { TouchpointFieldsCard } from './TouchpointFieldsCard';
 import { LinkedProjectsTable } from './LinkedProjectsTable';
 import { PartnerEventsCard } from './PartnerEventsCard';
 
@@ -410,6 +411,25 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
                   }
                 ).referredPartners ?? []
               }
+            />
+
+            {/* Touchpoints — birthdays + business anniversary capture */}
+            <TouchpointFieldsCard
+              partnerId={partner.id}
+              canEdit={canEdit}
+              businessAnniversaryOn={
+                (partner as { businessAnniversaryOn?: Date | null }).businessAnniversaryOn
+                  ? (
+                      partner as { businessAnniversaryOn?: Date | null }
+                    ).businessAnniversaryOn!.toISOString()
+                  : null
+              }
+              contacts={partner.contacts.map((c) => ({
+                id: c.id,
+                name: c.name,
+                birthMonth: (c as { birthMonth?: number | null }).birthMonth ?? null,
+                birthDay: (c as { birthDay?: number | null }).birthDay ?? null,
+              }))}
             />
 
             {/* 2×2 grid — Tasks / Appointments / Events / Files */}

@@ -245,6 +245,195 @@ export async function createPlan(input: CreatePlanInput): Promise<{ id: string }
   return { id: plan.id };
 }
 
+/**
+ * Push a hit list's stops onto the rep's connected Google Calendar.
+ *
+ * Each stop becomes a 30-min event at its arrivalEta (falling back to
+ * plannedArrival), with location set to the partner's address. Skips
+ * stops without geocoded data, already-completed stops, and rows
+ * we've already pushed (CalendarEventCache lookup keyed on a synthetic
+ * "hitlist:<stopId>" external id so re-running the action is safe).
+ *
+ * Returns counts so the UI can show the rep what happened. If the rep
+ * has no Google connection, returns ok=false with reason="no_connection"
+ * so the UI can prompt them to connect.
+ */
+export async function sendDayToCalendar(listId: string): Promise<{
+  ok: boolean;
+  created: number;
+  skipped: number;
+  reason?: string;
+}> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const list = await prisma.hitList.findUnique({
+    where: { id: listId },
+    include: {
+      stops: {
+        orderBy: { order: 'asc' },
+        include: {
+          partner: {
+            select: {
+              id: true,
+              companyName: true,
+              address: true,
+              city: true,
+              state: true,
+              zip: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!list) return { ok: false, created: 0, skipped: 0, reason: 'list not found' };
+  if (list.userId !== session.user.id) {
+    // Managers can view other reps' lists, but only the rep should
+    // push events to their own calendar.
+    return {
+      ok: false,
+      created: 0,
+      skipped: 0,
+      reason: 'only the list owner can push to calendar',
+    };
+  }
+  const conn = await prisma.calendarConnection.findFirst({
+    where: { userId: session.user.id, provider: 'google' },
+  });
+  if (!conn) {
+    return { ok: false, created: 0, skipped: 0, reason: 'no_connection' };
+  }
+  if (!conn.refreshTokenEncrypted) {
+    return { ok: false, created: 0, skipped: 0, reason: 'no refresh token' };
+  }
+
+  // Lazy-import the encryption helper + token-refresh logic. Both are
+  // only needed when a rep actually clicks "Send to calendar"; pulling
+  // them in eagerly would balloon the page bundle.
+  const { decryptSecret, isEncryptionConfigured } = await import('@partnerradar/integrations');
+  if (!isEncryptionConfigured()) {
+    return { ok: false, created: 0, skipped: 0, reason: 'ENCRYPTION_KEY not configured' };
+  }
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    return { ok: false, created: 0, skipped: 0, reason: 'Google OAuth not configured' };
+  }
+
+  // Refresh the access token. Mirrors the pattern in
+  // lib/jobs/google-calendar-sync.ts so a future refactor can share the
+  // helper.
+  let accessToken: string;
+  try {
+    const refreshToken = decryptSecret(conn.refreshTokenEncrypted);
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return {
+        ok: false,
+        created: 0,
+        skipped: 0,
+        reason: `token refresh failed: ${res.status} ${text.slice(0, 100)}`,
+      };
+    }
+    const payload = (await res.json()) as { access_token: string };
+    accessToken = payload.access_token;
+  } catch (err) {
+    return {
+      ok: false,
+      created: 0,
+      skipped: 0,
+      reason: err instanceof Error ? err.message : 'token refresh failed',
+    };
+  }
+
+  const calendarId = conn.calendarIds[0] ?? 'primary';
+  let created = 0;
+  let skipped = 0;
+  for (const stop of list.stops) {
+    if (stop.completedAt || stop.skippedAt) {
+      skipped++;
+      continue;
+    }
+    const externalId = `hitlist-${stop.id}`;
+    const existing = await prisma.calendarEventCache
+      .findFirst({
+        where: { userId: session.user.id, externalEventId: externalId, provider: 'google' },
+        select: { id: true },
+      })
+      .catch(() => null);
+    if (existing) {
+      skipped++;
+      continue;
+    }
+    const start = stop.arrivalEta ?? stop.plannedArrival;
+    const durationMin = stop.plannedDurationMin || 30;
+    const end = new Date(start.getTime() + durationMin * 60_000);
+    const location = [stop.partner.address, stop.partner.city, stop.partner.state, stop.partner.zip]
+      .filter(Boolean)
+      .join(', ');
+    const body = {
+      summary: `Hit list — ${stop.partner.companyName}`,
+      description: `Planned visit from ${list.startAddress} via PartnerRadar.\nPartner: ${stop.partner.companyName}`,
+      location: location || stop.partner.companyName,
+      start: { dateTime: start.toISOString() },
+      end: { dateTime: end.toISOString() },
+      // Identifying tag so future runs can match + skip dupes.
+      extendedProperties: {
+        private: { partnerRadarStopId: stop.id, partnerRadarHitListId: list.id },
+      },
+    };
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!res.ok) {
+        skipped++;
+        continue;
+      }
+      const data = (await res.json()) as { id?: string };
+      if (data.id) {
+        await prisma.calendarEventCache
+          .create({
+            data: {
+              userId: session.user.id,
+              connectionId: conn.id,
+              externalEventId: externalId,
+              provider: 'google',
+              title: body.summary,
+              location: body.location,
+              startsAt: start,
+              endsAt: end,
+            },
+          })
+          .catch(() => {});
+        created++;
+      }
+    } catch {
+      skipped++;
+    }
+  }
+  revalidatePath(`/lists/${listId}`);
+  return { ok: created > 0, created, skipped };
+}
+
 export async function deletePlan(planId: string): Promise<{ ok: true }> {
   const session = await auth();
   if (!session?.user) throw new Error('UNAUTHORIZED');

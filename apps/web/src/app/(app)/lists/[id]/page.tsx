@@ -5,11 +5,7 @@ import { HitListDetailClient } from './HitListDetailClient';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HitListDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function HitListDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   if (!session?.user) return null;
@@ -20,6 +16,7 @@ export default async function HitListDetailPage({
     include: {
       user: { select: { id: true, name: true, avatarColor: true } },
       market: { select: { id: true, name: true, timezone: true } },
+      plan: { select: { id: true, label: true, totalDays: true } },
       stops: {
         orderBy: { order: 'asc' },
         include: {
@@ -34,6 +31,8 @@ export default async function HitListDetailPage({
               city: true,
               state: true,
               zip: true,
+              lat: true,
+              lng: true,
             },
           },
         },
@@ -73,15 +72,30 @@ export default async function HitListDetailPage({
         date: list.date.toISOString(),
         marketName: list.market.name,
         startAddress: list.startAddress,
+        startLat: list.startLat,
+        startLng: list.startLng,
         startMode: list.startMode,
         userName: list.user.name,
         isOwnedByMe: isOwner,
+        totalDistance: list.totalDistance,
+        totalDuration: list.totalDuration,
+        plan: list.plan
+          ? {
+              id: list.plan.id,
+              label: list.plan.label,
+              totalDays: list.plan.totalDays,
+              dayIndex: list.dayIndex ?? 0,
+            }
+          : null,
       }}
       stops={list.stops.map((s) => ({
         id: s.id,
         order: s.order,
         plannedArrival: s.plannedArrival.toISOString(),
         plannedDurationMin: s.plannedDurationMin,
+        distanceFromPrevMi: s.distanceFromPrevMi,
+        durationFromPrevMin: s.durationFromPrevMin,
+        arrivalEta: s.arrivalEta?.toISOString() ?? null,
         completedAt: s.completedAt?.toISOString() ?? null,
         skippedAt: s.skippedAt?.toISOString() ?? null,
         partner: s.partner,

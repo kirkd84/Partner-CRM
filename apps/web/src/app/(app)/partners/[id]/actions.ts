@@ -101,6 +101,8 @@ export async function createContact(
     email?: string;
     phone?: string;
     isPrimary?: boolean;
+    birthMonth?: number | null;
+    birthDay?: number | null;
   },
 ) {
   const { session } = await assertCanEdit(partnerId);
@@ -108,6 +110,14 @@ export async function createContact(
 
   const phones = input.phone ? [{ number: input.phone, label: 'work', primary: true }] : [];
   const emails = input.email ? [{ address: input.email, label: 'work', primary: true }] : [];
+  // Validate birthday: both must be set or both null. Out-of-range
+  // values get nulled out so the touchpoint scanner doesn't trip on
+  // a 30th of February.
+  const birthMonth = isValidMonth(input.birthMonth) ? input.birthMonth! : null;
+  const birthDay = isValidDay(input.birthMonth, input.birthDay) ? input.birthDay! : null;
+  const bothOrNone = (birthMonth != null) === (birthDay != null);
+  const finalMonth = bothOrNone ? birthMonth : null;
+  const finalDay = bothOrNone ? birthDay : null;
 
   await prisma.$transaction(async (tx) => {
     // If marking as primary, unset other primaries
@@ -125,6 +135,8 @@ export async function createContact(
         phones,
         emails,
         isPrimary: input.isPrimary ?? false,
+        birthMonth: finalMonth,
+        birthDay: finalDay,
       },
     });
     await tx.activity.create({
@@ -138,6 +150,74 @@ export async function createContact(
   });
 
   revalidatePath(`/partners/${partnerId}`);
+}
+
+function isValidMonth(m: number | null | undefined): boolean {
+  return typeof m === 'number' && Number.isInteger(m) && m >= 1 && m <= 12;
+}
+function isValidDay(month: number | null | undefined, day: number | null | undefined): boolean {
+  if (!isValidMonth(month) || typeof day !== 'number' || !Number.isInteger(day)) return false;
+  if (day < 1 || day > 31) return false;
+  // 30 days hath... — keep it simple, no leap-year logic since we
+  // only store month+day, never the year.
+  if (month === 2 && day > 29) return false;
+  if ([4, 6, 9, 11].includes(month!) && day > 30) return false;
+  return true;
+}
+
+/**
+ * Set the contact's birth month/day. Pass nulls for both to clear it.
+ * Drives the touchpoints scanner (lib/touchpoints/scan.ts) — once set,
+ * the contact shows up on /touchpoints in the 30 days before their
+ * birthday each year.
+ */
+export async function setContactBirthday(
+  partnerId: string,
+  contactId: string,
+  month: number | null,
+  day: number | null,
+): Promise<{ ok: true }> {
+  await assertCanEdit(partnerId);
+  const finalMonth = isValidMonth(month) ? month : null;
+  const finalDay = isValidDay(month, day) ? day : null;
+  // Both-or-neither so we never end up with a half-set birthday.
+  const both = finalMonth != null && finalDay != null;
+  await prisma.contact.update({
+    where: { id: contactId },
+    data: {
+      birthMonth: both ? finalMonth : null,
+      birthDay: both ? finalDay : null,
+    },
+  });
+  revalidatePath(`/partners/${partnerId}`);
+  return { ok: true };
+}
+
+/**
+ * Set the partner's business anniversary date (year + month + day).
+ * Year doesn't matter for the touchpoint render (we only show
+ * month-day) but we need the full date to compute "X years in
+ * business" for the rendered congrats message.
+ */
+export async function setBusinessAnniversary(
+  partnerId: string,
+  isoDate: string | null,
+): Promise<{ ok: true }> {
+  await assertCanEdit(partnerId);
+  let value: Date | null = null;
+  if (isoDate) {
+    const parts = isoDate.split('-').map((n) => parseInt(n, 10));
+    const [y, m, d] = parts;
+    if (y && m && d) {
+      value = new Date(Date.UTC(y, m - 1, d));
+    }
+  }
+  await prisma.partner.update({
+    where: { id: partnerId },
+    data: { businessAnniversaryOn: value },
+  });
+  revalidatePath(`/partners/${partnerId}`);
+  return { ok: true };
 }
 
 export async function setPrimaryContact(partnerId: string, contactId: string) {
@@ -471,7 +551,77 @@ export async function activatePartner(partnerId: string) {
     console.warn('[activate] failed to enqueue storm-revenue sync', err);
   }
 
+  // Auto-enroll in any active ON_PARTNER_ACTIVATED drip the partner
+  // matches. Best-effort — a failure here must never block activation.
+  try {
+    await enrollInActivationDrips(partnerId);
+  } catch (err) {
+    console.warn('[activate] failed to auto-enroll in drips', err);
+  }
+
   return { alreadyActivated: false, stormCloudId };
+}
+
+/**
+ * Enroll the just-activated partner into every active drip whose
+ * trigger is ON_PARTNER_ACTIVATED and whose tenant/market scope
+ * matches. Idempotent — skips drips the partner is already enrolled in.
+ */
+async function enrollInActivationDrips(partnerId: string): Promise<void> {
+  const partner = await prisma.partner.findUnique({
+    where: { id: partnerId },
+    select: {
+      id: true,
+      stage: true,
+      marketId: true,
+      market: { select: { tenantId: true } },
+      contacts: {
+        where: { isPrimary: true },
+        select: { id: true, emails: true },
+        take: 1,
+      },
+    },
+  });
+  if (!partner || partner.stage !== 'ACTIVATED') return;
+  const contact = partner.contacts[0];
+  const email = (
+    contact?.emails as Array<{ address?: string; primary?: boolean }> | undefined
+  )?.find((e) => e?.address)?.address;
+  if (!email || !contact?.id) return;
+
+  const drips = await prisma.newsletterDrip.findMany({
+    where: {
+      active: true,
+      triggerType: 'ON_PARTNER_ACTIVATED',
+      OR: [
+        { marketId: partner.marketId },
+        { marketId: null, tenantId: partner.market.tenantId ?? null },
+      ],
+    },
+    include: { steps: { orderBy: { position: 'asc' }, take: 1 } },
+  });
+
+  for (const drip of drips) {
+    if (drip.steps.length === 0) continue;
+    const exists = await prisma.newsletterDripEnrollment.findFirst({
+      where: { dripId: drip.id, partnerId, contactId: contact.id },
+      select: { id: true },
+    });
+    if (exists) continue;
+    const firstStep = drip.steps[0]!;
+    const firstSendAt = new Date(Date.now() + firstStep.delayDays * 24 * 60 * 60 * 1000);
+    await prisma.newsletterDripEnrollment.create({
+      data: {
+        dripId: drip.id,
+        partnerId,
+        contactId: contact.id,
+        email,
+        position: 0,
+        nextSendAt: firstSendAt,
+        status: 'ACTIVE',
+      },
+    });
+  }
 }
 
 // ─── Expenses (Phase 6) ──────────────────────────────────────────────

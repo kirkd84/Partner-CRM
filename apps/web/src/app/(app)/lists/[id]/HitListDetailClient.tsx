@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState, useTransition } from 'react';
+import { Fragment, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { Button, DrawerModal, Pill } from '@partnerradar/ui';
 import {
@@ -11,12 +11,15 @@ import {
 } from '@partnerradar/types';
 import {
   ArrowLeft,
+  CalendarPlus,
   CheckCircle2,
   Circle,
+  Clock,
   GripVertical,
   Loader2,
   Navigation,
   Plus,
+  Route,
   Search,
   Sparkles,
   Trash2,
@@ -29,6 +32,8 @@ import {
   removeStop,
   reorderStops,
 } from '../actions';
+import { sendDayToCalendar } from '../plans/actions';
+import { RouteMap } from './RouteMap';
 
 interface StopPartner {
   id: string;
@@ -40,12 +45,19 @@ interface StopPartner {
   city: string | null;
   state: string | null;
   zip: string | null;
+  lat: number | null;
+  lng: number | null;
 }
 interface Stop {
   id: string;
   order: number;
   plannedArrival: string;
   plannedDurationMin: number;
+  /** Drive distance + duration from the previous stop (or from start for stop 1). */
+  distanceFromPrevMi: number | null;
+  durationFromPrevMin: number | null;
+  /** Estimated arrival, set by the multi-day planner. */
+  arrivalEta: string | null;
   completedAt: string | null;
   skippedAt: string | null;
   partner: StopPartner;
@@ -70,13 +82,25 @@ export function HitListDetailClient({
     date: string;
     marketName: string;
     startAddress: string;
+    startLat: number;
+    startLng: number;
     startMode: string;
     userName: string;
     isOwnedByMe: boolean;
+    totalDistance: number | null;
+    totalDuration: number | null;
+    plan: {
+      id: string;
+      label: string | null;
+      totalDays: number;
+      dayIndex: number;
+    } | null;
   };
   stops: Stop[];
   availablePartners: AvailablePartner[];
 }) {
+  const [sendingToCalendar, setSendingToCalendar] = useState(false);
+  const [calendarMsg, setCalendarMsg] = useState<string | null>(null);
   const [stops, setStops] = useState(initialStops);
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -217,6 +241,23 @@ export function HitListDetailClient({
     });
   }
 
+  async function onSendToCalendar() {
+    setSendingToCalendar(true);
+    setCalendarMsg(null);
+    try {
+      const r = await sendDayToCalendar(list.id);
+      setCalendarMsg(
+        r.created > 0
+          ? `Added ${r.created} stop${r.created === 1 ? '' : 's'} to your calendar${r.skipped > 0 ? ` (${r.skipped} skipped)` : ''}.`
+          : (r.reason ?? 'No stops were added.'),
+      );
+    } catch (err) {
+      setCalendarMsg(err instanceof Error ? err.message : 'Calendar sync failed');
+    } finally {
+      setSendingToCalendar(false);
+    }
+  }
+
   const completed = stops.filter((s) => s.completedAt).length;
   const pct = stops.length ? Math.round((completed / stops.length) * 100) : 0;
 
@@ -231,6 +272,15 @@ export function HitListDetailClient({
 
       <header className="mt-3 flex items-start gap-3">
         <div className="flex-1">
+          {list.plan && (
+            <Link
+              href={`/lists/plans/${list.plan.id}`}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-700 hover:underline"
+            >
+              {list.plan.label || 'Multi-day plan'} · day {list.plan.dayIndex + 1} of{' '}
+              {list.plan.totalDays}
+            </Link>
+          )}
           <h1 className="text-xl font-semibold text-gray-900">{dateLabel}</h1>
           <p className="mt-0.5 text-xs text-gray-500">
             {list.marketName} · Start from {list.startAddress} (
@@ -255,6 +305,14 @@ export function HitListDetailClient({
             )}
             Optimize route
           </Button>
+          <Button
+            variant="secondary"
+            onClick={onSendToCalendar}
+            loading={sendingToCalendar}
+            disabled={stops.length === 0}
+          >
+            <CalendarPlus className="h-4 w-4" /> Send to calendar
+          </Button>
           <Link
             href={`/lists/${list.id}/run`}
             className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500"
@@ -266,9 +324,54 @@ export function HitListDetailClient({
           </Button>
         </div>
       </header>
+      {(list.totalDistance != null || list.totalDuration != null) && stops.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
+          {list.totalDistance != null && (
+            <span className="inline-flex items-center gap-1">
+              <Route className="h-3 w-3 text-amber-500" />
+              {list.totalDistance.toFixed(1)} mi total drive
+            </span>
+          )}
+          {list.totalDuration != null && (
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3 text-blue-500" />
+              {Math.floor(list.totalDuration / 60)}h {list.totalDuration % 60}m total day
+            </span>
+          )}
+          <span className="text-gray-400">
+            ({stops.length} stop{stops.length === 1 ? '' : 's'} ·{' '}
+            {stops.reduce((acc, s) => acc + s.plannedDurationMin, 0)} min visit time)
+          </span>
+        </div>
+      )}
+      {calendarMsg && (
+        <div className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          {calendarMsg}
+        </div>
+      )}
       {optimizeMsg && (
         <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
           {optimizeMsg}
+        </div>
+      )}
+      {stops.some((s) => s.partner.lat != null && s.partner.lng != null) && (
+        <div className="mt-3">
+          <RouteMap
+            start={{ lat: list.startLat, lng: list.startLng, label: list.startAddress }}
+            stops={stops
+              .filter(
+                (s): s is Stop & { partner: StopPartner & { lat: number; lng: number } } =>
+                  s.partner.lat != null && s.partner.lng != null,
+              )
+              .map((s, idx) => ({
+                id: s.id,
+                order: idx + 1,
+                lat: s.partner.lat,
+                lng: s.partner.lng,
+                label: s.partner.companyName,
+                completed: !!s.completedAt,
+              }))}
+          />
         </div>
       )}
 
@@ -304,68 +407,88 @@ export function HitListDetailClient({
               const address = [s.partner.address, s.partner.city, s.partner.state, s.partner.zip]
                 .filter(Boolean)
                 .join(', ');
+              const eta = s.arrivalEta ? new Date(s.arrivalEta) : null;
+              const etaLabel = eta
+                ? eta.toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    timeZone: 'UTC',
+                  })
+                : null;
               return (
-                <li
-                  key={s.id}
-                  draggable
-                  onDragStart={() => onDragStart(s.id)}
-                  onDragOver={(e) => onDragOver(e, s.id)}
-                  onDragEnd={onDragEnd}
-                  className={
-                    `flex items-center gap-3 rounded-lg border border-card-border bg-white p-3 shadow-card transition ` +
-                    (dragId === s.id ? 'opacity-50' : '')
-                  }
-                >
-                  <span className="cursor-grab text-gray-400" title="Drag to reorder">
-                    <GripVertical className="h-5 w-5" />
-                  </span>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700">
-                    {idx + 1}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onToggleComplete(s.id)}
-                    className="flex items-center"
-                    aria-label={isComplete ? 'Mark as incomplete' : 'Mark as complete'}
+                <Fragment key={s.id}>
+                  {/* Inter-stop leg: shows the drive between this stop and the previous one. */}
+                  {idx > 0 && s.distanceFromPrevMi != null && s.durationFromPrevMin != null && (
+                    <li className="my-1 ml-9 flex list-none items-center gap-2 text-[10.5px] text-gray-400">
+                      <span className="h-3 w-px bg-gray-200" />
+                      <Route className="h-3 w-3" />
+                      {s.distanceFromPrevMi.toFixed(1)} mi · {s.durationFromPrevMin} min drive
+                    </li>
+                  )}
+                  <li
+                    draggable
+                    onDragStart={() => onDragStart(s.id)}
+                    onDragOver={(e) => onDragOver(e, s.id)}
+                    onDragEnd={onDragEnd}
+                    className={
+                      `flex items-center gap-3 rounded-lg border border-card-border bg-white p-3 shadow-card transition ` +
+                      (dragId === s.id ? 'opacity-50' : '')
+                    }
                   >
-                    {isComplete ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-600" />
-                    ) : (
-                      <Circle className="h-5 w-5 text-gray-300 hover:text-gray-500" />
-                    )}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/partners/${s.partner.id}`}
-                        className="text-sm font-semibold text-primary hover:underline"
-                      >
-                        {s.partner.companyName}
-                      </Link>
-                      <span className="font-mono text-[11px] text-gray-400">
-                        {s.partner.publicId}
-                      </span>
-                      <Pill tone="soft" color={STAGE_COLORS[s.partner.stage]}>
-                        {STAGE_LABELS[s.partner.stage]}
-                      </Pill>
+                    <span className="cursor-grab text-gray-400" title="Drag to reorder">
+                      <GripVertical className="h-5 w-5" />
+                    </span>
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700">
+                      {idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onToggleComplete(s.id)}
+                      className="flex items-center"
+                      aria-label={isComplete ? 'Mark as incomplete' : 'Mark as complete'}
+                    >
+                      {isComplete ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <Circle className="h-5 w-5 text-gray-300 hover:text-gray-500" />
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/partners/${s.partner.id}`}
+                          className="text-sm font-semibold text-primary hover:underline"
+                        >
+                          {s.partner.companyName}
+                        </Link>
+                        <span className="font-mono text-[11px] text-gray-400">
+                          {s.partner.publicId}
+                        </span>
+                        <Pill tone="soft" color={STAGE_COLORS[s.partner.stage]}>
+                          {STAGE_LABELS[s.partner.stage]}
+                        </Pill>
+                      </div>
+                      <div className="truncate text-[11px] text-gray-500">
+                        {PARTNER_TYPE_LABELS[s.partner.partnerType]}
+                        {address ? ` · ${address}` : ''}
+                      </div>
                     </div>
-                    <div className="truncate text-[11px] text-gray-500">
-                      {PARTNER_TYPE_LABELS[s.partner.partnerType]}
-                      {address ? ` · ${address}` : ''}
+                    <div className="flex flex-col items-end gap-0.5 text-[11px] tabular-nums">
+                      {etaLabel && (
+                        <span className="font-semibold text-blue-700">ETA {etaLabel}</span>
+                      )}
+                      <span className="text-gray-500">~{s.plannedDurationMin} min visit</span>
                     </div>
-                  </div>
-                  <span className="text-[11px] tabular-nums text-gray-500">
-                    ~{s.plannedDurationMin} min
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onRemove(s.id)}
-                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                    aria-label="Remove stop"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
+                    <button
+                      type="button"
+                      onClick={() => onRemove(s.id)}
+                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                      aria-label="Remove stop"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>
