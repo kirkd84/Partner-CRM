@@ -248,6 +248,31 @@ export async function setEnrollmentStatus(
   return { ok: true };
 }
 
+/**
+ * Send a one-off test of a single drip step to the logged-in manager's
+ * email. Reuses the existing newsletter test-send pipeline so render +
+ * footer + tracking pixel are all the same as a real send.
+ */
+export async function testSendDripStep(stepId: string): Promise<{ ok: boolean; detail?: string }> {
+  const session = await assertManagerPlus();
+  if (!session.user.email) throw new Error('No email on your user account');
+  const step = await prisma.newsletterDripStep.findUnique({
+    where: { id: stepId },
+    include: { drip: { select: { name: true } } },
+  });
+  if (!step) throw new Error('Step not found');
+  // Lazy-import the newsletter test-send so the drip module doesn't
+  // pull in the full newsletter action surface eagerly.
+  const { sendNewsletterTest } = await import('../actions');
+  const r = await sendNewsletterTest({
+    subject: `[DRIP TEST · ${step.drip.name}] ${step.subject}`,
+    bodyText: step.bodyText,
+    bodyMarkdown: step.bodyMarkdown,
+    filter: {},
+  });
+  return r;
+}
+
 export async function pauseEnrollment(enrollmentId: string): Promise<{ ok: true }> {
   await assertManagerPlus();
   await prisma.newsletterDripEnrollment.update({

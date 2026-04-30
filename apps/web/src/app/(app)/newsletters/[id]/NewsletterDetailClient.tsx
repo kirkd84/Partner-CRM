@@ -3,8 +3,8 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card } from '@partnerradar/ui';
-import { Send, Trash2, Mail } from 'lucide-react';
-import { deleteNewsletterDraft, sendNewsletter } from '../actions';
+import { Send, Trash2, Mail, XCircle } from 'lucide-react';
+import { deleteNewsletterDraft, sendNewsletter, cancelScheduledNewsletter } from '../actions';
 
 export function NewsletterDetailClient({
   id,
@@ -49,6 +49,25 @@ export function NewsletterDetailClient({
         router.push('/newsletters');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Delete failed');
+      }
+    });
+  }
+
+  function onCancelScheduled() {
+    if (
+      !confirm(
+        'Cancel this scheduled send? The newsletter goes back to DRAFT — you can edit + reschedule.',
+      )
+    )
+      return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await cancelScheduledNewsletter(id);
+        setInfo('Scheduled send canceled — newsletter is back to DRAFT.');
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Cancel failed');
       }
     });
   }
@@ -101,6 +120,22 @@ export function NewsletterDetailClient({
             className="mt-2 w-full text-red-600 hover:bg-red-50"
           >
             <Trash2 className="h-4 w-4" /> Delete draft
+          </Button>
+        </Card>
+      )}
+
+      {status === 'SCHEDULED' && (
+        <Card title="Scheduled">
+          <p className="text-xs text-gray-600">
+            The cron tick will fire this send at its scheduled time. Cancel below to put it back
+            into DRAFT and stop the send from going out.
+          </p>
+          <Button
+            onClick={onCancelScheduled}
+            variant="secondary"
+            className="mt-2 w-full text-amber-700 hover:bg-amber-50"
+          >
+            <XCircle className="h-4 w-4" /> Cancel scheduled send
           </Button>
         </Card>
       )}

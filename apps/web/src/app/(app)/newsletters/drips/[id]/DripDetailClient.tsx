@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Play, Pause, UserPlus } from 'lucide-react';
+import { Plus, Trash2, Play, Pause, UserPlus, Send } from 'lucide-react';
 import { Card } from '@partnerradar/ui';
-import { addStep, removeStep, setDripActive, enrollMatching } from '../actions';
+import { addStep, removeStep, setDripActive, enrollMatching, testSendDripStep } from '../actions';
 
 interface Step {
   id: string;
@@ -54,6 +54,18 @@ export function DripDetailClient({
       setSteps((prev) =>
         prev.filter((s) => s.id !== stepId).map((s, idx) => ({ ...s, position: idx })),
       );
+    });
+  }
+
+  function testSend(stepId: string) {
+    setFeedback(null);
+    start(async () => {
+      try {
+        const r = await testSendDripStep(stepId);
+        setFeedback(r.ok ? 'Test email sent to your inbox.' : `Test failed: ${r.detail ?? ''}`);
+      } catch (err) {
+        setFeedback(err instanceof Error ? err.message : 'Test failed');
+      }
     });
   }
 
@@ -126,14 +138,25 @@ export function DripDetailClient({
                     {s.bodyText.length > 280 ? '…' : ''}
                   </pre>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => del(s.id)}
-                  className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                  aria-label="Remove step"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => testSend(s.id)}
+                    className="rounded p-1 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                    aria-label="Test send to me"
+                    title="Test send this step to my email"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => del(s.id)}
+                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                    aria-label="Remove step"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </li>
             ))}
           </ol>

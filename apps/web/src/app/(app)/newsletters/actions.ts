@@ -237,6 +237,32 @@ export async function updateNewsletterDraft(
   return { ok: true };
 }
 
+/**
+ * Cancel a SCHEDULED newsletter — flips status back to DRAFT so the
+ * cron tick stops picking it up. Lets the manager kill a misfire
+ * before it goes out. SENDING / SENT can't be canceled (the wire is
+ * already moving); the UI only surfaces the button for SCHEDULED rows.
+ */
+export async function cancelScheduledNewsletter(id: string): Promise<{ ok: true }> {
+  const session = await assertManagerPlus();
+  const existing = await prisma.newsletter.findUnique({
+    where: { id },
+    select: { status: true, createdBy: true },
+  });
+  if (!existing) throw new Error('NOT_FOUND');
+  if (existing.status !== 'SCHEDULED') throw new Error('Only scheduled sends can be canceled');
+  if (existing.createdBy !== session.user.id && session.user.role === 'MANAGER') {
+    throw new Error('FORBIDDEN: not your newsletter');
+  }
+  await prisma.newsletter.update({
+    where: { id },
+    data: { status: 'DRAFT', scheduledAt: null },
+  });
+  revalidatePath('/newsletters');
+  revalidatePath(`/newsletters/${id}`);
+  return { ok: true };
+}
+
 export async function deleteNewsletterDraft(id: string): Promise<{ ok: true }> {
   const session = await assertManagerPlus();
   const existing = await prisma.newsletter.findUnique({
