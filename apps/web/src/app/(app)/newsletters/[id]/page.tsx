@@ -12,6 +12,7 @@ import { ArrowLeft } from 'lucide-react';
 import { activeTenantId } from '@/lib/tenant/context';
 import { NewsletterDetailClient } from './NewsletterDetailClient';
 import { RecipientTable } from './RecipientTable';
+import { markdownToHtml } from '../render';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,9 +93,24 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_360px]">
         <Card title="Preview">
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-800">
-            {newsletter.bodyText}
-          </pre>
+          {newsletter.bodyMarkdown ? (
+            // Render the actual HTML the partner will see. The markdown
+            // renderer escapes <script> + only allows http(s) links so
+            // it's safe to drop into dangerouslySetInnerHTML. Recipient
+            // id is null here (we're previewing, not sending) so links
+            // render as the original URLs instead of click-tracker URLs.
+            <div
+              className="newsletter-preview text-sm leading-relaxed text-gray-800"
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{
+                __html: markdownToHtml(newsletter.bodyText, null),
+              }}
+            />
+          ) : (
+            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-800">
+              {newsletter.bodyText}
+            </pre>
+          )}
         </Card>
 
         <NewsletterDetailClient
