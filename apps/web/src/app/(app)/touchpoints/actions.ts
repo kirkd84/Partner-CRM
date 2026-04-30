@@ -113,8 +113,7 @@ export async function sendAllDueTouchpoints(): Promise<{
   total: number;
 }> {
   const session = await assertManagerPlus();
-  const { activeTenantId: getTenant } = await import('@/lib/tenant/context');
-  const tenantId = await getTenant(session);
+  const tenantId = await activeTenantId(session);
   const due = await prisma.touchpoint.findMany({
     where: {
       ...(tenantId ? { tenantId } : {}),
