@@ -149,11 +149,11 @@ export default async function LaunchChecklistPage() {
     },
     {
       id: 'cron-secret',
-      label: 'CRON_SECRET',
+      label: 'CRON_SECRET (gates every /api/cron/* tick)',
       status: process.env.CRON_SECRET ? 'ok' : 'missing',
       controls:
-        '/api/cron/scrape-tick auth. Without it scheduled scrape jobs never auto-run (manual + lasso still work).',
-      fix: 'Generate: `openssl rand -hex 24`. Set CRON_SECRET on Railway. Then Railway → Settings → Cron Schedules → POST /api/cron/scrape-tick every 5m with header `x-cron-secret: <value>`.',
+        'Auth for scrape-tick + newsletter-tick + touchpoints-tick + drip-tick. Without it those endpoints reject every request and the corresponding feature can only be triggered manually.',
+      fix: 'Generate: `openssl rand -hex 24`. Set CRON_SECRET on Railway. Then add Cron Schedules: POST /api/cron/scrape-tick every 5m, GET /api/cron/newsletter-tick every 5m, GET /api/cron/touchpoints-tick daily 9am, GET /api/cron/drip-tick hourly. All with header `Authorization: Bearer <CRON_SECRET>`.',
       group: 'integrations',
       icon: Calendar,
     },
@@ -198,12 +198,37 @@ export default async function LaunchChecklistPage() {
       label: 'Twilio (outbound SMS)',
       status: process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN ? 'ok' : 'warn',
       controls:
-        'Cadence SMS. Without it SMS steps log but DO NOT send. Email-only cadences still work.',
-      fix: 'Sign up at twilio.com, set TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM_NUMBER.',
+        'Cadence SMS + birthday/anniversary touchpoint sends. Without it SMS steps log but DO NOT send.',
+      fix: 'Sign up at twilio.com, set TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM (E.164 number).',
       fixUrl: 'https://console.twilio.com/',
       fixUrlIsExternal: true,
       group: 'integrations',
       icon: Mail,
+    },
+    {
+      id: 'resend-webhook',
+      label: 'Resend webhook secret',
+      status: process.env.RESEND_WEBHOOK_SECRET ? 'ok' : 'warn',
+      controls:
+        'Newsletter delivery + bounce backfill. Without it, opens still register via the tracking pixel and clicks via the link rewriter — bounces just go uncaught.',
+      fix: 'Resend dashboard → Webhooks → add /api/webhooks/resend → copy the signing secret into RESEND_WEBHOOK_SECRET on Railway.',
+      fixUrl: 'https://resend.com/webhooks',
+      fixUrlIsExternal: true,
+      group: 'integrations',
+      icon: Mail,
+    },
+    {
+      id: 'distance-matrix',
+      label: 'Google Distance Matrix (route planner)',
+      status:
+        process.env.GOOGLE_DIRECTIONS_API_KEY || process.env.GOOGLE_MAPS_API_KEY ? 'ok' : 'warn',
+      controls:
+        'Multi-day hit-list planner uses Distance Matrix for real drive times. Without it falls back to a 28 mph haversine estimate — close enough to plan but not as accurate.',
+      fix: 'Same Google project as Maps; enable Distance Matrix API on the existing GOOGLE_MAPS_API_KEY.',
+      fixUrl: 'https://console.cloud.google.com/apis/library/distancematrix-backend.googleapis.com',
+      fixUrlIsExternal: true,
+      group: 'integrations',
+      icon: MapIcon,
     },
     {
       id: 'inngest',
