@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { ArrowLeft, ArrowRight, MapPinned, Clock, Route } from 'lucide-react';
 import { prisma } from '@partnerradar/db';
 import { Card, Pill } from '@partnerradar/ui';
+import { PlanActions } from './PlanActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,9 @@ export default async function PlanDetail({ params }: { params: Promise<{ id: str
         <h1 className="text-xl font-semibold text-gray-900">
           {plan.label || `Plan from ${plan.startAddress}`}
         </h1>
+        <div className="ml-auto">
+          <PlanActions planId={plan.id} />
+        </div>
       </header>
       <p className="mt-1 text-xs text-gray-500">
         {plan.market.name} · Built {plan.generatedAt.toLocaleString()} ·{' '}

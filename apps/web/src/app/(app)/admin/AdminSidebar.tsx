@@ -18,6 +18,7 @@ import {
   ListChecks,
   Rocket,
   Layers,
+  Tag,
 } from 'lucide-react';
 
 // Note: state-boards + import-partners (CSV book) used to live here too,
@@ -29,6 +30,7 @@ const ITEMS = [
   { href: '/admin/users', label: 'Users', icon: Users, adminOnly: false },
   { href: '/admin/markets', label: 'Markets', icon: MapPinned, adminOnly: false },
   { href: '/admin/stages', label: 'Partner stages', icon: Layers, adminOnly: false },
+  { href: '/admin/tags', label: 'Partner tags', icon: Tag, adminOnly: false },
   {
     href: '/admin/appointment-types',
     label: 'Appointment types',

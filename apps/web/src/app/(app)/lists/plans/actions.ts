@@ -434,6 +434,86 @@ export async function sendDayToCalendar(listId: string): Promise<{
   return { ok: created > 0, created, skipped };
 }
 
+/**
+ * Re-run the planner for an existing plan using its saved sourceMeta
+ * + config. The original plan + its day rows are deleted in the same
+ * transaction so we never end up with two stale plans pointing at
+ * the same dates. Returns the new plan's id so the UI can navigate.
+ *
+ * Useful when partners get added/removed in the area between plan
+ * builds — without this the rep has to delete + recreate by hand.
+ */
+export async function regeneratePlan(planId: string): Promise<{ id: string }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const plan = await prisma.hitListPlan.findUnique({
+    where: { id: planId },
+    include: { hitLists: { select: { date: true } } },
+  });
+  if (!plan) throw new Error('NOT_FOUND');
+  if (plan.userId !== session.user.id) {
+    const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+    if (!isManagerPlus) throw new Error('FORBIDDEN');
+  }
+
+  // Pull the original picker spec out of sourceMeta. Defaults handle
+  // legacy rows where the field wasn't stored.
+  const meta = (plan.sourceMeta ?? {}) as {
+    kind?: 'closest' | 'manual';
+    count?: number;
+    partnerIds?: string[];
+  };
+  const picker: CreatePlanInput['picker'] =
+    meta.kind === 'manual'
+      ? { kind: 'manual', partnerIds: meta.partnerIds ?? [] }
+      : { kind: 'closest', count: meta.count ?? 20 };
+
+  // First day = the earliest day in the existing plan (so a re-plan
+  // doesn't accidentally walk forward in time). If no days exist, fall
+  // back to today.
+  const earliest = plan.hitLists.reduce<Date | null>(
+    (acc, l) => (acc == null || l.date.getTime() < acc.getTime() ? l.date : acc),
+    null,
+  );
+  const firstDay = (earliest ?? new Date()).toISOString().slice(0, 10);
+
+  // Delete the parent first; HitList rows have planId SetNull, so they
+  // detach (their dates would otherwise collide with the rebuild's
+  // unique constraint). We then deleteMany the orphaned-by-date rows
+  // for this user before createPlan rebuilds.
+  await prisma.$transaction([
+    prisma.hitListPlan.delete({ where: { id: plan.id } }),
+    prisma.hitList.deleteMany({
+      where: {
+        userId: plan.userId,
+        date: { in: plan.hitLists.map((l) => l.date) },
+      },
+    }),
+  ]);
+
+  const r = await createPlan({
+    marketId: plan.marketId,
+    label: plan.label ?? undefined,
+    startAddress: plan.startAddress,
+    startLat: plan.startLat,
+    startLng: plan.startLng,
+    endMode: plan.endMode,
+    minutesPerStop: plan.minutesPerStop,
+    startTimeMin: plan.startTimeMin,
+    endTimeMin: plan.endTimeMin,
+    lunchStartMin: plan.lunchStartMin,
+    lunchDurationMin: plan.lunchDurationMin,
+    picker,
+    firstDay,
+    maxDays: Math.max(plan.totalDays, 1),
+    // Best to re-fold appointments since the rep's calendar may have
+    // shifted between builds.
+    foldInAppointments: true,
+  });
+  revalidatePath('/lists');
+  return r;
+}
+
 export async function deletePlan(planId: string): Promise<{ ok: true }> {
   const session = await auth();
   if (!session?.user) throw new Error('UNAUTHORIZED');

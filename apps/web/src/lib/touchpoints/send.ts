@@ -114,6 +114,9 @@ export async function sendTouchpoint(touchpointId: string): Promise<TouchpointSe
       smsConsent: true,
       emailUnsubscribedAt: true,
       market: { select: { tenant: { select: { name: true, fromAddress: true } } } },
+      // Owning rep gets first crack at being the sender — feels personal,
+      // and the recipient knows exactly who reached out.
+      assignedRep: { select: { id: true, name: true } },
       contacts: {
         where: tp.contactId ? { id: tp.contactId } : { isPrimary: true },
         select: {
@@ -133,13 +136,25 @@ export async function sendTouchpoint(touchpointId: string): Promise<TouchpointSe
 
   const tenantName = partner.market?.tenant?.name ?? 'Partner Portal';
   const fromAddress = partner.market?.tenant?.fromAddress ?? undefined;
+  // Sender attribution priority:
+  //   1. The Touchpoint.createdBy user (manager who hand-edited this row)
+  //   2. The owning rep on the partner
+  //   3. The tenant name (no human attached)
+  // Falls through gracefully when each lookup misses.
+  let senderName = partner.assignedRep?.name ?? tenantName;
+  if (tp.createdBy) {
+    const u = await prisma.user
+      .findUnique({ where: { id: tp.createdBy }, select: { name: true } })
+      .catch(() => null);
+    if (u?.name) senderName = u.name;
+  }
   const meta = (tp.meta as Record<string, unknown>) ?? {};
   const rendered = renderMessage(
     tp.kind,
     meta,
     { companyName: partner.companyName },
     contact ? { name: contact.name } : null,
-    tenantName,
+    senderName,
     tenantName,
   );
   const body = tp.message?.trim() ? tp.message : rendered.body;
