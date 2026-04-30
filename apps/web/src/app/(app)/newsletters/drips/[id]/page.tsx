@@ -45,6 +45,16 @@ export default async function DripDetail({ params }: { params: Promise<{ id: str
   const byStatus: Record<string, number> = {};
   for (const e of enrollments) byStatus[e.status] = e._count.status;
 
+  // Per-partner enrollment table — capped at 200 for the page.
+  const enrolledRows = await prisma.newsletterDripEnrollment.findMany({
+    where: { dripId: id },
+    orderBy: [{ status: 'asc' }, { startedAt: 'desc' }],
+    take: 200,
+    include: {
+      partner: { select: { id: true, companyName: true } },
+    },
+  });
+
   return (
     <div className="mx-auto max-w-4xl p-6">
       <Link
@@ -88,6 +98,70 @@ export default async function DripDetail({ params }: { params: Promise<{ id: str
           Add at least one step before enrolling partners. Until then the drip can&apos;t fire.
         </div>
       ) : null}
+
+      {enrolledRows.length > 0 && (
+        <Card title={`Enrolled partners (${enrolledRows.length})`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-[11px] uppercase tracking-label text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Partner</th>
+                  <th className="px-3 py-2 text-left">Email</th>
+                  <th className="px-3 py-2 text-left">Step</th>
+                  <th className="px-3 py-2 text-left">Next send</th>
+                  <th className="px-3 py-2 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {enrolledRows.map((e) => (
+                  <tr key={e.id} className="hover:bg-gray-50/60">
+                    <td className="px-3 py-2 font-medium text-gray-900">
+                      <Link
+                        href={`/partners/${e.partner.id}`}
+                        className="hover:text-primary hover:underline"
+                      >
+                        {e.partner.companyName}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">{e.email}</td>
+                    <td className="px-3 py-2 text-gray-600">
+                      {e.position + 1} of {drip.steps.length}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-gray-500">
+                      {e.status === 'COMPLETED'
+                        ? 'Done'
+                        : e.nextSendAt
+                          ? e.nextSendAt.toLocaleString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })
+                          : '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Pill
+                        tone="soft"
+                        color={
+                          e.status === 'ACTIVE'
+                            ? 'emerald'
+                            : e.status === 'PAUSED'
+                              ? 'amber'
+                              : e.status === 'COMPLETED'
+                                ? 'blue'
+                                : 'red'
+                        }
+                      >
+                        {e.status.toLowerCase()}
+                      </Pill>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

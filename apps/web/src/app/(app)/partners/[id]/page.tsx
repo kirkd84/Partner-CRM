@@ -34,6 +34,7 @@ import { TrackPartnerView } from '@/components/RecentPartners';
 import { PartnerStatsRow } from './PartnerStatsRow';
 import { ReferralCard } from './ReferralCard';
 import { TouchpointFieldsCard } from './TouchpointFieldsCard';
+import { PartnerTagsEditor } from './PartnerTagsEditor';
 import { LinkedProjectsTable } from './LinkedProjectsTable';
 import { PartnerEventsCard } from './PartnerEventsCard';
 
@@ -68,6 +69,7 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
         select: { id: true, publicId: true, companyName: true, stage: true },
         orderBy: { companyName: 'asc' },
       },
+      tags: { select: { tag: true }, orderBy: { tag: 'asc' } },
     },
   });
   if (!partner) notFound();
@@ -223,6 +225,15 @@ export default async function PartnerDetailPage({ params }: { params: Promise<{ 
               <span className="truncate">{addressLine}</span>
             </div>
           )}
+          <div className="mt-1">
+            <PartnerTagsEditor
+              partnerId={partner.id}
+              canEdit={canEdit}
+              initialTags={((partner as { tags?: Array<{ tag: string }> }).tags ?? []).map(
+                (t) => t.tag,
+              )}
+            />
+          </div>
         </div>
         <Pill color="#2563eb" tone="soft" className="ml-2">
           {PARTNER_TYPE_LABELS[partner.partnerType]}

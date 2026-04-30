@@ -185,7 +185,16 @@ export async function markStopComplete(stopId: string) {
   if (!session?.user) throw new Error('UNAUTHORIZED');
   const stop = await prisma.hitListStop.findUnique({
     where: { id: stopId },
-    select: { hitListId: true, partnerId: true, completedAt: true },
+    select: {
+      id: true,
+      hitListId: true,
+      partnerId: true,
+      completedAt: true,
+      arrivalEta: true,
+      plannedArrival: true,
+      plannedDurationMin: true,
+      order: true,
+    },
   });
   if (!stop) throw new Error('NOT_FOUND');
   await assertCanEditList(stop.hitListId);
@@ -206,9 +215,47 @@ export async function markStopComplete(stopId: string) {
         body: `${session.user.name} checked in as a hit-list stop.`,
       },
     });
+
+    // Live ETA recompute: shift remaining stops' ETAs by the delta
+    // between actual completion time + the stop's planned visit
+    // duration vs. the original planned-leave-time. So if the rep
+    // completes stop 3 at 2:15pm but planner had them leaving at
+    // 2:00pm, every later stop gets +15 min ETA. Fixed-time
+    // appointments stay locked.
+    const originalEta = stop.arrivalEta ?? stop.plannedArrival;
+    const originalLeave = new Date(originalEta.getTime() + stop.plannedDurationMin * 60_000);
+    const actualLeave = new Date(now.getTime() + stop.plannedDurationMin * 60_000);
+    const driftMs = actualLeave.getTime() - originalLeave.getTime();
+    if (Math.abs(driftMs) >= 60_000) {
+      // Pull every later stop in the same list that hasn't completed
+      // yet and shift their ETA. We deliberately don't shift
+      // plannedArrival — that's the original baseline so the rep can
+      // see "you're 15 min behind plan".
+      const remaining = await prisma.hitListStop.findMany({
+        where: {
+          hitListId: stop.hitListId,
+          order: { gt: stop.order },
+          completedAt: null,
+          skippedAt: null,
+          isAppointmentLock: false,
+        },
+        select: { id: true, arrivalEta: true, plannedArrival: true },
+      });
+      await Promise.all(
+        remaining.map((s) => {
+          const baseline = s.arrivalEta ?? s.plannedArrival;
+          const shifted = new Date(baseline.getTime() + driftMs);
+          return prisma.hitListStop.update({
+            where: { id: s.id },
+            data: { arrivalEta: shifted },
+          });
+        }),
+      );
+    }
   }
 
   revalidatePath(`/lists/${stop.hitListId}`);
+  revalidatePath(`/lists/${stop.hitListId}/run`);
   return { ok: true };
 }
 

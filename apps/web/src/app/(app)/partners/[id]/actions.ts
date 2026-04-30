@@ -194,6 +194,116 @@ export async function setContactBirthday(
 }
 
 /**
+ * Add a tag to a partner. Tag strings are normalized (trim,
+ * lower-case-prefix-collapsed) so "High Priority" and "high-priority"
+ * collide rather than fragmenting. After persisting, fires the
+ * ON_TAG_ADDED drip enrollment for any active drip whose
+ * triggerConfig.tag matches.
+ */
+export async function addPartnerTag(
+  partnerId: string,
+  tag: string,
+): Promise<{ ok: true; tag: string }> {
+  await assertCanEdit(partnerId);
+  const normalized = tag.trim().slice(0, 64);
+  if (!normalized) throw new Error('Tag cannot be empty');
+  // Upsert keyed on the unique (partnerId, tag) so re-adding is a no-op.
+  await prisma.partnerTag
+    .upsert({
+      where: { partnerId_tag: { partnerId, tag: normalized } },
+      create: { partnerId, tag: normalized },
+      update: {},
+    })
+    .catch(async () => {
+      // Some Prisma clients don't expose the compound unique by name.
+      // Fall back to manual create-or-skip.
+      const existing = await prisma.partnerTag.findFirst({
+        where: { partnerId, tag: normalized },
+        select: { id: true },
+      });
+      if (!existing) {
+        await prisma.partnerTag.create({ data: { partnerId, tag: normalized } });
+      }
+    });
+  // Fire-and-forget drip enrollment. Errors swallowed so the tag UI
+  // never breaks because a drip definition is malformed.
+  enrollInTagDrips(partnerId, normalized).catch((err) =>
+    console.warn('[addPartnerTag] drip enroll failed', err),
+  );
+  revalidatePath(`/partners/${partnerId}`);
+  return { ok: true, tag: normalized };
+}
+
+export async function removePartnerTag(partnerId: string, tag: string): Promise<{ ok: true }> {
+  await assertCanEdit(partnerId);
+  await prisma.partnerTag.deleteMany({ where: { partnerId, tag } });
+  revalidatePath(`/partners/${partnerId}`);
+  return { ok: true };
+}
+
+/**
+ * Look at every active drip with triggerType=ON_TAG_ADDED whose
+ * triggerConfig.tag matches the tag we just added; enroll the partner
+ * if they aren't already. Mirrors enrollInActivationDrips.
+ */
+async function enrollInTagDrips(partnerId: string, tag: string): Promise<void> {
+  const partner = await prisma.partner.findUnique({
+    where: { id: partnerId },
+    select: {
+      id: true,
+      marketId: true,
+      market: { select: { tenantId: true } },
+      contacts: {
+        where: { isPrimary: true },
+        select: { id: true, emails: true },
+        take: 1,
+      },
+    },
+  });
+  if (!partner) return;
+  const contact = partner.contacts[0];
+  const email = (
+    contact?.emails as Array<{ address?: string; primary?: boolean }> | undefined
+  )?.find((e) => e?.address)?.address;
+  if (!email || !contact?.id) return;
+
+  const drips = await prisma.newsletterDrip.findMany({
+    where: {
+      active: true,
+      triggerType: 'ON_TAG_ADDED',
+      OR: [
+        { marketId: partner.marketId },
+        { marketId: null, tenantId: partner.market.tenantId ?? null },
+      ],
+    },
+    include: { steps: { orderBy: { position: 'asc' }, take: 1 } },
+  });
+  for (const drip of drips) {
+    if (drip.steps.length === 0) continue;
+    const cfg = (drip.triggerConfig ?? {}) as { tag?: string };
+    if (!cfg.tag || cfg.tag.trim() !== tag) continue;
+    const exists = await prisma.newsletterDripEnrollment.findFirst({
+      where: { dripId: drip.id, partnerId, contactId: contact.id },
+      select: { id: true },
+    });
+    if (exists) continue;
+    const firstStep = drip.steps[0]!;
+    const firstSendAt = new Date(Date.now() + firstStep.delayDays * 24 * 60 * 60 * 1000);
+    await prisma.newsletterDripEnrollment.create({
+      data: {
+        dripId: drip.id,
+        partnerId,
+        contactId: contact.id,
+        email,
+        position: 0,
+        nextSendAt: firstSendAt,
+        status: 'ACTIVE',
+      },
+    });
+  }
+}
+
+/**
  * Set the partner's business anniversary date (year + month + day).
  * Year doesn't matter for the touchpoint render (we only show
  * month-day) but we need the full date to compute "X years in

@@ -11,6 +11,7 @@ import { Card, Pill } from '@partnerradar/ui';
 import { ArrowLeft } from 'lucide-react';
 import { activeTenantId } from '@/lib/tenant/context';
 import { NewsletterDetailClient } from './NewsletterDetailClient';
+import { RecipientTable } from './RecipientTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,23 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
     include: { creator: { select: { name: true, email: true } } },
   });
   if (!newsletter) notFound();
+
+  // Per-recipient drilldown — fetched only when the newsletter has
+  // already gone out (or is in flight). Capped at 500 for the page;
+  // larger sends should grow a paginated drawer in a follow-up.
+  const recipients =
+    newsletter.status === 'DRAFT'
+      ? []
+      : await prisma.newsletterRecipient
+          .findMany({
+            where: { newsletterId: newsletter.id },
+            orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+            take: 500,
+            include: {
+              partner: { select: { id: true, companyName: true } },
+            },
+          })
+          .catch(() => []);
 
   return (
     <div className="p-6">
@@ -94,6 +112,25 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
           }
         />
       </div>
+
+      {recipients.length > 0 && (
+        <div className="mt-5">
+          <RecipientTable
+            recipients={recipients.map((r) => ({
+              id: r.id,
+              email: r.email,
+              partner: r.partner,
+              sentAt: r.sentAt?.toISOString() ?? null,
+              deliveredAt: r.deliveredAt?.toISOString() ?? null,
+              openedAt: r.openedAt?.toISOString() ?? null,
+              firstClickedAt: r.firstClickedAt?.toISOString() ?? null,
+              bouncedAt: r.bouncedAt?.toISOString() ?? null,
+              bounceReason: r.bounceReason,
+              errorMessage: r.errorMessage,
+            }))}
+          />
+        </div>
+      )}
     </div>
   );
 }
