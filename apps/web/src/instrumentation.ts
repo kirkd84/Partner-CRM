@@ -914,6 +914,378 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       label: 'add Partner.businessAnniversaryOn',
       sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "businessAnniversaryOn" TIMESTAMP(3)`,
     },
+    // Partnership-anniversary milestone: when did this company FIRST
+    // become an activated partner. Distinct from activatedAt (which
+    // can move when a partner re-activates after dormancy).
+    {
+      label: 'add Partner.partneredOn',
+      sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "partneredOn" TIMESTAMP(3)`,
+    },
+    // Backfill partneredOn for partners already activated. activatedAt
+    // is the best proxy for "when did we first sign them" — if they
+    // re-activated multiple times in the past it'll be later than the
+    // true first date, but for a brand-new system that's the closest
+    // we can get without re-importing history.
+    {
+      label: 'backfill Partner.partneredOn from activatedAt',
+      sql: `UPDATE "Partner" SET "partneredOn" = "activatedAt" WHERE "partneredOn" IS NULL AND "activatedAt" IS NOT NULL`,
+    },
+    // ── Touchpoints (birthday / anniversary / partnership) ──
+    {
+      label: 'enum TouchpointKind',
+      sql: buildEnumDDL('TouchpointKind', [
+        'BIRTHDAY',
+        'BUSINESS_ANNIVERSARY',
+        'PARTNERSHIP_MILESTONE',
+      ]),
+    },
+    {
+      label: 'enum TouchpointChannel',
+      sql: buildEnumDDL('TouchpointChannel', ['SMS', 'EMAIL', 'MANUAL']),
+    },
+    {
+      label: 'enum TouchpointStatus',
+      sql: buildEnumDDL('TouchpointStatus', ['SCHEDULED', 'SENT', 'SKIPPED', 'FAILED', 'CANCELED']),
+    },
+    {
+      label: 'create Touchpoint',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "Touchpoint" (
+          "id" TEXT NOT NULL,
+          "tenantId" TEXT,
+          "marketId" TEXT,
+          "partnerId" TEXT NOT NULL,
+          "contactId" TEXT,
+          "kind" "TouchpointKind" NOT NULL,
+          "occurrenceOn" TIMESTAMP(3) NOT NULL,
+          "scheduledFor" TIMESTAMP(3) NOT NULL,
+          "channel" "TouchpointChannel" NOT NULL,
+          "status" "TouchpointStatus" NOT NULL DEFAULT 'SCHEDULED',
+          "message" TEXT,
+          "meta" JSONB,
+          "sentAt" TIMESTAMP(3),
+          "errorMessage" TEXT,
+          "createdBy" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "uniqueKey" TEXT NOT NULL,
+          CONSTRAINT "Touchpoint_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'Touchpoint indexes',
+      sql: `
+        DO $$ BEGIN
+          BEGIN
+            CREATE UNIQUE INDEX IF NOT EXISTS "Touchpoint_uniqueKey_key" ON "Touchpoint"("uniqueKey");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "Touchpoint_tenantId_scheduledFor_status_idx" ON "Touchpoint"("tenantId", "scheduledFor", "status");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "Touchpoint_marketId_scheduledFor_status_idx" ON "Touchpoint"("marketId", "scheduledFor", "status");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "Touchpoint_partnerId_idx" ON "Touchpoint"("partnerId");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+        END $$;
+      `,
+    },
+    {
+      label: 'fks Touchpoint',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Touchpoint_partnerId_fkey'
+          ) THEN
+            ALTER TABLE "Touchpoint"
+              ADD CONSTRAINT "Touchpoint_partnerId_fkey"
+              FOREIGN KEY ("partnerId") REFERENCES "Partner"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'Touchpoint_marketId_fkey'
+          ) THEN
+            ALTER TABLE "Touchpoint"
+              ADD CONSTRAINT "Touchpoint_marketId_fkey"
+              FOREIGN KEY ("marketId") REFERENCES "Market"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    // ── Newsletter drips (multi-step recurring sequences) ──
+    {
+      label: 'enum DripTriggerType',
+      sql: buildEnumDDL('DripTriggerType', ['ON_PARTNER_ACTIVATED', 'ON_TAG_ADDED', 'MANUAL']),
+    },
+    {
+      label: 'enum DripEnrollmentStatus',
+      sql: buildEnumDDL('DripEnrollmentStatus', ['ACTIVE', 'PAUSED', 'COMPLETED', 'UNSUBSCRIBED']),
+    },
+    {
+      label: 'create NewsletterDrip',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NewsletterDrip" (
+          "id" TEXT NOT NULL,
+          "tenantId" TEXT,
+          "marketId" TEXT,
+          "name" TEXT NOT NULL,
+          "description" TEXT,
+          "audienceFilter" JSONB NOT NULL,
+          "triggerType" "DripTriggerType" NOT NULL DEFAULT 'MANUAL',
+          "triggerConfig" JSONB,
+          "active" BOOLEAN NOT NULL DEFAULT true,
+          "createdBy" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "NewsletterDrip_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'NewsletterDrip indexes + fks',
+      sql: `
+        DO $$ BEGIN
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "NewsletterDrip_tenantId_active_idx" ON "NewsletterDrip"("tenantId", "active");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "NewsletterDrip_marketId_active_idx" ON "NewsletterDrip"("marketId", "active");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NewsletterDrip_marketId_fkey'
+          ) THEN
+            ALTER TABLE "NewsletterDrip"
+              ADD CONSTRAINT "NewsletterDrip_marketId_fkey"
+              FOREIGN KEY ("marketId") REFERENCES "Market"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'create NewsletterDripStep',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NewsletterDripStep" (
+          "id" TEXT NOT NULL,
+          "dripId" TEXT NOT NULL,
+          "position" INTEGER NOT NULL,
+          "delayDays" INTEGER NOT NULL DEFAULT 0,
+          "subject" TEXT NOT NULL,
+          "bodyText" TEXT NOT NULL,
+          "bodyMarkdown" BOOLEAN NOT NULL DEFAULT true,
+          CONSTRAINT "NewsletterDripStep_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'NewsletterDripStep indexes + fks',
+      sql: `
+        DO $$ BEGIN
+          BEGIN
+            CREATE UNIQUE INDEX IF NOT EXISTS "NewsletterDripStep_dripId_position_key" ON "NewsletterDripStep"("dripId", "position");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NewsletterDripStep_dripId_fkey'
+          ) THEN
+            ALTER TABLE "NewsletterDripStep"
+              ADD CONSTRAINT "NewsletterDripStep_dripId_fkey"
+              FOREIGN KEY ("dripId") REFERENCES "NewsletterDrip"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    {
+      label: 'create NewsletterDripEnrollment',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "NewsletterDripEnrollment" (
+          "id" TEXT NOT NULL,
+          "dripId" TEXT NOT NULL,
+          "partnerId" TEXT NOT NULL,
+          "contactId" TEXT,
+          "email" TEXT NOT NULL,
+          "position" INTEGER NOT NULL DEFAULT 0,
+          "nextSendAt" TIMESTAMP(3),
+          "status" "DripEnrollmentStatus" NOT NULL DEFAULT 'ACTIVE',
+          "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "completedAt" TIMESTAMP(3),
+          "unsubscribedAt" TIMESTAMP(3),
+          CONSTRAINT "NewsletterDripEnrollment_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'NewsletterDripEnrollment indexes + fks',
+      sql: `
+        DO $$ BEGIN
+          BEGIN
+            CREATE UNIQUE INDEX IF NOT EXISTS "NewsletterDripEnrollment_dripId_partnerId_contactId_key"
+              ON "NewsletterDripEnrollment"("dripId", "partnerId", COALESCE("contactId", ''));
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "NewsletterDripEnrollment_nextSendAt_status_idx"
+              ON "NewsletterDripEnrollment"("nextSendAt", "status");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "NewsletterDripEnrollment_partnerId_idx" ON "NewsletterDripEnrollment"("partnerId");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NewsletterDripEnrollment_dripId_fkey'
+          ) THEN
+            ALTER TABLE "NewsletterDripEnrollment"
+              ADD CONSTRAINT "NewsletterDripEnrollment_dripId_fkey"
+              FOREIGN KEY ("dripId") REFERENCES "NewsletterDrip"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'NewsletterDripEnrollment_partnerId_fkey'
+          ) THEN
+            ALTER TABLE "NewsletterDripEnrollment"
+              ADD CONSTRAINT "NewsletterDripEnrollment_partnerId_fkey"
+              FOREIGN KEY ("partnerId") REFERENCES "Partner"("id")
+              ON DELETE CASCADE ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    // ── Hit List route planner v2 ──
+    {
+      label: 'enum RouteEndMode',
+      sql: buildEnumDDL('RouteEndMode', ['END_AT_HOME', 'LAST_STOP']),
+    },
+    {
+      label: 'create HitListPlan',
+      sql: `
+        CREATE TABLE IF NOT EXISTS "HitListPlan" (
+          "id" TEXT NOT NULL,
+          "userId" TEXT NOT NULL,
+          "marketId" TEXT NOT NULL,
+          "label" TEXT,
+          "startAddress" TEXT NOT NULL,
+          "startLat" DOUBLE PRECISION NOT NULL,
+          "startLng" DOUBLE PRECISION NOT NULL,
+          "endMode" "RouteEndMode" NOT NULL DEFAULT 'END_AT_HOME',
+          "endAddress" TEXT,
+          "endLat" DOUBLE PRECISION,
+          "endLng" DOUBLE PRECISION,
+          "minutesPerStop" INTEGER NOT NULL DEFAULT 15,
+          "startTimeMin" INTEGER NOT NULL DEFAULT 540,
+          "endTimeMin" INTEGER NOT NULL DEFAULT 1020,
+          "lunchStartMin" INTEGER,
+          "lunchDurationMin" INTEGER,
+          "totalStops" INTEGER NOT NULL DEFAULT 0,
+          "totalDays" INTEGER NOT NULL DEFAULT 0,
+          "totalMinutes" INTEGER NOT NULL DEFAULT 0,
+          "totalDistance" DOUBLE PRECISION NOT NULL DEFAULT 0,
+          "sourceKind" TEXT NOT NULL DEFAULT 'manual',
+          "sourceMeta" JSONB,
+          "generatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "HitListPlan_pkey" PRIMARY KEY ("id")
+        )
+      `,
+    },
+    {
+      label: 'HitListPlan indexes + fks',
+      sql: `
+        DO $$ BEGIN
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "HitListPlan_userId_generatedAt_idx" ON "HitListPlan"("userId", "generatedAt");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          BEGIN
+            CREATE INDEX IF NOT EXISTS "HitListPlan_marketId_generatedAt_idx" ON "HitListPlan"("marketId", "generatedAt");
+          EXCEPTION WHEN duplicate_table THEN NULL; END;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'HitListPlan_userId_fkey'
+          ) THEN
+            ALTER TABLE "HitListPlan"
+              ADD CONSTRAINT "HitListPlan_userId_fkey"
+              FOREIGN KEY ("userId") REFERENCES "User"("id")
+              ON DELETE NO ACTION ON UPDATE CASCADE;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'HitListPlan_marketId_fkey'
+          ) THEN
+            ALTER TABLE "HitListPlan"
+              ADD CONSTRAINT "HitListPlan_marketId_fkey"
+              FOREIGN KEY ("marketId") REFERENCES "Market"("id")
+              ON DELETE NO ACTION ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    // HitList — per-day extras for the v2 planner.
+    {
+      label: 'add HitList.planId',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "planId" TEXT`,
+    },
+    {
+      label: 'add HitList.dayIndex',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "dayIndex" INTEGER`,
+    },
+    {
+      label: 'add HitList.minutesPerStop',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "minutesPerStop" INTEGER NOT NULL DEFAULT 15`,
+    },
+    {
+      label: 'add HitList.startTimeMin',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "startTimeMin" INTEGER NOT NULL DEFAULT 540`,
+    },
+    {
+      label: 'add HitList.endTimeMin',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "endTimeMin" INTEGER NOT NULL DEFAULT 1020`,
+    },
+    {
+      label: 'add HitList.lunchStartMin',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "lunchStartMin" INTEGER`,
+    },
+    {
+      label: 'add HitList.lunchDurationMin',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "lunchDurationMin" INTEGER`,
+    },
+    {
+      label: 'add HitList.endsAtStart',
+      sql: `ALTER TABLE "HitList" ADD COLUMN IF NOT EXISTS "endsAtStart" BOOLEAN NOT NULL DEFAULT true`,
+    },
+    {
+      label: 'fk HitList.planId',
+      sql: `
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = 'HitList_planId_fkey'
+          ) THEN
+            ALTER TABLE "HitList"
+              ADD CONSTRAINT "HitList_planId_fkey"
+              FOREIGN KEY ("planId") REFERENCES "HitListPlan"("id")
+              ON DELETE SET NULL ON UPDATE CASCADE;
+          END IF;
+        END $$;
+      `,
+    },
+    // HitListStop — leg distance/duration + ETA.
+    {
+      label: 'add HitListStop.distanceFromPrevMi',
+      sql: `ALTER TABLE "HitListStop" ADD COLUMN IF NOT EXISTS "distanceFromPrevMi" DOUBLE PRECISION`,
+    },
+    {
+      label: 'add HitListStop.durationFromPrevMin',
+      sql: `ALTER TABLE "HitListStop" ADD COLUMN IF NOT EXISTS "durationFromPrevMin" INTEGER`,
+    },
+    {
+      label: 'add HitListStop.arrivalEta',
+      sql: `ALTER TABLE "HitListStop" ADD COLUMN IF NOT EXISTS "arrivalEta" TIMESTAMP(3)`,
+    },
     // EV-11: shareable read-only event link (lazy-generated).
     {
       label: 'add EvEvent.shareToken',

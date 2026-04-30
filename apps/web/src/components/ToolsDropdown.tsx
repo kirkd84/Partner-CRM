@@ -23,6 +23,7 @@ import {
   Camera,
   Users2,
   Mail,
+  Cake,
 } from 'lucide-react';
 
 const TOOLS: Array<{
@@ -67,6 +68,13 @@ const TOOLS: Array<{
     label: 'Newsletters',
     description: 'Email blast to your partners',
     icon: Mail,
+    managerPlus: true,
+  },
+  {
+    href: '/touchpoints',
+    label: 'Touchpoints',
+    description: 'Birthdays, anniversaries, milestones',
+    icon: Cake,
     managerPlus: true,
   },
   {

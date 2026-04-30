@@ -7,13 +7,14 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Activity, TrendingUp, Trophy, DollarSign } from 'lucide-react';
+import { Activity, TrendingUp, Trophy, DollarSign, MapPin } from 'lucide-react';
 
 const TABS = [
   { id: 'activity', label: 'Activity', icon: Activity },
   { id: 'funnel', label: 'Funnel', icon: TrendingUp },
   { id: 'roi', label: 'ROI leaderboard', icon: Trophy },
   { id: 'expenses', label: 'Expenses', icon: DollarSign },
+  { id: 'geo', label: 'Geo', icon: MapPin },
 ] as const;
 
 export type ReportTab = (typeof TABS)[number]['id'];

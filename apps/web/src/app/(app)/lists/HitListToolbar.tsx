@@ -1,7 +1,8 @@
 'use client';
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { Button, DrawerModal } from '@partnerradar/ui';
-import { Plus } from 'lucide-react';
+import { Plus, MapPinned } from 'lucide-react';
 import type { RouteStartMode } from '@partnerradar/types';
 import { createHitList } from './actions';
 
@@ -51,9 +52,17 @@ export function HitListToolbar({ markets }: { markets: Market[] }) {
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus className="h-4 w-4" /> New hit list
-      </Button>
+      <div className="flex items-center gap-2">
+        <Link
+          href="/lists/plans/new"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          <MapPinned className="h-4 w-4" /> Plan multi-day route
+        </Link>
+        <Button onClick={() => setOpen(true)}>
+          <Plus className="h-4 w-4" /> New hit list
+        </Button>
+      </div>
 
       <DrawerModal
         open={open}
@@ -115,12 +124,15 @@ export function HitListToolbar({ markets }: { markets: Market[] }) {
               type="text"
               value={startAddress}
               onChange={(e) => setStartAddress(e.target.value)}
-              placeholder={startMode === 'OFFICE' ? 'Defaults to market address' : 'Street, city, state'}
+              placeholder={
+                startMode === 'OFFICE' ? 'Defaults to market address' : 'Street, city, state'
+              }
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </FormField>
           <p className="text-[11px] text-gray-500">
-            You can add partner stops on the list detail page. Drag to reorder, check off as you visit.
+            You can add partner stops on the list detail page. Drag to reorder, check off as you
+            visit.
           </p>
           {error && (
             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

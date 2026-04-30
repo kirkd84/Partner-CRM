@@ -426,6 +426,11 @@ export async function activatePartner(partnerId: string) {
         activatedAt: now,
         activatedBy: session.user.id,
         stormCloudId,
+        // partneredOn locks in on first-ever activation. If the partner
+        // was already activated before (and went dormant + reactivated),
+        // the Prisma null check + nullable update keeps the original
+        // first-partnership date so anniversary milestones stay accurate.
+        ...(partner.partneredOn ? {} : { partneredOn: now }),
       },
     }),
     prisma.activity.create({

@@ -24,6 +24,11 @@ import { sendEmail } from '@partnerradar/integrations';
 import { auth } from '@/auth';
 import { activeTenantId } from '@/lib/tenant/context';
 import { unsubscribeUrl } from '@/lib/messaging/unsubscribe-token';
+import { renderNewsletterHtml, markdownToHtml as renderMarkdownToHtml } from './render';
+
+// Re-export so existing callers (drips, tests) can still import from
+// './actions'. The implementation lives in render.ts now.
+export { renderMarkdownToHtml as markdownToHtml };
 
 export interface AudienceFilter {
   partnerTypes?: string[];
@@ -33,6 +38,12 @@ export interface AudienceFilter {
   includeCustomers?: boolean;
   /** false (default) = exclude INACTIVE-stage partners */
   includeInactive?: boolean;
+  /**
+   * When set, restricts the audience to exactly these partner ids.
+   * Used by the drip-tick pipeline to spawn a single-recipient
+   * Newsletter row for one drip step at a time.
+   */
+  partnerIds?: string[];
 }
 
 async function assertManagerPlus() {
@@ -56,6 +67,13 @@ function buildAudienceWhere(filter: AudienceFilter, marketIds: string[] | null) 
     archivedAt: null,
     emailUnsubscribedAt: null,
   };
+  // Drip path: pin to exact ids and skip the broader filter logic so
+  // we don't accidentally drop a partner who's now INACTIVE but was
+  // ACTIVE when they enrolled in a multi-step drip.
+  if (filter.partnerIds && filter.partnerIds.length > 0) {
+    where.id = { in: filter.partnerIds };
+    return where;
+  }
   if (marketIds && marketIds.length > 0) {
     where.marketId = { in: marketIds };
   }
@@ -395,6 +413,34 @@ export async function executeNewsletterSend(id: string): Promise<{
     } catch {
       unsubResolved = '';
     }
+    // Create the per-recipient tracking row first so we can rewrite
+    // links + tracking pixel with this id. If the send blows up below
+    // we still keep the row (errorMessage gets set) which the detail
+    // page surfaces under "delivery problems".
+    let recipient: { id: string } | null = null;
+    try {
+      recipient = await prisma.newsletterRecipient.create({
+        data: {
+          newsletterId: id,
+          partnerId: p.id,
+          contactId: contact.id,
+          email,
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      // Row creation failure is rare (FK violation on partnerId
+      // somehow). Treat it as an error but keep going.
+      errorCount++;
+      if (errorSamples.length < 20) {
+        errorSamples.push({
+          partnerId: p.id,
+          email,
+          error: err instanceof Error ? err.message : 'recipient create failed',
+        });
+      }
+      continue;
+    }
     const html = renderNewsletterHtml({
       bodyText: newsletter.bodyText,
       tenantName: tenant?.name ?? 'Partner Portal',
@@ -402,6 +448,7 @@ export async function executeNewsletterSend(id: string): Promise<{
       unsubscribe: unsubResolved,
       isTest: false,
       renderAsMarkdown: newsletter.bodyMarkdown,
+      recipientId: recipient.id,
     });
     try {
       const res = await sendEmail({
@@ -420,6 +467,17 @@ export async function executeNewsletterSend(id: string): Promise<{
       });
       if (res.ok) {
         sentCount++;
+        // Capture the resend message id so the webhook can later
+        // attribute delivered/opened/bounced events to this row.
+        await prisma.newsletterRecipient
+          .update({
+            where: { id: recipient.id },
+            data: {
+              sentAt: new Date(),
+              resendId: res.id ?? null,
+            },
+          })
+          .catch(() => {});
         // Log the touch on the partner timeline. Failure of the
         // logging is non-fatal — the email already went.
         await prisma.activity
@@ -429,14 +487,26 @@ export async function executeNewsletterSend(id: string): Promise<{
               userId: newsletter.createdBy,
               type: 'EMAIL_OUT',
               body: `Newsletter: "${newsletter.subject}"`,
-              metadata: { newsletterId: id },
+              metadata: { newsletterId: id, recipientId: recipient.id },
             },
           })
           .catch(() => {});
       } else if (res.skipped) {
         blockedCount++;
+        await prisma.newsletterRecipient
+          .update({
+            where: { id: recipient.id },
+            data: { errorMessage: `skipped:${res.skipped}` },
+          })
+          .catch(() => {});
       } else {
         errorCount++;
+        await prisma.newsletterRecipient
+          .update({
+            where: { id: recipient.id },
+            data: { errorMessage: res.error ?? 'unknown' },
+          })
+          .catch(() => {});
         if (errorSamples.length < 20) {
           errorSamples.push({
             partnerId: p.id,
@@ -447,11 +517,18 @@ export async function executeNewsletterSend(id: string): Promise<{
       }
     } catch (err) {
       errorCount++;
+      const errMsg = err instanceof Error ? err.message : 'unknown';
+      await prisma.newsletterRecipient
+        .update({
+          where: { id: recipient.id },
+          data: { errorMessage: errMsg },
+        })
+        .catch(() => {});
       if (errorSamples.length < 20) {
         errorSamples.push({
           partnerId: p.id,
           email,
-          error: err instanceof Error ? err.message : 'unknown',
+          error: errMsg,
         });
       }
     }
@@ -496,106 +573,6 @@ export async function executeNewsletterSend(id: string): Promise<{
   };
 }
 
-/**
- * Tiny markdown → safe HTML renderer. Handles the only constructs the
- * compose toolbar exposes: **bold**, *italic*, [link](url), # / ## /
- * ### headings, lists (- ...) and paragraph breaks. Everything else
- * is escaped as plain text, so reps can't smuggle <script> tags into
- * email payloads.
- */
-function markdownToHtml(src: string): string {
-  const escape = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const inline = (s: string) =>
-    escape(s)
-      // [text](url) — only allow http(s) URLs to keep mailto smuggling
-      // and javascript: out.
-      .replace(
-        /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-        (_m, text: string, url: string) =>
-          `<a href="${url}" style="color:#3b82f6;text-decoration:underline;">${text}</a>`,
-      )
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|\s)\*([^*]+)\*(?=\s|$)/g, '$1<em>$2</em>');
-
-  const blocks = src.split(/\n{2,}/);
-  const out: string[] = [];
-  for (const raw of blocks) {
-    const block = raw.trim();
-    if (!block) continue;
-    if (block.startsWith('### ')) {
-      out.push(
-        `<h3 style="font-size:15px;font-weight:600;margin:16px 0 8px;">${inline(block.slice(4))}</h3>`,
-      );
-    } else if (block.startsWith('## ')) {
-      out.push(
-        `<h2 style="font-size:17px;font-weight:600;margin:18px 0 8px;">${inline(block.slice(3))}</h2>`,
-      );
-    } else if (block.startsWith('# ')) {
-      out.push(
-        `<h1 style="font-size:20px;font-weight:700;margin:20px 0 8px;">${inline(block.slice(2))}</h1>`,
-      );
-    } else if (/^[-*]\s/.test(block)) {
-      const items = block
-        .split('\n')
-        .map((line) => line.replace(/^[-*]\s+/, '').trim())
-        .filter(Boolean)
-        .map((line) => `<li style="margin:0 0 4px;">${inline(line)}</li>`)
-        .join('');
-      out.push(`<ul style="margin:0 0 16px;padding-left:20px;">${items}</ul>`);
-    } else {
-      out.push(`<p style="margin:0 0 16px;">${inline(block).replace(/\n/g, '<br>')}</p>`);
-    }
-  }
-  return out.join('');
-}
-
-/**
- * Wrap the body into a minimal HTML email with paragraphs and a
- * CAN-SPAM-compliant footer (physical address + unsubscribe).
- *
- * If renderAsMarkdown is true, markdown→HTML kicks in. Otherwise we
- * fall back to the v1 plain-text-with-paragraph-breaks renderer.
- */
-function renderNewsletterHtml(input: {
-  bodyText: string;
-  tenantName: string;
-  tenantAddress: string | null;
-  unsubscribe: string;
-  isTest: boolean;
-  renderAsMarkdown?: boolean;
-}): string {
-  const escape = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const paragraphs = input.renderAsMarkdown
-    ? markdownToHtml(input.bodyText)
-    : input.bodyText
-        .split(/\n\n+/)
-        .map((para) => {
-          const html = escape(para.trim()).replace(/\n/g, '<br>');
-          return html ? `<p style="margin: 0 0 16px;">${html}</p>` : '';
-        })
-        .filter(Boolean)
-        .join('');
-  const footerLines: string[] = [];
-  footerLines.push(`<strong>${escape(input.tenantName)}</strong>`);
-  if (input.tenantAddress) footerLines.push(escape(input.tenantAddress));
-  if (input.unsubscribe && !input.isTest) {
-    footerLines.push(
-      `<a href="${escape(input.unsubscribe)}" style="color:#3b82f6;">Unsubscribe</a> from these newsletters.`,
-    );
-  } else if (input.isTest) {
-    footerLines.push('<em>This is a test send — unsubscribe link skipped.</em>');
-  }
-  const footer = footerLines.join('<br>');
-
-  return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${escape(input.tenantName)}</title></head>
-<body style="margin:0;padding:24px;background:#f5f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#111827;line-height:1.55;">
-<table role="presentation" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;"><tr><td style="padding:28px 32px;">
-${paragraphs}
-<hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">
-<div style="font-size:11px;color:#6b7280;line-height:1.6;">${footer}</div>
-</td></tr></table>
-</body></html>`;
-}
+// markdownToHtml + renderNewsletterHtml live in ./render.ts so the
+// drip pipeline + cron tick can share the exact same renderer (and so
+// we can feed it the per-recipient id needed for click/open tracking).

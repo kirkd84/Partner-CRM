@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'gray',
+  SCHEDULED: 'blue',
   SENDING: 'amber',
   SENT: 'emerald',
   FAILED: 'red',
@@ -61,9 +62,11 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
       </header>
 
       {newsletter.status !== 'DRAFT' && (
-        <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Recipients" value={newsletter.recipientCount} />
           <Stat label="Sent" value={newsletter.sentCount} accent="emerald" />
+          <Stat label="Opened" value={newsletter.openCount} accent="blue" />
+          <Stat label="Clicked" value={newsletter.clickCount} accent="violet" />
           <Stat label="Skipped" value={newsletter.blockedCount} accent="amber" />
           <Stat label="Errors" value={newsletter.errorCount} accent="red" />
         </div>
@@ -102,7 +105,7 @@ function Stat({
 }: {
   label: string;
   value: number;
-  accent?: 'emerald' | 'amber' | 'red';
+  accent?: 'emerald' | 'amber' | 'red' | 'blue' | 'violet';
 }) {
   const tone =
     accent === 'emerald'
@@ -111,7 +114,11 @@ function Stat({
         ? 'text-amber-700'
         : accent === 'red'
           ? 'text-red-700'
-          : 'text-gray-900';
+          : accent === 'blue'
+            ? 'text-blue-700'
+            : accent === 'violet'
+              ? 'text-violet-700'
+              : 'text-gray-900';
   return (
     <div className="rounded-md border border-card-border bg-white px-3 py-2 shadow-card">
       <div className="text-[10.5px] uppercase tracking-label text-gray-500">{label}</div>

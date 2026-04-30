@@ -33,6 +33,7 @@ model Market {
   users           UserMarket[]
   partners        Partner[]
   hitLists        HitList[]
+  hitListPlans    HitListPlan[]    @relation("HitListPlansByMarket")
   scrapeJobs      ScrapeJob[]
   budgetRules     BudgetRule[]
   scrapedLeads    ScrapedLead[]
@@ -41,6 +42,8 @@ model Market {
   mwWorkspace     MwWorkspace?
   networkingGroups NetworkingGroup[]
   newsletters     Newsletter[]
+  newsletterDrips NewsletterDrip[]
+  touchpoints     Touchpoint[]
 
   @@index([tenantId])
 }
@@ -84,6 +87,7 @@ model User {
   expenses               Expense[]
   appointmentTypeAlerts  AppointmentType[]    @relation("AppointmentTypeAlertUser")
   hitLists               HitList[]
+  hitListPlans           HitListPlan[]        @relation("HitListPlansByUser")
   notifications          Notification[]
   calendarConnections    CalendarConnection[]
   toneSamples            AIToneSample[]
@@ -225,6 +229,13 @@ model Partner {
   /// month + day on the touchpoints view (year omitted in display)
   /// so reps can wish them happy anniversary every year.
   businessAnniversaryOn DateTime?
+  /// Date this company became a working partner — drives the
+  /// "1-year partnership" / "2-year partnership" milestones on the
+  /// touchpoints view. Set automatically when the stage transitions
+  /// to ACTIVATED for the first time. Distinct from activatedAt
+  /// which can move forward + back if a partner re-activates after
+  /// going dormant — partneredOn is the first-ever partnership date.
+  partneredOn         DateTime?
   stormCloudId        String?              @unique
   activatedAt         DateTime?
   activatedBy         String?
@@ -246,6 +257,8 @@ model Partner {
   waitlistPriority     Int?
   evInvites            EvInvite[]
   networkingGroupMemberships NetworkingGroupMembership[]
+  touchpoints          Touchpoint[]
+  dripEnrollments      NewsletterDripEnrollment[]
   // Reliability stats updated by the post-event attendance postmortem.
   // All three are moving averages over the last N events; null until
   // the partner has attended (or no-showed) anything.
@@ -464,6 +477,162 @@ enum NewsletterStatus {
   SENDING
   SENT
   FAILED
+}
+
+// ─── Touchpoints (birthday / anniversary / partnership) ──────────────
+
+/// A scheduled "you should reach out to this partner today" item.
+/// Created automatically by the touchpoints scanner when a contact's
+/// birthday, a partner's business anniversary, or a partnership
+/// milestone (1yr, 2yr) falls within the upcoming window.
+///
+/// channel + scheduledFor describe the auto-congrats outreach (SMS or
+/// email). Once the message goes out the row is marked SENT and won't
+/// be re-scheduled until next year. uniqueKey de-dupes — see
+/// touchpoints.scan() for the format.
+model Touchpoint {
+  id            String              @id @default(cuid())
+  tenantId      String?
+  marketId      String?
+  market        Market?             @relation(fields: [marketId], references: [id])
+  partnerId     String
+  partner       Partner             @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  /// For BIRTHDAY only — which contact's birthday this is.
+  contactId     String?
+  kind          TouchpointKind
+  /// The actual occurrence date THIS YEAR — used for sorting "upcoming".
+  occurrenceOn  DateTime
+  /// When the auto-congrats should fire. Pre-set to morning-of in the
+  /// market's timezone, but the rep can adjust on the touchpoints page.
+  scheduledFor  DateTime
+  channel       TouchpointChannel
+  status        TouchpointStatus    @default(SCHEDULED)
+  message       String?             @db.Text
+  /// Free-form metadata — for partnership milestones the year (1,2,5);
+  /// for birthdays the contact's name; etc.
+  meta          Json?
+  sentAt        DateTime?
+  errorMessage  String?
+  /// Manager who scheduled / canceled / overrode the message.
+  createdBy     String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  /// De-dupe key — kind:partnerId:occurrenceYear (or :contactId for
+  /// birthdays). Prevents the scanner from scheduling the same milestone
+  /// twice on consecutive cron runs.
+  uniqueKey     String              @unique
+
+  @@index([tenantId, scheduledFor, status])
+  @@index([marketId, scheduledFor, status])
+  @@index([partnerId])
+}
+
+enum TouchpointKind {
+  BIRTHDAY
+  BUSINESS_ANNIVERSARY
+  PARTNERSHIP_MILESTONE
+}
+
+enum TouchpointChannel {
+  SMS
+  EMAIL
+  /// Manual reminder only — no automated send. Renders on the
+  /// touchpoints page so the rep can call/text on their own.
+  MANUAL
+}
+
+enum TouchpointStatus {
+  SCHEDULED
+  SENT
+  SKIPPED
+  FAILED
+  CANCELED
+}
+
+// ─── Newsletter drips (multi-step recurring sequences) ───────────────
+
+/// An ordered series of newsletter steps that fires at delayDays
+/// intervals after enrollment. Triggered automatically when a partner
+/// matches the audienceFilter (e.g. "newly activated") or manually.
+///
+/// Send pipeline: a cron tick reads NewsletterDripEnrollment rows
+/// where nextSendAt <= now() AND status=ACTIVE, instantiates a
+/// Newsletter row from the step template, and advances the enrollment
+/// to the next step. Reuses the existing newsletter send infrastructure
+/// (recipient rows, Resend webhook tracking, unsubscribe headers).
+model NewsletterDrip {
+  id              String                       @id @default(cuid())
+  tenantId        String?
+  marketId        String?
+  market          Market?                      @relation(fields: [marketId], references: [id])
+  name            String
+  /// Short manager-facing description of who this drip targets.
+  description     String?
+  audienceFilter  Json
+  triggerType     DripTriggerType              @default(MANUAL)
+  triggerConfig   Json?
+  active          Boolean                      @default(true)
+  steps           NewsletterDripStep[]
+  enrollments     NewsletterDripEnrollment[]
+  createdBy       String
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+
+  @@index([tenantId, active])
+  @@index([marketId, active])
+}
+
+model NewsletterDripStep {
+  id            String          @id @default(cuid())
+  dripId        String
+  drip          NewsletterDrip  @relation(fields: [dripId], references: [id], onDelete: Cascade)
+  /// 0-indexed position in the sequence.
+  position      Int
+  /// Days from previous step (or from enrollment for position=0).
+  delayDays     Int             @default(0)
+  subject       String
+  bodyText      String          @db.Text
+  bodyMarkdown  Boolean         @default(true)
+
+  @@unique([dripId, position])
+}
+
+model NewsletterDripEnrollment {
+  id              String                @id @default(cuid())
+  dripId          String
+  drip            NewsletterDrip        @relation(fields: [dripId], references: [id], onDelete: Cascade)
+  partnerId       String
+  partner         Partner               @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  contactId       String?
+  email           String
+  /// Position of the NEXT step to send. Equal to drip.steps.length
+  /// when the partner has finished the sequence.
+  position        Int                   @default(0)
+  nextSendAt      DateTime?
+  status          DripEnrollmentStatus  @default(ACTIVE)
+  startedAt       DateTime              @default(now())
+  completedAt     DateTime?
+  unsubscribedAt  DateTime?
+
+  @@unique([dripId, partnerId, contactId])
+  @@index([nextSendAt, status])
+  @@index([partnerId])
+}
+
+enum DripTriggerType {
+  /// Auto-enroll partners on stage transition to ACTIVATED.
+  ON_PARTNER_ACTIVATED
+  /// Auto-enroll when a specific tag is added to the partner.
+  ON_TAG_ADDED
+  /// Manager hand-picks who to enroll from /newsletters/drips/[id].
+  MANUAL
+}
+
+enum DripEnrollmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  UNSUBSCRIBED
 }
 
 /// Each time a rep attends a meeting of the group. Lighter-weight than
@@ -740,6 +909,62 @@ model RevenueAttribution {
 
 // ─── Hit List ────────────────────────────────────────────────────────
 
+/// A multi-day route plan. The v2 planner takes "X partners closest to
+/// this address, fitting in working-hours" and breaks it across as
+/// many days as it needs. Each day is a HitList row; HitListPlan is
+/// the parent that records how the breakout was generated so we can
+/// show "this is day 2 of 4" and re-plan the whole thing if the rep
+/// changes the input.
+model HitListPlan {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation("HitListPlansByUser", fields: [userId], references: [id])
+  marketId      String
+  market        Market    @relation("HitListPlansByMarket", fields: [marketId], references: [id])
+  /// Optional human label — "Westside loop" / "Q3 reactivation".
+  label         String?
+  /// Address the rep is leaving from on day 1; subsequent days reset
+  /// to this address (assume rep returns home each night).
+  startAddress  String
+  startLat      Float
+  startLng      Float
+  /// Where the rep ends on the final day. END_AT_HOME means same as
+  /// startAddress; LAST_STOP means stop optimization wherever the
+  /// last partner is.
+  endMode       RouteEndMode @default(END_AT_HOME)
+  endAddress    String?
+  endLat        Float?
+  endLng        Float?
+  /// Plan-wide config copied to each day's HitList row.
+  minutesPerStop  Int    @default(15)
+  /// Working-hours window in local minutes from midnight. Default
+  /// 9am→5pm = 540→1020.
+  startTimeMin   Int     @default(540)
+  endTimeMin     Int     @default(1020)
+  /// Optional lunch break — null means no lunch carve-out.
+  lunchStartMin  Int?
+  lunchDurationMin Int?
+  /// Aggregate over all days in the plan.
+  totalStops     Int     @default(0)
+  totalDays      Int     @default(0)
+  totalMinutes   Int     @default(0)
+  totalDistance  Float   @default(0)
+  /// Source of the partner pool — "closest:lat,lng:radiusMi:N",
+  /// "manual", "lasso:listId". Stored for audit + re-plan.
+  sourceKind     String  @default("manual")
+  sourceMeta     Json?
+  generatedAt    DateTime @default(now())
+  hitLists       HitList[]
+
+  @@index([userId, generatedAt])
+  @@index([marketId, generatedAt])
+}
+
+enum RouteEndMode {
+  END_AT_HOME    // return to start address
+  LAST_STOP      // end wherever the last partner is
+}
+
 model HitList {
   id            String         @id @default(cuid())
   userId        String
@@ -754,6 +979,24 @@ model HitList {
   totalDistance Float? // miles
   totalDuration Int? // minutes
   generatedAt   DateTime       @default(now())
+  /// v2 multi-day planner — null for legacy single-day lists, set when
+  /// the list belongs to a multi-day plan.
+  planId        String?
+  plan          HitListPlan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+  /// Position in the plan (0-indexed). Null for ad-hoc lists.
+  dayIndex      Int?
+  /// Per-day config copied from HitListPlan at generation time so we
+  /// can re-render the day's schedule without round-tripping through
+  /// the parent.
+  minutesPerStop Int   @default(15)
+  startTimeMin   Int   @default(540)
+  endTimeMin     Int   @default(1020)
+  lunchStartMin  Int?
+  lunchDurationMin Int?
+  /// Where this day ends. For day N where N < totalDays-1 the rep
+  /// always returns to startAddress (so they can sleep at home).
+  /// Only the final day uses HitListPlan.endMode.
+  endsAtStart    Boolean @default(true)
   stops         HitListStop[]
 
   @@unique([userId, date])
@@ -769,6 +1012,16 @@ model HitListStop {
   plannedArrival     DateTime
   plannedDurationMin Int       @default(20)
   isAppointmentLock  Boolean   @default(false)
+  /// v2 route planner: distance + drive time from the previous stop
+  /// (or from the day's startAddress for the first stop). Lets the
+  /// detail view show leg-by-leg + total drive time without
+  /// recomputing on every render.
+  distanceFromPrevMi   Float?
+  durationFromPrevMin  Int?
+  /// Estimated arrival ETA — populated by the planner so the rep
+  /// can quickly see "I should be at stop 5 by 1:45pm". Updated when
+  /// the rep marks earlier stops complete with a real timestamp.
+  arrivalEta           DateTime?
   completedAt        DateTime?
   skippedAt          DateTime?
   skipReason         String?

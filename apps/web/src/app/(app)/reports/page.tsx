@@ -21,10 +21,11 @@ import { ActivityTab } from './ActivityTab';
 import { FunnelTab } from './FunnelTab';
 import { RoiTab } from './RoiTab';
 import { ExpensesTab } from './ExpensesTab';
+import { GeoTab } from './GeoTab';
 
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_TABS: ReportTab[] = ['activity', 'funnel', 'roi', 'expenses'];
+const ALLOWED_TABS: ReportTab[] = ['activity', 'funnel', 'roi', 'expenses', 'geo'];
 const ALLOWED_RANGES: RangeId[] = ['7d', '30d', '90d', 'ytd'];
 
 export default async function ReportsPage({
@@ -80,6 +81,7 @@ export default async function ReportsPage({
         {tab === 'expenses' && (
           <ExpensesTab range={range} markets={markets} scopeAllMarkets={scopeAllMarkets} />
         )}
+        {tab === 'geo' && <GeoTab markets={markets} scopeAllMarkets={scopeAllMarkets} />}
       </div>
     </div>
   );

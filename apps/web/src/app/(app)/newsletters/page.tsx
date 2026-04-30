@@ -8,7 +8,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@partnerradar/db';
 import { Card, EmptyState, Pill } from '@partnerradar/ui';
-import { Mail, ArrowRight, Plus } from 'lucide-react';
+import { Mail, ArrowRight, Plus, Repeat } from 'lucide-react';
 import { activeTenantId } from '@/lib/tenant/context';
 
 export const dynamic = 'force-dynamic';
@@ -56,12 +56,20 @@ export default async function NewslettersPage() {
             previously unsubscribed is skipped.
           </p>
         </div>
-        <Link
-          href="/newsletters/new"
-          className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover"
-        >
-          <Plus className="h-3.5 w-3.5" /> New newsletter
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/newsletters/drips"
+            className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Repeat className="h-3.5 w-3.5" /> Drips
+          </Link>
+          <Link
+            href="/newsletters/new"
+            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover"
+          >
+            <Plus className="h-3.5 w-3.5" /> New newsletter
+          </Link>
+        </div>
       </header>
 
       {newsletters.length === 0 ? (

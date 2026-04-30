@@ -1,0 +1,265 @@
+'use server';
+
+/**
+ * Hit-list multi-day plan server actions.
+ *
+ * Flow:
+ *   1. /lists/plans/new collects: start address (geocoded to lat/lng),
+ *      partner pool (closest-N to a location, lasso, manual), config
+ *      (work hours, lunch, minutes/stop, end mode).
+ *   2. createPlan() runs lib/lists/route-planner.planRoute() and
+ *      persists a HitListPlan parent + one HitList row per day with
+ *      its HitListStop rows.
+ *   3. The single-day detail at /lists/[id] renders each day with
+ *      leg distance/duration + ETAs; /lists/plans/[id] shows the
+ *      multi-day overview.
+ *
+ * Idempotency: the plan write uses a transaction so a partial DB
+ * failure doesn't leave dangling rows.
+ */
+
+import { revalidatePath } from 'next/cache';
+import { prisma } from '@partnerradar/db';
+import { auth } from '@/auth';
+import {
+  planRoute,
+  pickClosest,
+  type PlannerStop,
+  type FixedAppointment,
+} from '@/lib/lists/route-planner';
+
+export interface CreatePlanInput {
+  marketId: string;
+  label?: string;
+  startAddress: string;
+  startLat: number;
+  startLng: number;
+  endMode: 'END_AT_HOME' | 'LAST_STOP';
+  minutesPerStop?: number;
+  startTimeMin?: number;
+  endTimeMin?: number;
+  lunchStartMin?: number | null;
+  lunchDurationMin?: number | null;
+  /** Pick mode — closest-N or explicit list. */
+  picker: { kind: 'closest'; count: number } | { kind: 'manual'; partnerIds: string[] };
+  /** First day to schedule. ISO yyyy-mm-dd in the rep's local TZ. */
+  firstDay: string;
+  /** Maximum days to span. Default 7. */
+  maxDays?: number;
+  /** Whether to fold in already-scheduled appointments on those days. */
+  foldInAppointments?: boolean;
+}
+
+async function assertCanPlan(marketId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  if (!session.user.markets.includes(marketId)) {
+    throw new Error('FORBIDDEN: market not in your scope');
+  }
+  return session;
+}
+
+export async function createPlan(input: CreatePlanInput): Promise<{ id: string }> {
+  const session = await assertCanPlan(input.marketId);
+  const userId = session.user.id;
+
+  // 1. Resolve the partner pool.
+  const partners = await prisma.partner.findMany({
+    where: {
+      marketId: input.marketId,
+      archivedAt: null,
+      lat: { not: null },
+      lng: { not: null },
+      ...(input.picker.kind === 'manual'
+        ? { id: { in: input.picker.partnerIds } }
+        : { stage: { not: 'INACTIVE' } }),
+    },
+    select: {
+      id: true,
+      lat: true,
+      lng: true,
+      companyName: true,
+    },
+  });
+  const fullPool: PlannerStop[] = partners
+    .filter((p): p is typeof p & { lat: number; lng: number } => p.lat != null && p.lng != null)
+    .map((p) => ({ id: p.id, lat: p.lat, lng: p.lng }));
+
+  let pool: PlannerStop[];
+  if (input.picker.kind === 'closest') {
+    pool = pickClosest({ lat: input.startLat, lng: input.startLng }, fullPool, input.picker.count);
+  } else {
+    // Honor the manager's order from the manual list when reasonable.
+    const indexById = new Map(input.picker.partnerIds.map((id, idx) => [id, idx]));
+    pool = [...fullPool].sort(
+      (a, b) =>
+        (indexById.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+        (indexById.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+  if (pool.length === 0) {
+    throw new Error('No partners with coordinates matched the picker');
+  }
+
+  // 2. First-day midnight UTC (interpret YYYY-MM-DD as a local date).
+  const parts = input.firstDay.split('-').map((n) => parseInt(n, 10));
+  const [y, m, d] = parts;
+  if (!y || !m || !d) throw new Error('Invalid firstDay');
+  const firstDayUtc = new Date(Date.UTC(y, m - 1, d));
+  const maxDays = input.maxDays ?? 7;
+
+  // 3. Optional fold-in of existing appointments.
+  let fixedAppointments: FixedAppointment[] = [];
+  if (input.foldInAppointments) {
+    const horizon = new Date(firstDayUtc.getTime() + maxDays * 24 * 60 * 60 * 1000);
+    const apts = await prisma.appointment
+      .findMany({
+        where: {
+          userId,
+          startsAt: { gte: firstDayUtc, lt: horizon },
+        },
+        select: {
+          id: true,
+          startsAt: true,
+          endsAt: true,
+          partner: { select: { id: true, lat: true, lng: true, companyName: true } },
+          location: true,
+        },
+      })
+      .catch(() => []);
+    fixedAppointments = apts
+      .filter((a) => a.partner?.lat != null && a.partner?.lng != null)
+      .map((a) => {
+        const dayIdx = Math.floor(
+          (a.startsAt.getTime() - firstDayUtc.getTime()) / (24 * 60 * 60 * 1000),
+        );
+        const startMin = a.startsAt.getUTCHours() * 60 + a.startsAt.getUTCMinutes();
+        const endMin =
+          (a.endsAt ?? new Date(a.startsAt.getTime() + 60 * 60_000)).getUTCHours() * 60 +
+          (a.endsAt ?? new Date(a.startsAt.getTime() + 60 * 60_000)).getUTCMinutes();
+        return {
+          id: `appt:${a.id}`,
+          lat: a.partner!.lat!,
+          lng: a.partner!.lng!,
+          startMinFromMidnight: startMin,
+          endMinFromMidnight: Math.max(endMin, startMin + 30),
+          dayIndex: dayIdx,
+          label: a.partner?.companyName ?? a.location ?? 'Appointment',
+        };
+      });
+  }
+
+  // 4. Run the planner.
+  const result = await planRoute({
+    startAddress: input.startAddress,
+    start: { lat: input.startLat, lng: input.startLng },
+    endMode: input.endMode,
+    startTimeMin: input.startTimeMin,
+    endTimeMin: input.endTimeMin,
+    lunchStartMin: input.lunchStartMin ?? undefined,
+    lunchDurationMin: input.lunchDurationMin ?? undefined,
+    minutesPerStop: input.minutesPerStop,
+    maxDays,
+    firstDay: firstDayUtc,
+    pool,
+    fixedAppointments,
+  });
+
+  // 5. Persist plan + days + stops in one transaction.
+  const plan = await prisma.$transaction(async (tx) => {
+    const plan = await tx.hitListPlan.create({
+      data: {
+        userId,
+        marketId: input.marketId,
+        label: input.label?.trim() || null,
+        startAddress: input.startAddress,
+        startLat: input.startLat,
+        startLng: input.startLng,
+        endMode: input.endMode,
+        minutesPerStop: input.minutesPerStop ?? 15,
+        startTimeMin: input.startTimeMin ?? 540,
+        endTimeMin: input.endTimeMin ?? 1020,
+        lunchStartMin: input.lunchStartMin ?? null,
+        lunchDurationMin: input.lunchDurationMin ?? null,
+        totalStops: result.totalStops,
+        totalDays: result.days.length,
+        totalMinutes: result.totalMinutes,
+        totalDistance: result.totalDistance,
+        sourceKind: input.picker.kind === 'closest' ? `closest:${input.picker.count}` : 'manual',
+        sourceMeta: input.picker as object,
+      },
+    });
+
+    for (const day of result.days) {
+      // Replace any existing hit-list for that user+date so a re-plan
+      // doesn't blow up on the unique constraint. The old row's stops
+      // cascade-delete with it.
+      await tx.hitList.deleteMany({
+        where: { userId, date: day.date },
+      });
+      const list = await tx.hitList.create({
+        data: {
+          userId,
+          marketId: input.marketId,
+          date: day.date,
+          startAddress: input.startAddress,
+          startLat: input.startLat,
+          startLng: input.startLng,
+          startMode: 'OFFICE',
+          totalDistance: day.totalDistance,
+          totalDuration: day.totalMinutes,
+          planId: plan.id,
+          dayIndex: day.dayIndex,
+          minutesPerStop: input.minutesPerStop ?? 15,
+          startTimeMin: input.startTimeMin ?? 540,
+          endTimeMin: input.endTimeMin ?? 1020,
+          lunchStartMin: input.lunchStartMin ?? null,
+          lunchDurationMin: input.lunchDurationMin ?? null,
+          endsAtStart: day.endsAtStart,
+        },
+      });
+      // Skip fixed-appointment fold-ins (synthetic IDs starting with
+      // `appt:`) — those don't get HitListStop rows; they're already
+      // on the rep's calendar. Only persist real partner stops.
+      const realStops = day.stops.filter((s) => !s.isAppointmentLock);
+      for (const stop of realStops) {
+        await tx.hitListStop.create({
+          data: {
+            hitListId: list.id,
+            partnerId: stop.partnerId,
+            order: stop.order,
+            plannedArrival: stop.arrivalEta,
+            plannedDurationMin: stop.visitDurationMin,
+            distanceFromPrevMi: stop.distanceFromPrevMi,
+            durationFromPrevMin: stop.durationFromPrevMin,
+            arrivalEta: stop.arrivalEta,
+          },
+        });
+      }
+    }
+    return plan;
+  });
+
+  revalidatePath('/lists');
+  revalidatePath(`/lists/plans/${plan.id}`);
+  return { id: plan.id };
+}
+
+export async function deletePlan(planId: string): Promise<{ ok: true }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const plan = await prisma.hitListPlan.findUnique({
+    where: { id: planId },
+    select: { userId: true, marketId: true },
+  });
+  if (!plan) throw new Error('NOT_FOUND');
+  const isOwner = plan.userId === session.user.id;
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (!isOwner && !isManagerPlus) throw new Error('FORBIDDEN');
+  // Detach hit lists from the plan but keep them — the rep may still
+  // want the day rows. SetNull on planId already covers this in the
+  // schema; we then delete the plan parent.
+  await prisma.hitListPlan.delete({ where: { id: planId } });
+  revalidatePath('/lists');
+  return { ok: true };
+}
