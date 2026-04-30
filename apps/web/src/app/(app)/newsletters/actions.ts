@@ -70,6 +70,12 @@ function buildAudienceWhere(filter: AudienceFilter, marketIds: string[] | null) 
   // Drip path: pin to exact ids and skip the broader filter logic so
   // we don't accidentally drop a partner who's now INACTIVE but was
   // ACTIVE when they enrolled in a multi-step drip.
+  //
+  // Critical: still honor archivedAt + emailUnsubscribedAt (set at
+  // top of the where clause). Without this we'd keep emailing a
+  // partner whose address bounced or who hit the unsubscribe link.
+  // The drip-tick caller pauses the enrollment when a step returns
+  // 0 recipients so future steps stop firing.
   if (filter.partnerIds && filter.partnerIds.length > 0) {
     where.id = { in: filter.partnerIds };
     return where;

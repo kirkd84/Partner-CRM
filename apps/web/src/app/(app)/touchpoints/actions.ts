@@ -99,3 +99,39 @@ export async function getTouchpointPreview(id: string): Promise<TouchpointPrevie
   await assertManagerPlus();
   return previewTouchpoint(id);
 }
+
+/**
+ * Manual "send all due" trigger — fires every SCHEDULED touchpoint in
+ * the active tenant whose channel is SMS/EMAIL and whose scheduledFor
+ * is in the past. Useful before cron is wired, or as a safety valve
+ * when the manager wants to flush the queue right now. Capped at 50
+ * sends per click so a runaway scanner doesn't spam.
+ */
+export async function sendAllDueTouchpoints(): Promise<{
+  sent: number;
+  failed: number;
+  total: number;
+}> {
+  const session = await assertManagerPlus();
+  const { activeTenantId: getTenant } = await import('@/lib/tenant/context');
+  const tenantId = await getTenant(session);
+  const due = await prisma.touchpoint.findMany({
+    where: {
+      ...(tenantId ? { tenantId } : {}),
+      status: 'SCHEDULED',
+      channel: { in: ['SMS', 'EMAIL'] },
+      scheduledFor: { lte: new Date() },
+    },
+    select: { id: true },
+    take: 50,
+  });
+  let sent = 0;
+  let failed = 0;
+  for (const tp of due) {
+    const r = await sendTouchpoint(tp.id).catch(() => ({ outcome: 'FAILED' as const }));
+    if (r.outcome === 'SENT') sent++;
+    else if (r.outcome === 'FAILED') failed++;
+  }
+  revalidatePath('/touchpoints');
+  return { sent, failed, total: due.length };
+}

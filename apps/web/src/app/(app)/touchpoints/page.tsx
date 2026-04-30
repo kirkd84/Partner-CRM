@@ -17,6 +17,7 @@ import { Card, Pill, EmptyState } from '@partnerradar/ui';
 import { activeTenantId } from '@/lib/tenant/context';
 import { TouchpointRowClient } from './TouchpointRowClient';
 import { rescanTouchpoints } from './actions';
+import { SendDueButton } from './SendDueButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,19 +91,22 @@ export default async function TouchpointsPage() {
             quick &ldquo;thinking of you.&rdquo;
           </p>
         </div>
-        <form
-          action={async () => {
-            'use server';
-            await rescanTouchpoints();
-          }}
-        >
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        <div className="flex items-center gap-2">
+          <SendDueButton />
+          <form
+            action={async () => {
+              'use server';
+              await rescanTouchpoints();
+            }}
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
-          </button>
-        </form>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            </button>
+          </form>
+        </div>
       </header>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_360px]">

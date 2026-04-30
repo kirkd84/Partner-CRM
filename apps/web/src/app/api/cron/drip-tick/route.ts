@@ -69,6 +69,7 @@ export async function GET(req: Request) {
     // Spawn a single-recipient Newsletter row + send. We embed the
     // targeted partnerId in audienceFilter so buildAudienceWhere picks
     // exactly that one partner.
+    let sendResult: { recipientCount: number; sentCount: number } | null = null;
     try {
       const newsletter = await prisma.newsletter.create({
         data: {
@@ -85,9 +86,24 @@ export async function GET(req: Request) {
         },
         select: { id: true },
       });
-      await executeNewsletterSend(newsletter.id);
+      sendResult = await executeNewsletterSend(newsletter.id);
     } catch (err) {
       console.warn('[drip-tick] send failed', enr.id, err);
+      failed++;
+      continue;
+    }
+
+    // Pause the enrollment when the partner is no longer reachable
+    // (unsubscribed, archived, no email, etc.). Without this we'd keep
+    // walking through every step in the sequence with 0 recipients
+    // forever — wasted work + noisy newsletter rows. The manager can
+    // resume from /newsletters/drips/[id] if they fix the underlying
+    // issue (e.g. add a new email).
+    if (sendResult && sendResult.recipientCount === 0) {
+      await prisma.newsletterDripEnrollment.update({
+        where: { id: enr.id },
+        data: { status: 'PAUSED' },
+      });
       failed++;
       continue;
     }
