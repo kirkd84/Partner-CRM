@@ -47,6 +47,10 @@ interface StopRow {
   plannedArrival: string;
   plannedDurationMin: number;
   isAppointmentLock: boolean;
+  /** v2 multi-day planner: leg distance + drive time + ETA. */
+  distanceFromPrevMi: number | null;
+  durationFromPrevMin: number | null;
+  arrivalEta: string | null;
   completedAt: string | null;
   skippedAt: string | null;
   skipReason: string | null;
@@ -306,9 +310,16 @@ function NextStopCard({
           {fullAddress || 'Address missing'}
         </div>
         <div className="mt-2 text-xs opacity-80">
-          ETA {formatTime(stop.plannedArrival)} · ~{stop.plannedDurationMin} min visit
+          ETA {formatTime(stop.arrivalEta ?? stop.plannedArrival)} · ~{stop.plannedDurationMin} min
+          visit
           {stop.isAppointmentLock && ' · locked appointment'}
         </div>
+        {stop.distanceFromPrevMi != null && stop.durationFromPrevMin != null && (
+          <div className="mt-0.5 text-[10.5px] opacity-70">
+            {stop.distanceFromPrevMi.toFixed(1)} mi · {stop.durationFromPrevMin} min from previous
+            stop
+          </div>
+        )}
       </div>
 
       {partner.notes && (
@@ -395,7 +406,8 @@ function UpcomingRow({
         <div className="truncate text-[11px] text-gray-500">
           {stop.partner.address}
           {stop.partner.city ? `, ${stop.partner.city}` : ''} · ETA{' '}
-          {formatTime(stop.plannedArrival)}
+          {formatTime(stop.arrivalEta ?? stop.plannedArrival)}
+          {stop.distanceFromPrevMi != null ? ` · ${stop.distanceFromPrevMi.toFixed(1)} mi` : ''}
         </div>
       </div>
       <button

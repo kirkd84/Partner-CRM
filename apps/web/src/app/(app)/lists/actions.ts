@@ -306,6 +306,11 @@ export async function optimizeHitList(
           order: s.order,
           plannedArrival: new Date(s.plannedArrival),
           plannedDurationMin: s.plannedDurationMin,
+          // v2: persist leg + ETA so the run view + map render the
+          // same numbers the optimizer just produced.
+          distanceFromPrevMi: s.legDistanceMi,
+          durationFromPrevMin: Math.round(s.legDurationMin),
+          arrivalEta: new Date(s.plannedArrival),
         },
       }),
     ),
