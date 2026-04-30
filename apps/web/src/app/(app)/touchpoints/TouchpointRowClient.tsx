@@ -2,9 +2,14 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Cake, Briefcase, Handshake, Send, Edit2, X } from 'lucide-react';
+import { Cake, Briefcase, Handshake, Send, Edit2, X, Eye } from 'lucide-react';
 import { Pill } from '@partnerradar/ui';
-import { updateTouchpoint, cancelTouchpoint, sendTouchpointNow } from './actions';
+import {
+  updateTouchpoint,
+  cancelTouchpoint,
+  sendTouchpointNow,
+  getTouchpointPreview,
+} from './actions';
 
 interface Props {
   id: string;
@@ -23,11 +28,20 @@ const ICONS = {
   PARTNERSHIP_MILESTONE: <Handshake className="h-3.5 w-3.5 text-blue-500" />,
 };
 
+interface PreviewState {
+  subject: string;
+  body: string;
+  channel: 'SMS' | 'EMAIL' | 'MANUAL';
+  recipient: string | null;
+  blockers: string[];
+}
+
 export function TouchpointRowClient(props: Props) {
   const [editing, setEditing] = useState(false);
   const [channel, setChannel] = useState(props.channel);
   const [message, setMessage] = useState(props.message ?? '');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [, start] = useTransition();
 
   function save() {
@@ -41,10 +55,27 @@ export function TouchpointRowClient(props: Props) {
       await cancelTouchpoint(props.id);
     });
   }
-  function send() {
+  function openPreview() {
+    setFeedback(null);
     start(async () => {
+      const r = await getTouchpointPreview(props.id);
+      if (!r) {
+        setFeedback('Could not load preview');
+        return;
+      }
+      setPreview(r);
+    });
+  }
+  function confirmSend() {
+    start(async () => {
+      // If the rep tweaked the body in the preview, persist it before
+      // sending so the actual send pulls the customized text.
+      if (preview && preview.body !== (message || props.message || '')) {
+        await updateTouchpoint(props.id, { channel: preview.channel, message: preview.body });
+      }
       const r = await sendTouchpointNow(props.id);
       setFeedback(r.outcome === 'SENT' ? 'Sent' : `Failed: ${r.detail ?? ''}`);
+      setPreview(null);
     });
   }
 
@@ -83,12 +114,12 @@ export function TouchpointRowClient(props: Props) {
           </button>
           <button
             type="button"
-            onClick={send}
+            onClick={openPreview}
             disabled={channel === 'MANUAL'}
             className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-            title={channel === 'MANUAL' ? 'Switch to SMS or Email to send' : 'Send now'}
+            title={channel === 'MANUAL' ? 'Switch to SMS or Email to send' : 'Preview + send'}
           >
-            <Send className="h-3 w-3" /> Send
+            <Eye className="h-3 w-3" /> Preview
           </button>
           <button
             type="button"
@@ -136,6 +167,62 @@ export function TouchpointRowClient(props: Props) {
               className="rounded bg-primary px-2 py-1 text-xs font-medium text-white hover:bg-primary/90"
             >
               Save
+            </button>
+          </div>
+        </div>
+      )}
+      {preview && (
+        <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs">
+          <div className="mb-1 flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-label text-blue-700">
+            Preview
+            <Pill tone="soft" color={preview.channel === 'SMS' ? 'emerald' : 'blue'}>
+              {preview.channel.toLowerCase()}
+            </Pill>
+            {preview.recipient && (
+              <span className="font-mono text-[11px] font-normal text-blue-900">
+                → {preview.recipient}
+              </span>
+            )}
+          </div>
+          {preview.channel === 'EMAIL' && (
+            <div className="mb-1">
+              <span className="text-[10.5px] uppercase tracking-label text-gray-500">Subject</span>
+              <input
+                value={preview.subject}
+                onChange={(e) => setPreview({ ...preview, subject: e.target.value })}
+                className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+              />
+            </div>
+          )}
+          <span className="text-[10.5px] uppercase tracking-label text-gray-500">Message</span>
+          <textarea
+            rows={4}
+            value={preview.body}
+            onChange={(e) => setPreview({ ...preview, body: e.target.value })}
+            className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+          />
+          {preview.blockers.length > 0 && (
+            <ul className="mt-1 list-disc pl-4 text-[11px] text-red-700">
+              {preview.blockers.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPreview(null)}
+              className="rounded px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmSend}
+              disabled={preview.blockers.length > 0}
+              className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Send className="h-3 w-3" /> Send now
             </button>
           </div>
         </div>

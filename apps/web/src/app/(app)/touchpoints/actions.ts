@@ -17,7 +17,7 @@ import { prisma } from '@partnerradar/db';
 import { auth } from '@/auth';
 import { activeTenantId } from '@/lib/tenant/context';
 import { scanTouchpoints } from '@/lib/touchpoints/scan';
-import { sendTouchpoint } from '@/lib/touchpoints/send';
+import { sendTouchpoint, previewTouchpoint, type TouchpointPreview } from '@/lib/touchpoints/send';
 
 async function assertManagerPlus() {
   const session = await auth();
@@ -89,4 +89,13 @@ export async function sendTouchpointNow(id: string): Promise<{
   const r = await sendTouchpoint(id);
   revalidatePath('/touchpoints');
   return { outcome: r.outcome, detail: r.detail };
+}
+
+/**
+ * Render the touchpoint preview (subject + body + channel + recipient
+ * + blockers) so the row UI can show a confirm panel before firing.
+ */
+export async function getTouchpointPreview(id: string): Promise<TouchpointPreview | null> {
+  await assertManagerPlus();
+  return previewTouchpoint(id);
 }

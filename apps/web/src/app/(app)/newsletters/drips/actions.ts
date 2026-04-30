@@ -224,6 +224,30 @@ export async function enrollMatching(dripId: string): Promise<{
   return { enrolled, alreadyEnrolled, skippedNoEmail };
 }
 
+export async function setEnrollmentStatus(
+  enrollmentId: string,
+  status: 'ACTIVE' | 'PAUSED' | 'UNSUBSCRIBED',
+): Promise<{ ok: true }> {
+  await assertManagerPlus();
+  // Resuming a paused enrollment also reschedules nextSendAt to "now"
+  // so the next cron tick picks it up — otherwise it'd sit forever
+  // with the old past-due nextSendAt and never advance.
+  const data: Record<string, unknown> = { status };
+  if (status === 'ACTIVE') {
+    data.nextSendAt = new Date();
+    data.unsubscribedAt = null;
+  } else if (status === 'UNSUBSCRIBED') {
+    data.unsubscribedAt = new Date();
+  }
+  const enr = await prisma.newsletterDripEnrollment.update({
+    where: { id: enrollmentId },
+    data,
+    select: { dripId: true },
+  });
+  revalidatePath(`/newsletters/drips/${enr.dripId}`);
+  return { ok: true };
+}
+
 export async function pauseEnrollment(enrollmentId: string): Promise<{ ok: true }> {
   await assertManagerPlus();
   await prisma.newsletterDripEnrollment.update({

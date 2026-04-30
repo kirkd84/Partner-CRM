@@ -23,7 +23,7 @@ interface ContactContext {
   name: string;
 }
 
-function renderMessage(
+export function renderMessage(
   kind: 'BIRTHDAY' | 'BUSINESS_ANNIVERSARY' | 'PARTNERSHIP_MILESTONE',
   meta: Record<string, unknown>,
   partner: PartnerContext,
@@ -220,4 +220,94 @@ async function finalize(
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export interface TouchpointPreview {
+  subject: string;
+  body: string;
+  /** What we'll send via — SMS strips the subject. */
+  channel: 'SMS' | 'EMAIL' | 'MANUAL';
+  /** Where it'll go (phone for SMS, email address for EMAIL). */
+  recipient: string | null;
+  /** Reasons this send would currently fail/skip — surfaced in the UI. */
+  blockers: string[];
+}
+
+/**
+ * Resolve the rendered preview of a Touchpoint without sending it.
+ * The /touchpoints UI calls this before showing the rep a confirm
+ * panel, so they see exactly what would land in the recipient's
+ * inbox / phone before clicking the trigger.
+ */
+export async function previewTouchpoint(touchpointId: string): Promise<TouchpointPreview | null> {
+  const tp = await prisma.touchpoint.findUnique({ where: { id: touchpointId } });
+  if (!tp) return null;
+  const partner = await prisma.partner.findUnique({
+    where: { id: tp.partnerId },
+    select: {
+      id: true,
+      companyName: true,
+      smsConsent: true,
+      emailUnsubscribedAt: true,
+      market: { select: { tenant: { select: { name: true } } } },
+      assignedRep: { select: { id: true, name: true } },
+      contacts: {
+        where: tp.contactId ? { id: tp.contactId } : { isPrimary: true },
+        select: {
+          id: true,
+          name: true,
+          phones: true,
+          emails: true,
+          smsConsent: true,
+        },
+        take: 1,
+      },
+    },
+  });
+  if (!partner) return null;
+  const contact = partner.contacts[0] ?? null;
+  const tenantName = partner.market?.tenant?.name ?? 'Partner Portal';
+  let senderName = partner.assignedRep?.name ?? tenantName;
+  if (tp.createdBy) {
+    const u = await prisma.user
+      .findUnique({ where: { id: tp.createdBy }, select: { name: true } })
+      .catch(() => null);
+    if (u?.name) senderName = u.name;
+  }
+  const meta = (tp.meta as Record<string, unknown>) ?? {};
+  const rendered = renderMessage(
+    tp.kind,
+    meta,
+    { companyName: partner.companyName },
+    contact ? { name: contact.name } : null,
+    senderName,
+    tenantName,
+  );
+  const body = tp.message?.trim() ? tp.message : rendered.body;
+
+  // Compute the recipient address + any blockers up front.
+  const blockers: string[] = [];
+  let recipient: string | null = null;
+  if (tp.channel === 'SMS') {
+    if (!partner.smsConsent || !contact?.smsConsent) blockers.push('SMS consent missing');
+    recipient =
+      ((contact?.phones as Array<{ number?: string; primary?: boolean }> | undefined) ?? []).find(
+        (p) => p?.number,
+      )?.number ?? null;
+    if (!recipient) blockers.push('No phone on the contact');
+  } else if (tp.channel === 'EMAIL') {
+    if (partner.emailUnsubscribedAt) blockers.push('Partner has unsubscribed from email');
+    recipient =
+      ((contact?.emails as Array<{ address?: string; primary?: boolean }> | undefined) ?? []).find(
+        (e) => e?.address,
+      )?.address ?? null;
+    if (!recipient) blockers.push('No email on the contact');
+  }
+  return {
+    subject: rendered.subject,
+    body,
+    channel: tp.channel as 'SMS' | 'EMAIL' | 'MANUAL',
+    recipient,
+    blockers,
+  };
 }

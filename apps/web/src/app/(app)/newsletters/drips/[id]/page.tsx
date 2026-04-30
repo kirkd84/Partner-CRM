@@ -13,6 +13,7 @@ import { prisma } from '@partnerradar/db';
 import { Card, Pill } from '@partnerradar/ui';
 import { activeTenantId } from '@/lib/tenant/context';
 import { DripDetailClient } from './DripDetailClient';
+import { EnrollmentActions } from './EnrollmentActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,6 +111,7 @@ export default async function DripDetail({ params }: { params: Promise<{ id: str
                   <th className="px-3 py-2 text-left">Step</th>
                   <th className="px-3 py-2 text-left">Next send</th>
                   <th className="px-3 py-2 text-left">Status</th>
+                  <th className="px-3 py-2 text-right"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -154,6 +156,12 @@ export default async function DripDetail({ params }: { params: Promise<{ id: str
                       >
                         {e.status.toLowerCase()}
                       </Pill>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <EnrollmentActions
+                        enrollmentId={e.id}
+                        status={e.status as 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'UNSUBSCRIBED'}
+                      />
                     </td>
                   </tr>
                 ))}
