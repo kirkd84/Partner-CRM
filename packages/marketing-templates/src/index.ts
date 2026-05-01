@@ -70,6 +70,21 @@ import { singleStatHero } from './catalog/social/single-stat-hero';
 import { classicHorizontal } from './catalog/business-cards/classic-horizontal';
 import { verticalModern } from './catalog/business-cards/vertical-modern';
 import { realtorCoMarketing } from './catalog/postcards/realtor-co-marketing';
+import {
+  openHouseAnnouncement,
+  listingComingSoon,
+  soldCelebration,
+  marketUpdate,
+  mortgageRateAlert,
+  referralThanks,
+  seasonalChristmas,
+  seasonalJuly4,
+  seasonalHalloween,
+  seasonalThanksgiving,
+  seasonalValentines,
+  seasonalEaster,
+  newAgentSpotlight,
+} from './catalog/social/realtor-pack';
 
 const modules: TemplateModule[] = [
   heroPhotoOverlay,
@@ -100,6 +115,21 @@ const modules: TemplateModule[] = [
   classicHorizontal,
   verticalModern,
   realtorCoMarketing,
+  // Realtor pack — 13 stacked-layout templates rounding the catalog
+  // out from 28 to 41. Each is a thin createStackedTemplate call.
+  openHouseAnnouncement,
+  listingComingSoon,
+  soldCelebration,
+  marketUpdate,
+  mortgageRateAlert,
+  referralThanks,
+  seasonalChristmas,
+  seasonalJuly4,
+  seasonalHalloween,
+  seasonalThanksgiving,
+  seasonalValentines,
+  seasonalEaster,
+  newAgentSpotlight,
 ];
 
 export const TEMPLATE_REGISTRY: Record<string, TemplateModule> = Object.fromEntries(
