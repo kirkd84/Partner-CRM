@@ -19,6 +19,7 @@ import {
   Rocket,
   Layers,
   Tag,
+  Building2,
 } from 'lucide-react';
 
 // Note: state-boards + import-partners (CSV book) used to live here too,
@@ -46,6 +47,7 @@ const ITEMS = [
   { href: '/admin/scrape-jobs', label: 'Scrape jobs', icon: ListChecks, adminOnly: false },
   { href: '/admin/reliability', label: 'Partner reliability', icon: Trophy, adminOnly: false },
   { href: '/admin/integrations', label: 'Integrations', icon: Plug, adminOnly: true },
+  { href: '/admin/tenant', label: 'Tenant config', icon: Building2, adminOnly: true },
   {
     href: '/admin/launch-checklist',
     label: 'Launch checklist',

@@ -32,8 +32,12 @@ export interface ScanResult {
   byKind: { BIRTHDAY: number; BUSINESS_ANNIVERSARY: number; PARTNERSHIP_MILESTONE: number };
 }
 
-/** Partnership-anniversary years to celebrate. 1, 2, 3, 5, 10, then every 5. */
-const MILESTONE_YEARS = new Set<number>([1, 2, 3, 5, 7, 10, 15, 20, 25, 30]);
+/**
+ * Default partnership-anniversary years to celebrate. Per-tenant
+ * overrides via Tenant.milestoneYears (set in /admin/tenant); empty
+ * array there falls back to this list.
+ */
+const DEFAULT_MILESTONE_YEARS: number[] = [1, 2, 3, 5, 7, 10, 15, 20, 25, 30];
 
 export async function scanTouchpoints(input: ScanInput = {}): Promise<ScanResult> {
   const now = input.now ?? new Date();
@@ -88,6 +92,31 @@ export async function scanTouchpoints(input: ScanInput = {}): Promise<ScanResult
     for (const m of ms) marketTenants.set(m.id, m.tenantId);
   }
 
+  // Pull every tenant's custom milestone years (if configured). Each
+  // partner picks up its tenant's list; tenant-less partners use the
+  // default. Built once outside the partner loop so we don't query
+  // the Tenant table per partner.
+  const tenantMilestoneYears = new Map<string | null, Set<number>>();
+  const tenantIds = [...new Set([...marketTenants.values()].filter((t) => t != null))] as string[];
+  if (tenantIds.length > 0) {
+    const tenants = await prisma.tenant.findMany({
+      where: { id: { in: tenantIds } },
+      select: { id: true, milestoneYears: true },
+    });
+    for (const t of tenants) {
+      const years =
+        t.milestoneYears && t.milestoneYears.length > 0
+          ? t.milestoneYears
+          : DEFAULT_MILESTONE_YEARS;
+      tenantMilestoneYears.set(t.id, new Set(years));
+    }
+  }
+  tenantMilestoneYears.set(null, new Set(DEFAULT_MILESTONE_YEARS));
+  function milestoneSetFor(marketId: string): Set<number> {
+    const tenantId = marketTenants.get(marketId) ?? null;
+    return tenantMilestoneYears.get(tenantId) ?? new Set(DEFAULT_MILESTONE_YEARS);
+  }
+
   // Buffer the rows we want to upsert. We do this in one batch at the
   // end so a single `findMany` picks up existing keys for the dedupe.
   type Pending = {
@@ -139,12 +168,13 @@ export async function scanTouchpoints(input: ScanInput = {}): Promise<ScanResult
         });
       }
     }
-    // Partnership milestones (1yr, 2yr, etc.)
+    // Partnership milestones (1yr, 2yr, etc.) — tenant-configurable.
     if (p.partneredOn) {
       const po = p.partneredOn;
       const occ = nextOccurrence(now, po.getUTCMonth() + 1, po.getUTCDate());
       const years = occ.getUTCFullYear() - po.getUTCFullYear();
-      if (years >= 1 && MILESTONE_YEARS.has(years) && occ <= horizon) {
+      const milestoneSet = milestoneSetFor(p.marketId);
+      if (years >= 1 && milestoneSet.has(years) && occ <= horizon) {
         pending.push({
           uniqueKey: `partner-anniv:${p.id}:${occ.getUTCFullYear()}`,
           partnerId: p.id,

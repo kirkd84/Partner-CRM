@@ -259,6 +259,133 @@ export async function markStopComplete(stopId: string) {
   return { ok: true };
 }
 
+/**
+ * List reps in the same market as the given hit list — the reassign
+ * picker uses this to populate its dropdown. Manager+ only.
+ */
+export async function listReassignTargets(
+  listId: string,
+): Promise<Array<{ id: string; name: string; email: string }>> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (!isManagerPlus) return [];
+  const list = await prisma.hitList.findUnique({
+    where: { id: listId },
+    select: { marketId: true, userId: true },
+  });
+  if (!list) return [];
+  if (!session.user.markets.includes(list.marketId)) return [];
+  const rows = await prisma.userMarket.findMany({
+    where: { marketId: list.marketId, user: { active: true } },
+    select: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { user: { name: 'asc' } },
+  });
+  // Drop the current owner from the picker — they can't reassign to themselves.
+  return rows.map((r) => r.user).filter((u) => u.id !== list.userId);
+}
+
+/**
+ * Reassign a hit list (and its plan, if it belongs to one) to another
+ * rep in the same market. Manager+ only — reps can't poach lists.
+ *
+ * The HitList unique constraint is (userId, date) so reassigning could
+ * collide if the target rep already has a list for that day. We
+ * defensively check + throw a useful message instead of letting Prisma
+ * surface the raw constraint error.
+ */
+export async function reassignHitList(listId: string, newUserId: string): Promise<{ ok: true }> {
+  const session = await auth();
+  if (!session?.user) throw new Error('UNAUTHORIZED');
+  const isManagerPlus = session.user.role === 'MANAGER' || session.user.role === 'ADMIN';
+  if (!isManagerPlus) throw new Error('FORBIDDEN: manager+ required to reassign');
+
+  const list = await prisma.hitList.findUnique({
+    where: { id: listId },
+    select: { id: true, userId: true, marketId: true, date: true, planId: true },
+  });
+  if (!list) throw new Error('NOT_FOUND');
+  if (!session.user.markets.includes(list.marketId)) throw new Error('FORBIDDEN: market');
+
+  // Verify the target rep is in this market.
+  const target = await prisma.userMarket.findFirst({
+    where: { userId: newUserId, marketId: list.marketId },
+    select: { userId: true },
+  });
+  if (!target) throw new Error('Target rep is not assigned to this market');
+  if (newUserId === list.userId) return { ok: true };
+
+  // Collision check: does the target already have a list on this date?
+  const conflict = await prisma.hitList.findFirst({
+    where: { userId: newUserId, date: list.date },
+    select: { id: true },
+  });
+  if (conflict) {
+    throw new Error(
+      'That rep already has a hit list on this date. Reassign or delete theirs first.',
+    );
+  }
+
+  // If this list is part of a multi-day plan, reassign the whole plan
+  // (and every day in it) so the rep doesn't end up with day 2 of 5.
+  if (list.planId) {
+    const planLists = await prisma.hitList.findMany({
+      where: { planId: list.planId },
+      select: { id: true, date: true },
+    });
+    // Per-day collision check for the whole plan.
+    const targetCollisions = await prisma.hitList.findMany({
+      where: {
+        userId: newUserId,
+        date: { in: planLists.map((l) => l.date) },
+      },
+      select: { date: true },
+    });
+    if (targetCollisions.length > 0) {
+      throw new Error(
+        `Target rep already has lists on ${targetCollisions.length} of these plan dates. Resolve conflicts first.`,
+      );
+    }
+    await prisma.$transaction([
+      prisma.hitListPlan.update({
+        where: { id: list.planId },
+        data: { userId: newUserId },
+      }),
+      prisma.hitList.updateMany({
+        where: { planId: list.planId },
+        data: { userId: newUserId },
+      }),
+    ]);
+  } else {
+    await prisma.hitList.update({
+      where: { id: list.id },
+      data: { userId: newUserId },
+    });
+  }
+
+  // Audit-log the reassignment so the original owner can trace it.
+  await prisma.auditLog
+    .create({
+      data: {
+        userId: session.user.id,
+        entityType: 'HitList',
+        entityId: list.id,
+        action: 'reassign',
+        diff: {
+          from: list.userId,
+          to: newUserId,
+          planScoped: Boolean(list.planId),
+        },
+      },
+    })
+    .catch(() => {});
+
+  revalidatePath(`/lists/${list.id}`);
+  revalidatePath('/lists');
+  if (list.planId) revalidatePath(`/lists/plans/${list.planId}`);
+  return { ok: true };
+}
+
 export async function deleteHitList(listId: string) {
   const { list } = await assertCanEditList(listId);
   // Cascade via schema removes stops automatically.

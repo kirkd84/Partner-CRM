@@ -23,6 +23,21 @@ interface ContactContext {
   name: string;
 }
 
+/**
+ * Per-tenant template overrides. Stored on Tenant.touchpointTemplates
+ * as JSON. Substitution tokens: {{contactName}}, {{firstName}},
+ * {{companyName}}, {{years}}, {{sender}}, {{tenantName}}.
+ */
+export interface TenantTouchpointTemplates {
+  BIRTHDAY?: { subject?: string; body?: string };
+  BUSINESS_ANNIVERSARY?: { subject?: string; body?: string };
+  PARTNERSHIP_MILESTONE?: { subject?: string; body?: string };
+}
+
+function substituteTokens(template: string, tokens: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => tokens[key] ?? `{{${key}}}`);
+}
+
 export function renderMessage(
   kind: 'BIRTHDAY' | 'BUSINESS_ANNIVERSARY' | 'PARTNERSHIP_MILESTONE',
   meta: Record<string, unknown>,
@@ -30,12 +45,31 @@ export function renderMessage(
   contact: ContactContext | null,
   fromName: string,
   tenantName: string,
+  templates?: TenantTouchpointTemplates | null,
 ): { subject: string; body: string } {
   const fn = (contact?.name ?? '').split(' ')[0] || 'friend';
   const company = partner.companyName;
   const tenant = tenantName;
   const sender = fromName || tenant;
   const years = typeof meta.years === 'number' ? meta.years : null;
+  const yLabel = years === 1 ? '1 year' : years != null ? `${years} years` : '';
+  const tokens: Record<string, string> = {
+    contactName: contact?.name ?? 'friend',
+    firstName: fn,
+    companyName: company,
+    years: yLabel,
+    sender,
+    tenantName: tenant,
+  };
+  // Per-tenant override wins when present + non-empty.
+  const override = templates?.[kind];
+  if (override?.subject?.trim() && override?.body?.trim()) {
+    return {
+      subject: substituteTokens(override.subject, tokens),
+      body: substituteTokens(override.body, tokens),
+    };
+  }
+  // Fallback defaults — match what shipped originally.
   switch (kind) {
     case 'BIRTHDAY':
       return {
@@ -48,7 +82,6 @@ export function renderMessage(
         body: `Congrats on another year of ${company}! 🎉 — ${sender}`,
       };
     case 'PARTNERSHIP_MILESTONE': {
-      const yLabel = years === 1 ? '1 year' : `${years} years`;
       return {
         subject: `${yLabel} of partnership 🎉`,
         body: `Today marks ${yLabel} of working together with ${company}. Thanks for being a great partner! — ${sender}`,
@@ -113,7 +146,13 @@ export async function sendTouchpoint(touchpointId: string): Promise<TouchpointSe
       companyName: true,
       smsConsent: true,
       emailUnsubscribedAt: true,
-      market: { select: { tenant: { select: { name: true, fromAddress: true } } } },
+      market: {
+        select: {
+          tenant: {
+            select: { name: true, fromAddress: true, touchpointTemplates: true },
+          },
+        },
+      },
       // Owning rep gets first crack at being the sender — feels personal,
       // and the recipient knows exactly who reached out.
       assignedRep: { select: { id: true, name: true } },
@@ -156,6 +195,7 @@ export async function sendTouchpoint(touchpointId: string): Promise<TouchpointSe
     contact ? { name: contact.name } : null,
     senderName,
     tenantName,
+    (partner.market?.tenant?.touchpointTemplates ?? null) as TenantTouchpointTemplates | null,
   );
   const body = tp.message?.trim() ? tp.message : rendered.body;
 
@@ -249,7 +289,13 @@ export async function previewTouchpoint(touchpointId: string): Promise<Touchpoin
       companyName: true,
       smsConsent: true,
       emailUnsubscribedAt: true,
-      market: { select: { tenant: { select: { name: true } } } },
+      market: {
+        select: {
+          tenant: {
+            select: { name: true, touchpointTemplates: true },
+          },
+        },
+      },
       assignedRep: { select: { id: true, name: true } },
       contacts: {
         where: tp.contactId ? { id: tp.contactId } : { isPrimary: true },
@@ -282,6 +328,7 @@ export async function previewTouchpoint(touchpointId: string): Promise<Touchpoin
     contact ? { name: contact.name } : null,
     senderName,
     tenantName,
+    (partner.market?.tenant?.touchpointTemplates ?? null) as TenantTouchpointTemplates | null,
   );
   const body = tp.message?.trim() ? tp.message : rendered.body;
 

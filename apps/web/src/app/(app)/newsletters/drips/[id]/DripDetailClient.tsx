@@ -2,9 +2,16 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Play, Pause, UserPlus, Send } from 'lucide-react';
+import { Plus, Trash2, Play, Pause, UserPlus, Send, GripVertical } from 'lucide-react';
 import { Card } from '@partnerradar/ui';
-import { addStep, removeStep, setDripActive, enrollMatching, testSendDripStep } from '../actions';
+import {
+  addStep,
+  removeStep,
+  setDripActive,
+  enrollMatching,
+  testSendDripStep,
+  reorderSteps,
+} from '../actions';
 
 interface Step {
   id: string;
@@ -31,7 +38,37 @@ export function DripDetailClient({
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
   const [, start] = useTransition();
+
+  function onDragStart(stepId: string) {
+    setDragId(stepId);
+  }
+  function onDragOver(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    if (!dragId || dragId === targetId) return;
+    const from = steps.findIndex((s) => s.id === dragId);
+    const to = steps.findIndex((s) => s.id === targetId);
+    if (from < 0 || to < 0) return;
+    const next = steps.slice();
+    const moved = next.splice(from, 1)[0];
+    if (!moved) return;
+    next.splice(to, 0, moved);
+    setSteps(next.map((s, idx) => ({ ...s, position: idx })));
+  }
+  function onDragEnd() {
+    if (!dragId) return;
+    const finalOrder = steps.map((s) => s.id);
+    setDragId(null);
+    start(async () => {
+      try {
+        await reorderSteps(id, finalOrder);
+        router.refresh();
+      } catch (err) {
+        setFeedback(err instanceof Error ? err.message : 'Reorder failed');
+      }
+    });
+  }
 
   function add() {
     setFeedback(null);
@@ -121,8 +158,17 @@ export function DripDetailClient({
             {steps.map((s, idx) => (
               <li
                 key={s.id}
-                className="flex items-start gap-3 rounded-md border border-gray-200 bg-white p-2"
+                draggable
+                onDragStart={() => onDragStart(s.id)}
+                onDragOver={(e) => onDragOver(e, s.id)}
+                onDragEnd={onDragEnd}
+                className={`flex items-start gap-3 rounded-md border border-gray-200 bg-white p-2 ${
+                  dragId === s.id ? 'opacity-50' : ''
+                }`}
               >
+                <span className="mt-1 cursor-grab text-gray-400" title="Drag to reorder">
+                  <GripVertical className="h-4 w-4" />
+                </span>
                 <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-violet-100 text-[10px] font-semibold text-violet-700">
                   {idx + 1}
                 </span>

@@ -34,6 +34,7 @@ import {
 } from '../actions';
 import { sendDayToCalendar } from '../plans/actions';
 import { RouteMap } from './RouteMap';
+import { ReassignControl } from './ReassignControl';
 
 interface StopPartner {
   id: string;
@@ -319,6 +320,7 @@ export function HitListDetailClient({
           >
             <Navigation className="h-4 w-4" /> Run hit list
           </Link>
+          <ReassignControl listId={list.id} />
           <Button variant="destructive" onClick={onDeleteList} loading={isPending}>
             Delete list
           </Button>

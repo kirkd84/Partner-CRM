@@ -24,7 +24,15 @@ const STATUS_COLORS: Record<string, string> = {
   FAILED: 'red',
 };
 
-export default async function NewsletterDetail({ params }: { params: Promise<{ id: string }> }) {
+const RECIPIENTS_PER_PAGE = 250;
+
+export default async function NewsletterDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
+}) {
   const session = await auth();
   if (!session?.user) redirect('/login');
   const isManagerPlus =
@@ -34,6 +42,8 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
   if (!isManagerPlus) redirect('/radar');
 
   const { id } = await params;
+  const sp = await searchParams;
+  const page = Math.max(1, parseInt(sp.page ?? '1', 10) || 1);
   const tenantId = await activeTenantId(session);
 
   const newsletter = await prisma.newsletter.findFirst({
@@ -43,21 +53,27 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
   if (!newsletter) notFound();
 
   // Per-recipient drilldown — fetched only when the newsletter has
-  // already gone out (or is in flight). Capped at 500 for the page;
-  // larger sends should grow a paginated drawer in a follow-up.
-  const recipients =
+  // already gone out (or is in flight). Paginated at 250/page so a
+  // 5k-recipient send loads quickly; the table component carries the
+  // page hopper at the bottom.
+  const [recipientCountTotal, recipients] =
     newsletter.status === 'DRAFT'
-      ? []
-      : await prisma.newsletterRecipient
-          .findMany({
-            where: { newsletterId: newsletter.id },
-            orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
-            take: 500,
-            include: {
-              partner: { select: { id: true, companyName: true } },
-            },
-          })
-          .catch(() => []);
+      ? [0, []]
+      : await Promise.all([
+          prisma.newsletterRecipient.count({ where: { newsletterId: newsletter.id } }),
+          prisma.newsletterRecipient
+            .findMany({
+              where: { newsletterId: newsletter.id },
+              orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+              skip: (page - 1) * RECIPIENTS_PER_PAGE,
+              take: RECIPIENTS_PER_PAGE,
+              include: {
+                partner: { select: { id: true, companyName: true } },
+              },
+            })
+            .catch(() => [] as Awaited<ReturnType<typeof prisma.newsletterRecipient.findMany>>),
+        ]);
+  const totalPages = Math.max(1, Math.ceil(recipientCountTotal / RECIPIENTS_PER_PAGE));
 
   return (
     <div className="p-6">
@@ -144,6 +160,10 @@ export default async function NewsletterDetail({ params }: { params: Promise<{ i
               bounceReason: r.bounceReason,
               errorMessage: r.errorMessage,
             }))}
+            page={page}
+            totalPages={totalPages}
+            totalRecipients={recipientCountTotal}
+            newsletterId={newsletter.id}
           />
         </div>
       )}

@@ -118,6 +118,49 @@ export async function removeStep(stepId: string): Promise<{ ok: true }> {
   return { ok: true };
 }
 
+/**
+ * Reorder drip steps. Pass step ids in the new order. Updates every
+ * step's position in a single transaction so the unique (dripId,
+ * position) constraint never sees a duplicate. Defensive: refuses if
+ * the input ids don't exactly match the drip's current step set.
+ */
+export async function reorderSteps(
+  dripId: string,
+  stepIdsInOrder: string[],
+): Promise<{ ok: true }> {
+  await assertManagerPlus();
+  const existing = await prisma.newsletterDripStep.findMany({
+    where: { dripId },
+    select: { id: true },
+  });
+  if (existing.length !== stepIdsInOrder.length) {
+    throw new Error('Reorder must include every step exactly once');
+  }
+  const valid = new Set(existing.map((s) => s.id));
+  for (const id of stepIdsInOrder) {
+    if (!valid.has(id)) throw new Error('Unknown step id in reorder');
+  }
+  // Two-phase: bump every step into a high-number temp slot first to
+  // avoid colliding with the unique constraint, then settle to final
+  // positions. position is INT so 10_000+offset is safe.
+  await prisma.$transaction([
+    ...stepIdsInOrder.map((id, idx) =>
+      prisma.newsletterDripStep.update({
+        where: { id },
+        data: { position: 10_000 + idx },
+      }),
+    ),
+    ...stepIdsInOrder.map((id, idx) =>
+      prisma.newsletterDripStep.update({
+        where: { id },
+        data: { position: idx },
+      }),
+    ),
+  ]);
+  revalidatePath(`/newsletters/drips/${dripId}`);
+  return { ok: true };
+}
+
 export async function setDripActive(id: string, active: boolean): Promise<{ ok: true }> {
   await assertManagerPlus();
   await prisma.newsletterDrip.update({

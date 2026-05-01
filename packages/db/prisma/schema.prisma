@@ -130,6 +130,17 @@ model Tenant {
   logoUrl      String?
   status       TenantStatus  @default(ACTIVE)
   trialEndsAt  DateTime?
+  /// Years to celebrate as partnership-anniversary milestones. Drives
+  /// the touchpoint scanner — empty = no milestones, default applied
+  /// at read time when the array is null.
+  milestoneYears Int[]       @default([])
+  /// Per-tenant default congrats messages. Stored as
+  /// { BIRTHDAY: { subject, body }, BUSINESS_ANNIVERSARY: {...},
+  ///   PARTNERSHIP_MILESTONE: {...} }. Render still substitutes
+  /// `{{contactName}}`, `{{companyName}}`, `{{years}}`, `{{sender}}`,
+  /// `{{tenantName}}` so the manager can write once + reuse.
+  /// Null = use the hardcoded defaults in lib/touchpoints/send.ts.
+  touchpointTemplates Json?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @default(now()) @updatedAt
   markets      Market[]

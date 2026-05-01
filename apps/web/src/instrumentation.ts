@@ -921,6 +921,15 @@ async function applyPendingDDL(prisma: { $executeRawUnsafe: (sql: string) => Pro
       label: 'add Partner.partneredOn',
       sql: `ALTER TABLE "Partner" ADD COLUMN IF NOT EXISTS "partneredOn" TIMESTAMP(3)`,
     },
+    // Per-tenant configuration for the touchpoints scanner.
+    {
+      label: 'add Tenant.milestoneYears',
+      sql: `ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "milestoneYears" INTEGER[] NOT NULL DEFAULT '{}'::integer[]`,
+    },
+    {
+      label: 'add Tenant.touchpointTemplates',
+      sql: `ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "touchpointTemplates" JSONB`,
+    },
     // Backfill partneredOn for partners already activated. activatedAt
     // is the best proxy for "when did we first sign them" — if they
     // re-activated multiple times in the past it'll be later than the
