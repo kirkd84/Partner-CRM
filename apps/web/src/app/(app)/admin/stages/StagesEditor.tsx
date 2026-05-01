@@ -15,19 +15,24 @@ interface Row {
   source: 'tenant' | 'global' | 'fallback';
 }
 
+// 12 high-contrast presets — one swatch per visually distinct hue family
+// + two neutrals at opposite brightness, so two stages can never collide
+// at a glance. The previous palette had two blues (sky/blue), two purples
+// (violet/purple), two grays (slate/gray), and emerald sitting on top of
+// teal — Kirk flagged them as indistinguishable in the picker grid.
 const COLOR_PRESETS = [
-  '#94a3b8', // slate
-  '#60a5fa', // sky
-  '#3b82f6', // blue
-  '#8b5cf6', // violet
-  '#a855f7', // purple
-  '#ec4899', // pink
-  '#ef4444', // red
+  '#0f172a', // near-black slate
+  '#64748b', // mid slate gray
+  '#0891b2', // cyan
+  '#2563eb', // royal blue
+  '#7c3aed', // deep violet
+  '#db2777', // magenta pink
+  '#dc2626', // strong red
   '#f97316', // orange
-  '#eab308', // yellow
-  '#10b981', // emerald
-  '#14b8a6', // teal
-  '#6b7280', // gray
+  '#facc15', // golden yellow
+  '#84cc16', // lime green
+  '#059669', // emerald
+  '#854d0e', // brown
 ];
 
 export function StagesEditor({

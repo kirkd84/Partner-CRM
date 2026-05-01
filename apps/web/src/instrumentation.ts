@@ -2429,15 +2429,19 @@ async function seedStageConfig(prisma: unknown) {
       create: (args: unknown) => Promise<unknown>;
     };
   };
+  // Default stage colors — use the high-contrast picker palette so each
+  // stage is unmistakable in the funnel/board view. Updated 2026-04-30
+  // after Kirk flagged the previous palette had near-duplicate hues
+  // (sky vs blue, violet vs purple) that ran together at small sizes.
   const DEFAULTS: Array<{ stage: string; label: string; color: string; sortOrder: number }> = [
-    { stage: 'NEW_LEAD', label: 'New Lead', color: '#94a3b8', sortOrder: 0 },
-    { stage: 'RESEARCHED', label: 'Researched', color: '#60a5fa', sortOrder: 1 },
-    { stage: 'INITIAL_CONTACT', label: 'Initial Contact', color: '#3b82f6', sortOrder: 2 },
-    { stage: 'MEETING_SCHEDULED', label: 'Meeting Scheduled', color: '#8b5cf6', sortOrder: 3 },
-    { stage: 'IN_CONVERSATION', label: 'In Conversation', color: '#a855f7', sortOrder: 4 },
-    { stage: 'PROPOSAL_SENT', label: 'Proposal Sent', color: '#eab308', sortOrder: 5 },
-    { stage: 'ACTIVATED', label: 'Activated', color: '#10b981', sortOrder: 6 },
-    { stage: 'INACTIVE', label: 'Inactive', color: '#6b7280', sortOrder: 7 },
+    { stage: 'NEW_LEAD', label: 'New Lead', color: '#64748b', sortOrder: 0 },
+    { stage: 'RESEARCHED', label: 'Researched', color: '#0891b2', sortOrder: 1 },
+    { stage: 'INITIAL_CONTACT', label: 'Initial Contact', color: '#2563eb', sortOrder: 2 },
+    { stage: 'MEETING_SCHEDULED', label: 'Meeting Scheduled', color: '#7c3aed', sortOrder: 3 },
+    { stage: 'IN_CONVERSATION', label: 'In Conversation', color: '#db2777', sortOrder: 4 },
+    { stage: 'PROPOSAL_SENT', label: 'Proposal Sent', color: '#facc15', sortOrder: 5 },
+    { stage: 'ACTIVATED', label: 'Activated', color: '#059669', sortOrder: 6 },
+    { stage: 'INACTIVE', label: 'Inactive', color: '#0f172a', sortOrder: 7 },
   ];
   let inserted = 0;
   for (const d of DEFAULTS) {
