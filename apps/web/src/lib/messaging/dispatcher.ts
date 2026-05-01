@@ -18,6 +18,7 @@
 
 import { prisma, Prisma } from '@partnerradar/db';
 import { sendEmail } from '@partnerradar/integrations';
+import { isAIConfigured, personalizeBody, type ToneProfile } from '@partnerradar/ai';
 import { checkSendAllowed, type Channel } from './consent';
 import { substitute, type TemplateContext } from '@/app/(app)/admin/templates/substitute';
 import { tenant } from '@partnerradar/config';
@@ -81,11 +82,12 @@ export async function dispatchAutomatedSend(args: DispatchArgs): Promise<Dispatc
         companyName: true,
         city: true,
         state: true,
+        partnerType: true,
       },
     }),
     prisma.user.findUnique({
       where: { id: args.repUserId },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, aiToneProfile: true },
     }),
   ]);
 
@@ -154,12 +156,63 @@ export async function dispatchAutomatedSend(args: DispatchArgs): Promise<Dispatc
     return { outcome: 'failed', detail: 'sms_body_too_long' };
   }
 
+  // 2b. AI personalization — when ANTHROPIC_API_KEY is set, run the
+  // template body through Haiku so the send reads like the rep typed
+  // it for this specific contact. Soft-fails: if the API errors or the
+  // env var isn't there, we send the substituted template as-is.
+  let finalSubject = subjectOut.output;
+  let finalBody = bodyOut.output;
+  let aiPersonalized = false;
+  let aiModel: string | undefined;
+  if (isAIConfigured() && process.env.AI_FOLLOWUP_PERSONALIZE !== 'off') {
+    try {
+      const recentActivity = await loadRecentActivitySummary(args.partnerId);
+      const personalized = await personalizeBody({
+        channel: args.channel,
+        baseSubject: subjectOut.output || undefined,
+        baseBody: bodyOut.output,
+        partner: {
+          companyName: partner.companyName,
+          city: partner.city,
+          state: partner.state,
+          partnerType: partner.partnerType ?? undefined,
+        },
+        contact: {
+          firstName: ctx.contact.firstName,
+          lastName: ctx.contact.lastName,
+        },
+        rep: { name: rep.name, firstName: ctx.rep.firstName },
+        tone:
+          rep.aiToneProfile && typeof rep.aiToneProfile === 'object'
+            ? (rep.aiToneProfile as ToneProfile)
+            : null,
+        recentActivity,
+      });
+      finalSubject = personalized.subject || subjectOut.output;
+      finalBody = personalized.body || bodyOut.output;
+      aiPersonalized = true;
+      aiModel = personalized.model;
+      // Re-check SMS length on the AI version — Haiku occasionally
+      // overshoots even with the prompt cap. Fall back if so.
+      if (args.channel === 'sms' && finalBody.length > SMS_MAX_LEN) {
+        console.warn('[ai-followup] AI body exceeded SMS cap; falling back to template');
+        finalBody = bodyOut.output;
+        aiPersonalized = false;
+        aiModel = undefined;
+      }
+    } catch (err) {
+      // Common cases: rate limit, transient 5xx, schema parse fail.
+      // Send the template-as-is rather than skip the send entirely.
+      console.warn('[ai-followup] personalization failed, sending template as-is', err);
+    }
+  }
+
   if (args.dryRun) {
     return {
       outcome: 'sent',
       contactId: allowed.contactId,
       sentTo: allowed.address,
-      detail: 'dry_run',
+      detail: aiPersonalized ? `dry_run:ai(${aiModel ?? '?'})` : 'dry_run',
     };
   }
 
@@ -167,11 +220,11 @@ export async function dispatchAutomatedSend(args: DispatchArgs): Promise<Dispatc
   let messageId: string | undefined;
   if (args.channel === 'email') {
     const unsubUrl = unsubscribeUrl(allowed.contactId, allowed.address);
-    const textBody = `${bodyOut.output}\n\n---\n${t.legalName}\n${t.physicalAddress}\n\nTo stop these messages, click: ${unsubUrl}`;
+    const textBody = `${finalBody}\n\n---\n${t.legalName}\n${t.physicalAddress}\n\nTo stop these messages, click: ${unsubUrl}`;
     const res = await sendEmail({
       to: allowed.address,
-      subject: subjectOut.output || `A message from ${t.brandName}`,
-      html: toEmailHtml(bodyOut.output, rep.name, {
+      subject: finalSubject || `A message from ${t.brandName}`,
+      html: toEmailHtml(finalBody, rep.name, {
         legalName: t.legalName,
         physicalAddress: t.physicalAddress,
         unsubscribeUrl: unsubUrl,
@@ -216,20 +269,23 @@ export async function dispatchAutomatedSend(args: DispatchArgs): Promise<Dispatc
   }
 
   // 4. Activity log — shows up in the partner detail feed so reps see
-  // what their cadence did.
+  // what their AI Follow-Up did. Body is the final (possibly AI-
+  // personalized) text, with metadata flagging whether AI rewrote it.
   try {
     await prisma.activity.create({
       data: {
         partnerId: args.partnerId,
         userId: args.repUserId,
         type: args.channel === 'email' ? 'EMAIL_OUT' : 'SMS_OUT',
-        body: truncate(bodyOut.output, 500),
+        body: truncate(finalBody, 500),
         metadata: {
           templateId: template.id,
           templateName: template.name,
           messageId: messageId ?? null,
           sentTo: allowed.address,
           automated: true,
+          aiPersonalized,
+          aiModel: aiModel ?? null,
         } as Prisma.InputJsonValue,
       },
     });
@@ -288,6 +344,29 @@ function escapeHtml(s: string): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 1) + '…';
+}
+
+/**
+ * Pull the last few activities for a partner so the AI personalizer
+ * can ground its rewrite in real history. Failures fall back to []
+ * so a DB hiccup never blocks a send.
+ */
+async function loadRecentActivitySummary(partnerId: string): Promise<string[]> {
+  try {
+    const recent = await prisma.activity.findMany({
+      where: { partnerId },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { type: true, body: true, createdAt: true },
+    });
+    return recent.map((a) => {
+      const when = a.createdAt.toISOString().slice(0, 10);
+      const snippet = (a.body ?? '').slice(0, 90).replace(/\s+/g, ' ').trim();
+      return `${when} · ${a.type}${snippet ? ` — ${snippet}` : ''}`;
+    });
+  } catch {
+    return [];
+  }
 }
 
 function mapBlockedReason(r: string): DispatchOutcome {

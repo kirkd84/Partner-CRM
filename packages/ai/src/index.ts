@@ -231,6 +231,149 @@ function splitEmail(raw: string): { subject: string; body: string } {
   return { subject, body };
 }
 
+// ─── Personalize an AI-Follow-Up step body ─────────────────────────
+//
+// Cadence/follow-up steps store a hand-written template body. When the
+// dispatcher is about to send, we feed that template + the partner's
+// situation + the rep's tone profile into Claude Haiku to rewrite the
+// body so it reads like a one-off personal note instead of a blast.
+//
+// Why Haiku not Sonnet: cadence dispatch is a high-volume, latency-
+// sensitive batch (every 5min cron, hundreds of rows). Haiku gives us
+// believable personalization in ~300ms at <1¢ per send, vs Sonnet at
+// ~1s and 5x the cost. Sonnet stays the default for the manual
+// "Draft AI message" drawer where the rep is staring at a spinner.
+
+export interface PersonalizeArgs {
+  channel: 'email' | 'sms';
+  /** Rendered template subject (already token-substituted). Optional for SMS. */
+  baseSubject?: string;
+  /** Rendered template body (already token-substituted). */
+  baseBody: string;
+  partner: {
+    companyName: string;
+    city?: string | null;
+    state?: string | null;
+    partnerType?: string;
+  };
+  contact: {
+    firstName: string;
+    lastName?: string;
+  };
+  rep: {
+    name: string;
+    firstName: string;
+  };
+  tone: ToneProfile | null;
+  /** Last few activities, ~one-line each, for grounding. */
+  recentActivity?: string[];
+  /** Which step in the cadence this is (1, 2, …). Lets Haiku know it's a follow-up. */
+  stepNumber?: number;
+}
+
+export interface PersonalizeResult {
+  subject?: string;
+  body: string;
+  model: string;
+}
+
+const PERSONALIZE_PROMPT = `You rewrite outreach drafts into more personal, one-to-one notes.
+
+You'll get a TEMPLATE that a salesperson wrote for a campaign, plus context about the specific contact + recent history. Rewrite the template so it reads like the rep typed it just for that contact — not a blast.
+
+Hard rules:
+- Keep the SAME ASK and SAME OFFER as the template. Don't invent new commitments, prices, dates, or links.
+- Keep it the same length or shorter. Never longer than the template.
+- Don't add fake personal details. If you don't know whether the contact has kids/dogs/won-a-deal, don't mention it.
+- Don't add disclaimers ("As an AI…"), don't add markdown headers, don't add emojis unless the rep's tone profile says they use them.
+- Match the rep's tone profile exactly — formality, greetings, signoffs, sentence length.
+- For SMS: stay under 320 characters. No subject. No greeting longer than 2 words.
+- For email: first line is "Subject: <subject>", then a blank line, then the body. Subject can be tightened from the original but must still describe the same ask.
+
+Return ONLY the rewritten message. No commentary, no "here you go", no fences.`;
+
+export async function personalizeBody(args: PersonalizeArgs): Promise<PersonalizeResult> {
+  const anthropic = client();
+
+  const tone =
+    args.tone ??
+    ({
+      formality: 5,
+      avgSentenceLength: 14,
+      commonGreetings: [`Hi ${args.contact.firstName}`],
+      commonSignoffs: ['Thanks'],
+      emojiRate: 0,
+      preferredLength: 'short',
+      quirks: [],
+    } satisfies ToneProfile);
+
+  const sys = [
+    PERSONALIZE_PROMPT,
+    ``,
+    `WRITER VOICE (${args.rep.firstName}):`,
+    `- Formality ${tone.formality}/10 (1=very casual, 10=formal)`,
+    `- Preferred length: ${tone.preferredLength}`,
+    `- Greetings they use: ${tone.commonGreetings.join(', ') || '(none learned)'}`,
+    `- Signoffs they use: ${tone.commonSignoffs.join(', ') || '(none learned)'}`,
+    `- Emoji rate: ${tone.emojiRate}`,
+    tone.quirks.length ? `- Quirks: ${tone.quirks.join('; ')}` : '',
+    ``,
+    `CHANNEL: ${args.channel.toUpperCase()}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const ctxLines: string[] = [];
+  ctxLines.push(
+    `CONTACT: ${args.contact.firstName}${args.contact.lastName ? ' ' + args.contact.lastName : ''}`,
+  );
+  ctxLines.push(
+    `COMPANY: ${args.partner.companyName}${args.partner.partnerType ? ` (${args.partner.partnerType})` : ''}`,
+  );
+  if (args.partner.city || args.partner.state) {
+    ctxLines.push(
+      `LOCATION: ${[args.partner.city, args.partner.state].filter(Boolean).join(', ')}`,
+    );
+  }
+  if (args.stepNumber && args.stepNumber > 1) {
+    ctxLines.push(
+      `THIS IS FOLLOW-UP STEP #${args.stepNumber} — they may have ignored prior messages. Don't be pushy.`,
+    );
+  }
+  if (args.recentActivity?.length) {
+    ctxLines.push(`RECENT TOUCHPOINTS:\n- ${args.recentActivity.slice(0, 5).join('\n- ')}`);
+  }
+  ctxLines.push('');
+  ctxLines.push(`TEMPLATE TO REWRITE:`);
+  if (args.channel === 'email' && args.baseSubject) {
+    ctxLines.push(`Subject: ${args.baseSubject}`);
+    ctxLines.push('');
+  }
+  ctxLines.push(args.baseBody);
+
+  const msg = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 700,
+    system: sys,
+    messages: [{ role: 'user', content: ctxLines.join('\n') }],
+  });
+  const raw = msg.content
+    .map((c) => (c.type === 'text' ? c.text : ''))
+    .join('')
+    .trim();
+
+  if (args.channel === 'email') {
+    const { subject, body } = splitEmail(raw);
+    // If Haiku omitted the Subject: line, keep the template's subject.
+    return {
+      subject: subject === '(no subject)' ? args.baseSubject : subject,
+      body: body || args.baseBody,
+      model: 'claude-haiku-4-5-20251001',
+    };
+  }
+  return { body: raw || args.baseBody, model: 'claude-haiku-4-5-20251001' };
+}
+
 // ─── Business card OCR + structured extraction ────────────────────
 //
 // /scan flow: rep snaps a card photo → POST to /api/scan/extract →

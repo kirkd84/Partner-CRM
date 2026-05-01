@@ -5,19 +5,19 @@ export default function RadarScreen() {
     <ScrollView className="flex-1 bg-canvas">
       <View className="p-4">
         <Text className="text-xl font-semibold text-gray-900">Radar</Text>
-        <Text className="text-xs text-gray-500 mt-0.5">PartnerRadar — Roof Technologies</Text>
+        <Text className="mt-0.5 text-xs text-gray-500">PartnerRadar — Roof Technologies</Text>
       </View>
-      <View className="px-4 grid grid-cols-2 gap-3">
+      <View className="grid grid-cols-2 gap-3 px-4">
         {['New Lead', 'Researched', 'Initial Contact', 'Meeting Scheduled'].map((label) => (
-          <View key={label} className="bg-white rounded-lg p-4 shadow-sm mb-3">
+          <View key={label} className="mb-3 rounded-lg bg-white p-4 shadow-sm">
             <Text className="text-xs text-gray-500">{label}</Text>
-            <Text className="text-3xl font-semibold text-gray-900 mt-1">—</Text>
+            <Text className="mt-1 text-3xl font-semibold text-gray-900">—</Text>
           </View>
         ))}
       </View>
       <View className="p-4">
         <Text className="text-xs text-gray-500">
-          Live activity feed + stats arrive in Phase 2. This screen is the Phase 1 scaffold.
+          Live activity feed + stats coming soon. Scaffold view.
         </Text>
       </View>
     </ScrollView>

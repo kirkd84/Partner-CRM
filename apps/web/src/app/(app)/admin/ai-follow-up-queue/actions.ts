@@ -128,8 +128,8 @@ export async function approveCadenceExecution(
   // consistent — but that's optional since we already did the work.
   void runCadenceExecution;
 
-  revalidatePath('/admin/cadence-queue');
-  revalidatePath('/admin/cadences');
+  revalidatePath('/admin/ai-follow-up-queue');
+  revalidatePath('/admin/ai-follow-ups');
   return { ok: true, outcome: res.outcome, detail: res.detail };
 }
 
@@ -162,8 +162,8 @@ export async function dropCadenceExecution(executionId: string, reason: string):
     }),
   ]);
 
-  revalidatePath('/admin/cadence-queue');
-  revalidatePath('/admin/cadences');
+  revalidatePath('/admin/ai-follow-up-queue');
+  revalidatePath('/admin/ai-follow-ups');
 }
 
 async function pickSendingRep(partnerId: string): Promise<string | null> {

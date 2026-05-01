@@ -1,5 +1,5 @@
 /**
- * /admin/cadence-queue — cadence steps awaiting human approval.
+ * /admin/ai-follow-up-queue — AI Follow-Up steps awaiting human approval.
  *
  * When an AutomationCadence step has requireApproval=true, the worker
  * writes outcome='pending_approval' on the CadenceExecution row and
@@ -94,10 +94,10 @@ export default async function CadenceQueuePage() {
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-card-border bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Cadence approval queue</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Follow-Up approval queue</h1>
         <p className="text-xs text-gray-500">
-          Sends from automation cadences that are marked "Require approval before sending". Approve
-          runs them through the dispatcher (consent + quiet hours still apply). Drop kills the send.
+          AI Follow-Up steps marked "Require approval before sending". Approve runs them through the
+          dispatcher (consent + quiet hours still apply). Drop kills the send.
         </p>
       </header>
 
@@ -107,7 +107,7 @@ export default async function CadenceQueuePage() {
             <Sparkles className="mx-auto h-8 w-8 text-gray-300" />
             <h3 className="mt-2 text-sm font-semibold text-gray-900">Nothing awaiting approval</h3>
             <p className="text-xs text-gray-500">
-              Cadence steps that require approval will show up here the moment they're triggered.
+              Follow-Up steps that require approval will show up here the moment they're triggered.
             </p>
           </div>
         ) : (
@@ -116,7 +116,7 @@ export default async function CadenceQueuePage() {
               <TR>
                 <TH>Scheduled</TH>
                 <TH>Partner</TH>
-                <TH>Cadence</TH>
+                <TH>Follow-Up</TH>
                 <TH>Step</TH>
                 <TH>Channel</TH>
                 <TH className="text-right">Actions</TH>

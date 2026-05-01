@@ -271,8 +271,8 @@ function TypeDrawerButton({
               ))}
             </select>
             <p className="mt-1 text-[11px] text-gray-400">
-              Emails + push notifications fire in Phase 7 once Resend is wired. The schedule is
-              stored now and will be honored automatically when the notifier ships.
+              Emails + push notifications fire once Resend is wired. The schedule is stored now and
+              will be honored automatically when the notifier ships.
             </p>
           </Field>
 

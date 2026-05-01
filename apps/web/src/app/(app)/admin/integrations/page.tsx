@@ -80,17 +80,17 @@ export default async function AdminIntegrationsPage() {
     {
       label: 'ENCRYPTION_KEY',
       present: Boolean(process.env.ENCRYPTION_KEY),
-      requiredBy: 'Calendar token encryption (Phase 4)',
+      requiredBy: 'Calendar token encryption',
     },
     {
       label: 'ANTHROPIC_API_KEY',
       present: Boolean(process.env.ANTHROPIC_API_KEY),
-      requiredBy: 'AI drafts + tone extraction (Phase 7)',
+      requiredBy: 'AI drafts + tone extraction',
     },
     {
       label: 'GOOGLE_MAPS_API_KEY',
       present: Boolean(process.env.GOOGLE_MAPS_API_KEY),
-      requiredBy: '/map pins + Places + Directions + Geocoding (Phase 4 + 8 + 9)',
+      requiredBy: '/map pins + Places + Directions + Geocoding',
     },
     {
       label: 'R2_ACCOUNT_ID / ACCESS_KEY_ID / SECRET / BUCKET',
@@ -100,32 +100,32 @@ export default async function AdminIntegrationsPage() {
         process.env.R2_SECRET_ACCESS_KEY &&
         process.env.R2_BUCKET,
       ),
-      requiredBy: 'Receipt + file uploads (Phase 6)',
+      requiredBy: 'Receipt + file uploads',
     },
     {
       label: 'GOOGLE_CLIENT_ID / SECRET',
       present: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      requiredBy: 'Google Calendar sync (Phase 4)',
+      requiredBy: 'Google Calendar sync',
     },
     {
       label: 'MICROSOFT_CLIENT_ID / SECRET',
       present: Boolean(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
-      requiredBy: 'Microsoft 365 Calendar sync (Phase 4)',
+      requiredBy: 'Microsoft 365 Calendar sync',
     },
     {
       label: 'RESEND_API_KEY',
       present: Boolean(process.env.RESEND_API_KEY),
-      requiredBy: 'Email sending (Phase 3 invites + Phase 7 AI drafts)',
+      requiredBy: 'Email sending (Email invites + AI drafts)',
     },
     {
       label: 'TWILIO_ACCOUNT_SID / AUTH_TOKEN',
       present: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
-      requiredBy: 'SMS outbound (Phase 7)',
+      requiredBy: 'SMS outbound',
     },
     {
       label: 'INNGEST_EVENT_KEY / SIGNING_KEY',
       present: Boolean(process.env.INNGEST_EVENT_KEY && process.env.INNGEST_SIGNING_KEY),
-      requiredBy: 'Scheduled jobs (calendar sync, revenue sync, cadences)',
+      requiredBy: 'Scheduled jobs (calendar sync, revenue sync, AI Follow-Ups)',
     },
   ];
 
@@ -242,7 +242,7 @@ export default async function AdminIntegrationsPage() {
           )}
         </section>
 
-        {/* ── Calendar providers (Phase 4) ────────────────────────── */}
+        {/* ── Calendar providers ────────────────────────── */}
         <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <ProviderCard
             title="Google Calendar"
@@ -265,7 +265,7 @@ export default async function AdminIntegrationsPage() {
           />
         </section>
 
-        {/* ── Messaging (Phase 3 + 7) ─────────────────────────────── */}
+        {/* ── Messaging ───────────────────────────────────────────── */}
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <ProviderCard
             title="Resend (email)"
@@ -277,7 +277,7 @@ export default async function AdminIntegrationsPage() {
             title="Twilio (SMS)"
             icon={<MessageSquare className="h-4 w-4" />}
             ready={Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN)}
-            note="Outbound SMS with A2P 10DLC registration. Phase 7."
+            note="Outbound SMS with A2P 10DLC registration. Outbound SMS once Twilio is wired."
           />
         </section>
 

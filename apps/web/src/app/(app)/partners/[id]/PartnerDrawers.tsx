@@ -570,7 +570,7 @@ export function NewAppointmentButton({
             />
           </Field>
           <p className="text-[11px] text-gray-400">
-            Google / Apple / Storm calendar sync arrives in Phase 4.
+            Google / Apple / Storm calendar sync — connect from Settings.
           </p>
         </form>
       </DrawerModal>
@@ -917,7 +917,7 @@ export function NewExpenseButton({
                   </button>
                 </>
               ) : (
-                <>Receipt upload lights up once R2 storage is wired (Phase 6.1).</>
+                <>Receipt upload lights up once R2 storage is wired.</>
               )}
             </div>
           </Field>

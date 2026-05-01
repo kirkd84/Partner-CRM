@@ -2191,7 +2191,7 @@ async function seedAppointmentTypes(prisma: {
  * Admins can rename, deactivate, or delete these — we only create them
  * once (when the table is empty) so edits stick.
  *
- * Why seed at all: brand-new tenants open /admin/cadences and find an
+ * Why seed at all: brand-new tenants open /admin/ai-follow-ups and find an
  * empty template picker. That stalls them. Shipping 4–5 real, working
  * templates means the first cadence can go out in under a minute.
  */

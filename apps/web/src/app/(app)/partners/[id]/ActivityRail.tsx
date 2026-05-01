@@ -155,7 +155,7 @@ function CommentComposer({ partnerId }: { partnerId: string }) {
         />
         <ToolbarButton onClick={insertLink} title="Insert link" icon={Link2} />
         <div className="ml-auto">
-          <ToolbarButton title="@mention (Phase 7)" icon={AtSign} disabled />
+          <ToolbarButton title="@mention" icon={AtSign} disabled />
         </div>
       </div>
 
@@ -171,13 +171,13 @@ function CommentComposer({ partnerId }: { partnerId: string }) {
           <ChannelButton
             active={channel === 'email'}
             onClick={() => setChannel('email')}
-            title="Email (drafts save now — Phase 7 sends via Resend)"
+            title="Email (drafts save now — sends via Resend once configured)"
             icon={Mail}
           />
           <ChannelButton
             active={channel === 'sms'}
             onClick={() => setChannel('sms')}
-            title="SMS (Phase 7 sends via Twilio)"
+            title="SMS (sends via Twilio once configured)"
             icon={Phone}
           />
         </div>
@@ -198,9 +198,9 @@ function CommentComposer({ partnerId }: { partnerId: string }) {
           }}
           data-placeholder={
             channel === 'email'
-              ? 'Compose email… (goes live in Phase 7)'
+              ? 'Compose email… (sends once Resend is configured)'
               : channel === 'sms'
-                ? 'Compose SMS… (goes live in Phase 7)'
+                ? 'Compose SMS… (sends once Twilio is configured)'
                 : 'Leave a comment…'
           }
           className="prose prose-sm min-h-[8rem] w-full max-w-none flex-1 resize-none px-3 py-2.5 text-sm text-gray-900 outline-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] [&_a]:text-blue-600 [&_a]:underline [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc"

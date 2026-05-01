@@ -186,7 +186,7 @@ export default async function LaunchChecklistPage() {
       label: 'Resend API key (outbound email)',
       status: process.env.RESEND_API_KEY ? 'ok' : 'missing',
       controls:
-        'Cadence emails, expense receipts, RSVP confirmations. Today they log but DO NOT send.',
+        'AI Follow-Up emails, expense receipts, RSVP confirmations. Today they log but DO NOT send.',
       fix: 'Sign up at resend.com, verify your domain, set RESEND_API_KEY.',
       fixUrl: 'https://resend.com/api-keys',
       fixUrlIsExternal: true,
@@ -198,7 +198,7 @@ export default async function LaunchChecklistPage() {
       label: 'Twilio (outbound SMS)',
       status: process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN ? 'ok' : 'warn',
       controls:
-        'Cadence SMS + birthday/anniversary touchpoint sends. Without it SMS steps log but DO NOT send.',
+        'AI Follow-Up SMS + birthday/anniversary touchpoint sends. Without it SMS steps log but DO NOT send.',
       fix: 'Sign up at twilio.com, set TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM (E.164 number).',
       fixUrl: 'https://console.twilio.com/',
       fixUrlIsExternal: true,
@@ -259,7 +259,7 @@ export default async function LaunchChecklistPage() {
       label: 'VAPID keys (web push)',
       status: process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY ? 'ok' : 'warn',
       controls:
-        'Browser push notifications for events / cadences. Without it push notifications silently fail.',
+        'Browser push notifications for events / Follow-Ups. Without it push notifications silently fail.',
       fix: 'Generate: `npx web-push generate-vapid-keys`. Set VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY + NEXT_PUBLIC_VAPID_PUBLIC_KEY (same value as VAPID_PUBLIC_KEY).',
       group: 'integrations',
       icon: Bell,

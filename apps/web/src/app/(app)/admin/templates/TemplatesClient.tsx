@@ -74,7 +74,7 @@ export function TemplateRowActions({ template }: { template: ExistingTemplate })
   function onArchive() {
     if (
       !confirm(
-        `Archive "${template.name}"? It stays referenceable by cadences but won't show up in the picker.`,
+        `Archive "${template.name}"? It stays referenceable by AI Follow-Ups but won't show up in the picker.`,
       )
     )
       return;
@@ -100,7 +100,7 @@ export function TemplateRowActions({ template }: { template: ExistingTemplate })
   function onDelete() {
     if (
       !confirm(
-        `Permanently delete "${template.name}"? This only works if no active cadence references it.`,
+        `Permanently delete "${template.name}"? This only works if no active AI Follow-Up references it.`,
       )
     )
       return;
@@ -333,7 +333,7 @@ function TemplateDrawer({
                 ))}
               </select>
               <p className="mt-1 text-[11px] text-gray-400">
-                Cadences filter the picker by stage so reps see the right templates first.
+                AI Follow-Ups filter the picker by stage so reps see the right templates first.
               </p>
             </Field>
 

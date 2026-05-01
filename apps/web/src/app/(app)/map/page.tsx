@@ -93,7 +93,7 @@ export default async function MapPage() {
               {isAdmin && (
                 <span className="mt-1 block">
                   Go to Railway → Variables → add <code>GOOGLE_MAPS_API_KEY</code>, redeploy. The
-                  rest of Phase 4 (lasso, prospect pins, deep-link routing) lights up once the key
+                  rest of the map (lasso, prospect pins, deep-link routing) lights up once the key
                   is in place.
                 </span>
               )}

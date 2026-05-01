@@ -54,12 +54,12 @@ async function assertManagerPlus() {
 }
 
 function normalize(input: CadenceInput) {
-  if (!input.name.trim()) throw new Error('Cadence name required');
+  if (!input.name.trim()) throw new Error('Follow-Up name required');
   if (input.steps.length === 0) {
-    throw new Error('Cadence needs at least one step — otherwise nothing ever fires.');
+    throw new Error('A Follow-Up needs at least one step — otherwise nothing ever fires.');
   }
   if (input.steps.length > 12) {
-    throw new Error('Cap is 12 steps per cadence. Split this into multiple cadences.');
+    throw new Error('Cap is 12 steps per Follow-Up. Split this into multiple Follow-Ups.');
   }
   for (const [i, s] of input.steps.entries()) {
     if (!s.templateId) throw new Error(`Step ${i + 1}: pick a template.`);
@@ -127,7 +127,7 @@ export async function createCadence(input: CadenceInput) {
       } as Prisma.InputJsonValue,
     },
   });
-  revalidatePath('/admin/cadences');
+  revalidatePath('/admin/ai-follow-ups');
 }
 
 export async function updateCadence(id: string, input: CadenceInput) {
@@ -171,7 +171,7 @@ export async function updateCadence(id: string, input: CadenceInput) {
       },
     }),
   ]);
-  revalidatePath('/admin/cadences');
+  revalidatePath('/admin/ai-follow-ups');
 }
 
 /** Soft-delete: deactivating is always safe, executions in flight keep going. */
@@ -189,7 +189,7 @@ export async function archiveCadence(id: string) {
       },
     }),
   ]);
-  revalidatePath('/admin/cadences');
+  revalidatePath('/admin/ai-follow-ups');
 }
 
 export async function restoreCadence(id: string) {
@@ -206,5 +206,5 @@ export async function restoreCadence(id: string) {
       },
     }),
   ]);
-  revalidatePath('/admin/cadences');
+  revalidatePath('/admin/ai-follow-ups');
 }

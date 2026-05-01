@@ -1,10 +1,15 @@
 /**
- * /admin/cadences — automated multi-step outreach.
+ * /admin/ai-follow-ups — AI-personalized multi-step outreach.
  *
- * When a partner's stage changes to a cadence's triggerStage, the
- * CadenceExecution worker (Phase 8) schedules every step at
- * (now + offsetHours). Each step either sends autonomously or queues
- * into the approval drawer.
+ * When a partner's stage changes to a follow-up's triggerStage, the
+ * worker schedules every step at (now + offsetHours). Each step either
+ * sends autonomously or queues into the approval drawer. When
+ * ANTHROPIC_API_KEY is set, every send is rewritten by Claude Haiku
+ * against the rep's tone profile + recent activity so the partner sees
+ * a personal-feeling note instead of a template blast.
+ *
+ * The DB model is still named AutomationCadence — internal name kept
+ * to avoid a migration. UI surfaces all say "AI Follow-Up".
  */
 
 import { prisma } from '@partnerradar/db';
@@ -115,7 +120,7 @@ export default async function AdminCadencesPage() {
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-card-border bg-white px-6 py-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Cadences</h1>
+          <h1 className="text-xl font-semibold text-gray-900">AI Follow-Ups</h1>
           <p className="text-xs text-gray-500">
             {activeCount} active · {cadences.length - activeCount} archived · fires when partners
             enter a given stage
@@ -130,14 +135,14 @@ export default async function AdminCadencesPage() {
         {cadences.length === 0 ? (
           <div className="p-10 text-center">
             <Workflow className="mx-auto h-8 w-8 text-gray-300" />
-            <h3 className="mt-2 text-sm font-semibold text-gray-900">No cadences yet</h3>
+            <h3 className="mt-2 text-sm font-semibold text-gray-900">No follow-ups yet</h3>
             <p className="text-xs text-gray-500">
-              Create a cadence to automate post-meeting follow-ups, re-engagement pings, or any
-              multi-step outreach.
+              Create an AI Follow-Up to automate post-meeting check-ins, re-engagement pings, or any
+              multi-step outreach. Each step gets personalized in your voice at send time.
             </p>
             {templates.length === 0 && (
               <p className="mt-3 text-[11px] text-amber-700">
-                Tip: create a couple of message templates first — cadences reference them step by
+                Tip: create a couple of message templates first — Follow-Ups reference them step by
                 step.
               </p>
             )}

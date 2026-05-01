@@ -86,9 +86,6 @@ export default async function StateBoardsPage() {
         <div className="flex items-center gap-2">
           <FileSpreadsheet className="h-4 w-4 text-primary" />
           <h1 className="text-lg font-semibold text-gray-900 sm:text-xl">State board imports</h1>
-          <Pill color="#6366f1" tone="soft">
-            Phase 4
-          </Pill>
         </div>
         <p className="mt-1 text-[11px] text-gray-500 sm:text-xs">
           Drop a state realty or insurance board CSV here. We parse, dedupe by license number, and

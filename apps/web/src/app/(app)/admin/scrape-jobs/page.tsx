@@ -62,9 +62,6 @@ export default async function ScrapeJobsPage() {
         <div className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-primary" />
           <h1 className="text-lg font-semibold text-gray-900 sm:text-xl">Scrape jobs</h1>
-          <Pill color="#6366f1" tone="soft">
-            Phase 8
-          </Pill>
         </div>
         <p className="mt-1 text-[11px] text-gray-500 sm:text-xs">
           Recurring lead-ingestion jobs per market. Approved leads flow into Partners; pending leads

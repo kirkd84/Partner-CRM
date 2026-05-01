@@ -461,7 +461,7 @@ export function CommentComposer({
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Add a comment… @mentions arrive in Phase 7"
+        placeholder="Add a comment…"
         rows={2}
         className="w-full resize-none border-0 p-0 text-sm focus:outline-none focus:ring-0"
       />

@@ -50,10 +50,11 @@ export default async function AdminOverviewPage() {
         />
       </div>
 
-      <Card title="Phase 3 is live" className="mt-5">
+      <Card title="Admin essentials" className="mt-5">
         <p className="text-sm text-gray-700">
           You can invite users, toggle roles and markets, create new markets, and comb through every
-          mutation that has touched the database. Phase 4 (Map, Hit List, Routes) is next.
+          mutation that has touched the database. The Map, Hit List, and Routes tools live in the
+          main nav.
         </p>
       </Card>
 

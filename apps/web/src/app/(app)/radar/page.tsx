@@ -292,7 +292,7 @@ export default async function RadarPage() {
           )}
           <p className="mt-3 text-[11px] text-gray-400">
             Swapping to <span className="font-medium">revenue attributed</span> once Storm Cloud
-            sync lands in Phase 5.
+            sync lands once Storm credentials are connected.
           </p>
         </Card>
       </div>

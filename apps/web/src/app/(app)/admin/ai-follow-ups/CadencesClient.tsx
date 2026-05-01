@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Client island for /admin/cadences.
+ * Client island for /admin/ai-follow-ups.
  *
  * The drawer hosts:
  *   • Name, trigger stage, active toggle
@@ -94,9 +94,7 @@ export function CadenceRowActions({
 
   function onArchive() {
     if (
-      !confirm(
-        `Archive "${cadence.name}"? In-flight executions keep running; no new ones will start.`,
-      )
+      !confirm(`Archive "${cadence.name}"? In-flight sends keep running; no new ones will start.`)
     )
       return;
     startTransition(async () => {
@@ -236,21 +234,21 @@ function CadenceDrawer({
         <button
           type="button"
           onClick={onOpen}
-          title="Edit cadence"
+          title="Edit follow-up"
           className="rounded p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-900"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
       ) : (
         <Button onClick={onOpen}>
-          <Plus className="h-4 w-4" /> New cadence
+          <Plus className="h-4 w-4" /> New AI Follow-Up
         </Button>
       )}
 
       <DrawerModal
         open={open}
         onClose={() => setOpen(false)}
-        title={isEdit ? `Edit "${initial?.name}"` : 'New cadence'}
+        title={isEdit ? `Edit "${initial?.name}"` : 'New AI Follow-Up'}
         width="720px"
         footer={
           <>
@@ -262,7 +260,7 @@ function CadenceDrawer({
               loading={isPending}
               disabled={form.steps.length === 0}
             >
-              {isEdit ? 'Save changes' : 'Create cadence'}
+              {isEdit ? 'Save changes' : 'Create AI Follow-Up'}
             </Button>
           </>
         }
@@ -303,7 +301,7 @@ function CadenceDrawer({
             />
             Active
             <span className="text-[11px] text-gray-400">
-              Inactive cadences stop picking up new partners.
+              Inactive Follow-Ups stop picking up new partners.
             </span>
           </label>
 
@@ -319,7 +317,7 @@ function CadenceDrawer({
 
             {form.steps.length === 0 ? (
               <div className="rounded-md border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-xs text-gray-500">
-                No steps yet. A cadence needs at least one step to fire.
+                No steps yet. A Follow-Up needs at least one step to fire.
               </div>
             ) : (
               <div className="space-y-2">

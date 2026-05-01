@@ -181,7 +181,7 @@ export async function deleteTemplate(id: string) {
   });
   if (referenced) {
     throw new Error(
-      `"${prev.name}" is used by active cadence "${referenced.name}". Archive it or detach the cadence step first.`,
+      `"${prev.name}" is used by active AI Follow-Up "${referenced.name}". Archive it or detach the step first.`,
     );
   }
 

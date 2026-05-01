@@ -41,7 +41,8 @@ export default async function ScrapedLeadsPage({
       <div className="p-6">
         <Card title="Managers only">
           <p className="text-sm text-gray-700">
-            The prospect queue is where managers approve or reject scraper candidates before they become partners. Ask your admin if you think you should have access.
+            The prospect queue is where managers approve or reject scraper candidates before they
+            become partners. Ask your admin if you think you should have access.
           </p>
         </Card>
       </div>
@@ -101,7 +102,9 @@ export default async function ScrapedLeadsPage({
         <div className="flex-1">
           <h1 className="text-xl font-semibold text-gray-900">Prospect queue</h1>
           <p className="text-xs text-gray-500">
-            Candidate partners surfaced by the ingestion pipeline (NMLS, state licensing boards, Overture Maps, Google Places). Approve to turn into a Partner; reject to silence future re-surfaces.
+            Candidate partners surfaced by the ingestion pipeline (NMLS, state licensing boards,
+            Overture Maps, Google Places). Approve to turn into a Partner; reject to silence future
+            re-surfaces.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -122,7 +125,7 @@ export default async function ScrapedLeadsPage({
           <Card>
             <EmptyState
               title="No prospects to review"
-              description="When the Phase 4 ingestion jobs run (NMLS weekly, state boards weekly, Overture on-demand, Google Places live-refresh), candidates land here."
+              description="When the ingestion jobs run (NMLS weekly, state boards weekly, Overture on-demand, Google Places live-refresh), candidates land here."
             />
           </Card>
         </div>
